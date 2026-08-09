@@ -1,0 +1,854 @@
+/* ─────────────────────────────────────────────────────────
+   DocsForge — HyperCard shoebox stack.
+   One bit: ink and paper. Every grey in this file is a dither
+   pattern, never an opacity and never a hex between the two.
+   ───────────────────────────────────────────────────────── */
+
+:root {
+  --ink: #000000;
+  --paper: #ffffff;
+
+  /* Dither levels. Used as MASKS over --ink so they invert with the theme.
+     4x4 cells, crisp edges, no anti-aliasing anywhere. */
+  --d12: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3C/svg%3E");
+  --d25: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='1' y='2' width='1' height='1'/%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3C/svg%3E");
+  --d50: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='1' y='1' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='0' y='2' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3Crect x='1' y='3' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3C/svg%3E");
+  --d75: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='4' height='1'/%3E%3Crect x='1' y='1' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='0' y='2' width='4' height='1'/%3E%3Crect x='0' y='3' width='1' height='1'/%3E%3Crect x='2' y='3' width='1' height='1'/%3E%3C/svg%3E");
+
+  /* Two bitmap faces, each at the size it was drawn for: DotGothic16 carries
+     Chicago's mixed-case display role, Silkscreen the small uppercase labels. */
+  --display: "DotGothic16", ui-monospace, monospace;
+  --label: "Silkscreen", "DotGothic16", ui-monospace, monospace;
+  --body: ui-sans-serif, "Segoe UI", Geneva, Verdana, system-ui, sans-serif;
+  --mono: "Monaco", "Consolas", "DejaVu Sans Mono", ui-monospace, monospace;
+
+  --rule: 2px;
+  --gap: 14px;
+}
+
+/* The host may be dark. Invert rather than introduce a colour: inverting is
+   what this world does when something is selected, so it stays in grammar. */
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #ffffff; --paper: #101010; }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background-color: var(--paper);
+  font-family: var(--body);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The desktop behind the window: the classic 50% checkerboard. */
+.desktop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--ink);
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 4px 4px;
+  mask-size: 4px 4px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* The window's dithered drop shadow. A sibling rather than .stack::after:
+   .stack is a stacking context, so its own negative-z pseudo would paint
+   on top of its paper background instead of behind it. */
+.stack-shadow {
+  position: absolute;
+  inset: 14px 2px 2px 14px;
+  z-index: 0;
+  background-color: var(--ink);
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 4px 4px;
+  mask-size: 4px 4px;
+  pointer-events: none;
+}
+
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.icon {
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  vertical-align: -0.12em;
+}
+
+/* ── the stack window ─────────────────────────────────── */
+.stack {
+  position: absolute;
+  inset: 8px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  overflow: hidden;
+}
+
+
+/* ── menu bar ─────────────────────────────────────────── */
+.menubar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border-bottom: var(--rule) solid var(--ink);
+  background: var(--paper);
+  padding: 0 8px 0 9px;
+  min-height: 27px;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  padding-right: 7px;
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  padding-right: 14px;
+}
+
+.menubar-spacer { flex: 1 1 auto; }
+
+.model {
+  display: flex;
+  align-items: center;
+  font-family: var(--display);
+  font-size: 11px;
+  padding-left: 10px;
+  white-space: nowrap;
+}
+
+.menu { position: relative; display: flex; }
+
+.menu-title {
+  font-family: var(--display);
+  font-size: 13px;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0 9px;
+  cursor: default;
+  white-space: nowrap;
+}
+.menu-title:hover,
+.menu[data-open="true"] .menu-title {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.menu-drop {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 40;
+  min-width: 190px;
+  margin: 0;
+  padding: 3px 0;
+  list-style: none;
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+}
+.menu-drop.wide { min-width: 268px; }
+.menu[data-open="true"] .menu-drop { display: block; }
+
+/* Dithered shadow under an open menu. */
+.menu-drop::after {
+  content: "";
+  position: absolute;
+  inset: 5px -5px -5px 5px;
+  background-color: var(--ink);
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 4px 4px;
+  mask-size: 4px 4px;
+  z-index: -1;
+}
+
+.menu-drop li { display: block; }
+.menu-drop li.sep {
+  height: 0;
+  margin: 3px 0;
+  border-top: 1px dotted var(--ink);
+}
+.menu-drop li.empty span,
+.menu-drop button {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+  font-family: var(--display);
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 4px 12px;
+  cursor: default;
+}
+.menu-drop li.empty span { opacity: 1; }
+.menu-drop button:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.menu-drop button:disabled { color: var(--ink); }
+/* Disabled menu items are stencilled out with dither, as they were. */
+.menu-drop button:disabled > span:first-child {
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 2px 2px;
+  mask-size: 2px 2px;
+}
+.menu-drop .key { font-size: 11px; }
+.menu-drop button:disabled .key { visibility: hidden; }
+
+/* ── body split ───────────────────────────────────────── */
+.body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  min-height: 0;
+}
+
+/* ── shoebox (the card index) ─────────────────────────── */
+.shoebox {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--rule) solid var(--ink);
+  background: var(--paper);
+}
+
+.chip {
+  display: inline-block;
+  align-self: flex-start;
+  font-family: var(--label);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--ink);
+  padding: 3px 8px 2px;
+  margin: 10px 0 8px 10px;
+}
+
+.index {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+  min-height: 0;
+}
+
+.index-empty {
+  font-size: 12.5px;
+  line-height: 1.55;
+  padding: 6px 2px;
+}
+
+.index-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  padding: 7px 9px;
+  margin-bottom: 9px;
+  cursor: default;
+}
+
+/* Selected card takes the stipple, exactly as the stack spec has it. */
+.index-card[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--ink);
+  -webkit-mask-image: var(--d25);
+  mask-image: var(--d25);
+  -webkit-mask-size: 4px 4px;
+  mask-size: 4px 4px;
+  pointer-events: none;
+}
+
+.index-card .t {
+  display: block;
+  font-family: var(--display);
+  font-size: 12.5px;
+  line-height: 1.35;
+  margin-bottom: 3px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.index-card .m {
+  display: flex;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.index-card .m .num { margin-left: auto; }
+
+.index-card.painting .t::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-left: 3px;
+  background: var(--ink);
+  vertical-align: -1px;
+  animation: blink 0.9s steps(2, jump-none) infinite;
+}
+
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── the Ask field ────────────────────────────────────── */
+.ask {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-top: var(--rule) solid var(--ink);
+  padding-bottom: 10px;
+}
+.ask .chip { margin-bottom: 7px; }
+
+.ask-field {
+  position: relative;
+  margin: 0 10px;
+}
+.ask-field::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: var(--rule) solid var(--ink);
+  filter: url(#rough-soft);
+  pointer-events: none;
+}
+.ask-field:focus-within::before {
+  border-style: dashed;
+}
+
+#input {
+  display: block;
+  width: 100%;
+  font-family: var(--body);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+  max-height: 132px;
+  padding: 8px 9px;
+}
+#input::placeholder { color: var(--ink); opacity: 0.55; }
+
+.ask-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 9px 10px 0;
+}
+
+.status {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  min-height: 14px;
+}
+
+/* ── buttons ──────────────────────────────────────────── */
+.btn {
+  position: relative;
+  font-family: var(--display);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  border-radius: 9px;
+  padding: 4px 13px 3px;
+  cursor: default;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.btn:active:not(:disabled),
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+.btn.primary { background: var(--ink); color: var(--paper); }
+.btn.primary:hover:not(:disabled),
+.btn.primary:active:not(:disabled) { background: var(--paper); color: var(--ink); }
+
+.btn:disabled {
+  color: var(--ink);
+  background: var(--paper);
+}
+.btn:disabled > span {
+  display: inline-block;
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 2px 2px;
+  mask-size: 2px 2px;
+}
+
+/* Painted objects wear a hand border; system controls stay crisp. */
+.painted { border-color: transparent !important; }
+.painted::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: var(--rule) solid var(--ink);
+  border-radius: inherit;
+  filter: url(#rough);
+  pointer-events: none;
+}
+.btn.painted::before { filter: url(#rough-soft); }
+
+:focus-visible {
+  outline: 2px dotted var(--ink);
+  outline-offset: 2px;
+}
+
+/* ── stage + card ─────────────────────────────────────── */
+.stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 20px 14px 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.card {
+  position: relative;
+  flex: 1 1 auto;
+  /* A document card, not a full-bleed pane: cap the reading object itself so
+     the 72ch prose measure sits inside it without a field of dead paper. */
+  max-width: 780px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  /* Two outlined rectangles behind the card: the rest of the shoebox. */
+  box-shadow:
+    5px 5px 0 0 var(--paper), 5px 5px 0 2px var(--ink),
+    10px 10px 0 0 var(--paper), 10px 10px 0 2px var(--ink);
+}
+
+.card-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: var(--rule) solid var(--ink);
+  padding: 8px 11px 7px;
+}
+
+.card-title {
+  flex: 1 1 auto;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boxes { display: flex; gap: 4px; flex: 0 0 auto; }
+.boxes i {
+  width: 9px;
+  height: 9px;
+  border: var(--rule) solid var(--ink);
+  display: block;
+}
+
+.card-meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  border-bottom: 1px dotted var(--ink);
+  padding: 6px 11px 5px;
+}
+
+/* ── sources: what the fetch actually did ─────────────── */
+.sources {
+  flex: 0 0 auto;
+  list-style: none;
+  margin: 0;
+  padding: 8px 11px;
+  border-bottom: 1px dotted var(--ink);
+}
+.sources li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.sources .ico { flex: 0 0 auto; font-size: 12px; align-self: center; }
+.sources .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sources .sz { margin-left: auto; white-space: nowrap; }
+
+/* Barber-pole progress while a tool is out, drawn from the dither. */
+.sources li.running .bar {
+  flex: 0 0 44px;
+  height: 8px;
+  border: 1px solid var(--ink);
+  position: relative;
+  overflow: hidden;
+  align-self: center;
+}
+.sources li.running .bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--ink);
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 4px 4px;
+  mask-size: 4px 4px;
+  animation: crawl 0.6s steps(4) infinite;
+}
+@keyframes crawl { to { -webkit-mask-position: 8px 0; mask-position: 8px 0; } }
+
+/* ── the scrolling field ──────────────────────────────── */
+.card-field {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding: 16px 18px 22px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) var(--paper);
+}
+
+.card-field::-webkit-scrollbar { width: 14px; }
+.card-field::-webkit-scrollbar-track {
+  background-color: var(--paper);
+  border-left: var(--rule) solid var(--ink);
+}
+.card-field::-webkit-scrollbar-thumb {
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+}
+.card-field::-webkit-scrollbar-thumb:hover { background: var(--ink); }
+
+/* raw markdown, streaming or being authored */
+.raw-view {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  max-width: 82ch;
+}
+.raw-view.streaming::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  background: var(--ink);
+  vertical-align: -2px;
+  animation: blink 0.9s steps(2, jump-none) infinite;
+}
+
+textarea.author {
+  display: block;
+  width: 100%;
+  min-height: 100%;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 0;
+}
+
+/* ── card foot ────────────────────────────────────────── */
+.card-foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  border-top: var(--rule) solid var(--ink);
+  padding: 9px 11px;
+}
+.card-foot .spacer { flex: 1 1 auto; }
+.card-foot .note {
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+/* ── rendered markdown ────────────────────────────────── */
+/* Prose keeps a reading measure; tables and code get the whole card, because
+   an endpoint table squeezed into 72ch is worse than a long line. */
+.md {
+  font-size: 13.5px;
+  line-height: 1.62;
+}
+.md > p,
+.md > ul,
+.md > ol,
+.md > blockquote,
+.md > h1,
+.md > h2,
+.md > h3,
+.md > h4 {
+  max-width: 72ch;
+}
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+
+.md h1, .md h2, .md h3, .md h4 {
+  font-family: var(--display);
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 26px 0 9px;
+}
+.md h1 { font-size: 19px; }
+.md h2 {
+  font-size: 16px;
+  border-bottom: var(--rule) solid var(--ink);
+  padding-bottom: 5px;
+}
+.md h3 { font-size: 14px; }
+.md h4 { font-size: 13px; }
+
+.md p { margin: 0 0 12px; }
+.md ul, .md ol { margin: 0 0 12px; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md li::marker { font-family: var(--mono); }
+
+.md a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.md a:hover { background: var(--ink); color: var(--paper); text-decoration: none; }
+
+.md hr {
+  border: 0;
+  border-top: 1px dotted var(--ink);
+  margin: 22px 0;
+}
+
+.md blockquote {
+  margin: 0 0 12px;
+  padding: 2px 0 2px 13px;
+  border-left: var(--rule) solid var(--ink);
+}
+
+.md code {
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--ink);
+  padding: 0 4px;
+}
+
+.md pre {
+  border: var(--rule) solid var(--ink);
+  padding: 11px 13px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+  max-width: 100%;
+}
+.md pre code {
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.md th, .md td {
+  border: 1px solid var(--ink);
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+/* Header row takes the stipple rather than a grey fill. */
+.md th {
+  position: relative;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 12px;
+}
+.md th::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--ink);
+  -webkit-mask-image: var(--d12);
+  mask-image: var(--d12);
+  -webkit-mask-size: 4px 4px;
+  mask-size: 4px 4px;
+  pointer-events: none;
+}
+.md img { max-width: 100%; height: auto; }
+
+/* ── intro card ───────────────────────────────────────── */
+.intro-body .lede {
+  font-family: var(--display);
+  font-size: 17px;
+  line-height: 1.4;
+  margin-bottom: 16px;
+}
+.md table.kinds { display: table; width: 100%; }
+.md .kinds td { vertical-align: baseline; }
+.md .kinds td:first-child {
+  width: 1%;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.md .kinds code { border: 0; padding: 0; }
+
+.starters { list-style: none; padding: 0; margin: 0; }
+.starters li { margin: 0 0 8px; }
+.starter {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--display);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  padding: 8px 12px 7px;
+  cursor: default;
+}
+.starter .arrow {
+  float: right;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+}
+.starter:hover { background: var(--ink); color: var(--paper); }
+
+/* ── error card ───────────────────────────────────────── */
+.err {
+  border: var(--rule) solid var(--ink);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 70ch;
+}
+.err .chip { margin: 0 0 9px; }
+.err p { margin: 0 0 8px; }
+.err p:last-child { margin: 0; }
+
+/* ── the dissolve ─────────────────────────────────────────
+   HyperCard's visual effect, built from this world's own four
+   dither levels rather than a fade. One authored moment. */
+.stage.dissolving .card {
+  animation: dissolve 260ms steps(1, end);
+}
+@keyframes dissolve {
+  0% {
+    -webkit-mask-image: var(--d12); mask-image: var(--d12);
+    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
+  }
+  25% {
+    -webkit-mask-image: var(--d25); mask-image: var(--d25);
+    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
+  }
+  50% {
+    -webkit-mask-image: var(--d50); mask-image: var(--d50);
+    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
+  }
+  75% {
+    -webkit-mask-image: var(--d75); mask-image: var(--d75);
+    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
+  }
+  100% { -webkit-mask-image: none; mask-image: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage.dissolving .card { animation: none; }
+  .index-card.painting .t::after,
+  .raw-view.streaming::after { animation: none; }
+  .sources li.running .bar::after { animation: none; }
+}
+
+/* ── narrow: the panel is docked ──────────────────────── */
+@media (max-width: 860px) {
+  /* Content-sized shoebox, and the stage takes everything else. Without the
+     explicit rows, grid stretches both auto rows and leaves a dead gap. */
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .shoebox {
+    border-right: 0;
+    border-bottom: var(--rule) solid var(--ink);
+  }
+  .index {
+    display: flex;
+    gap: 9px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 11px;
+  }
+  .index li { flex: 0 0 auto; display: flex; }
+  .index-card { width: 196px; margin-bottom: 0; }
+  .index-card .t { -webkit-line-clamp: 2; }
+  .index-empty { width: auto; }
+
+  .stage { padding: 12px 16px 12px 12px; }
+  .card { box-shadow: 5px 5px 0 0 var(--paper), 5px 5px 0 2px var(--ink); }
+}
+
+@media (max-width: 560px) {
+  .stack { inset: 0; border-width: 0; }
+  .stack-shadow, .desktop { display: none; }
+  .menubar { overflow-x: auto; }
+  .wordmark { padding-right: 8px; }
+  .model { display: none; }
+  .card-field { padding: 13px 13px 18px; }
+  .stage { padding: 10px 12px 10px 10px; }
+}

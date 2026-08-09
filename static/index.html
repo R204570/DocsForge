@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocsForge</title>
+<meta name="description" content="Fetch any documentation into Markdown a language model can read.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%23fff'/%3E%3Cpath fill='%23000' d='M2 3h9v1H2zM2 4h1v7H2zM10 4h1v7h-1zM2 11h9v1H2z'/%3E%3Cpath fill='%23000' d='M5 5h8v1H5zM12 6h1v7h-1zM5 12h8v1H5zM4 6h1v6H4z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="desktop" aria-hidden="true"></div>
+<div class="stack-shadow" aria-hidden="true"></div>
+<!--
+  THESIS: The docs you fetch are cards in a stack you can paint, not messages in a
+  chat log. Refuses the centred conversation column every AI panel ships.
+  OWN-WORLD: One-bit ink on paper, no colour anywhere. Four dither levels carry every
+  fill, shadow and selected state. Painted objects wear rough hand borders; system
+  controls stay crisp. Pixelify Sans sets Chicago's voice. Pressed inverts to solid black.
+  STORY: A developer blocked because the model does not know their library pastes a URL,
+  watches the fetch paint a new card, edits the Markdown in place, leaves with the .md.
+  FIRST VIEWPORT: Menu bar across the top; shoebox index down the left with the Ask field
+  beneath it; the current card fills the right, its scrolling field holding the document,
+  Back / Edit / Copy / Download along its foot.
+  FORM: HyperCard shoebox stack; challenger, user-pinned over assigned candidate 7; seed f7c15ffe.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- Rough edge: displaces borders only, never the text that sits above them. -->
+    <filter id="rough" x="-6%" y="-14%" width="112%" height="128%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.026" numOctaves="3" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-soft" x="-6%" y="-14%" width="112%" height="128%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="3" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.2" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+
+  <symbol id="i-stack" viewBox="0 0 16 16"><path d="M1.5 3.5h9v7h-9zM4.5 6.5h9v7h-9z"/></symbol>
+  <symbol id="i-card" viewBox="0 0 16 16"><path d="M2.5 2.5h11v11h-11z"/><path d="M4.5 5.5h7M4.5 8.5h7M4.5 11.5h4"/></symbol>
+  <symbol id="i-brush" viewBox="0 0 16 16"><path d="M10.5 2.5h3v3l-6 6h-3v-3z"/><path d="M2.5 11.5l2 2"/></symbol>
+  <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 2v8M4.5 7.5L8 11l3.5-3.5M2.5 13.5h11"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><path d="M2.5 2.5h8v8h-8z"/><path d="M5.5 5.5h8v8h-8z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M13.5 8h-9"/><path d="M7.5 4.5L4 8l3.5 3.5"/></symbol>
+  <symbol id="i-tick" viewBox="0 0 16 16"><path d="M3 8.5L6.5 12L13 4.5"/></symbol>
+  <symbol id="i-bang" viewBox="0 0 16 16"><path d="M8 3v6M8 11.5v1.5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z"/><path d="M1.5 8h13M8 1.5c-4 4.5-4 8.5 0 13c4-4.5 4-8.5 0-13z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10"/><path d="M9 4.5L12.5 8L9 11.5"/></symbol>
+</svg>
+
+<div class="stack" id="stack">
+
+  <div class="menubar" role="menubar">
+    <span class="mark" aria-hidden="true"><svg class="icon"><use href="#i-stack"/></svg></span>
+    <span class="wordmark">DocsForge</span>
+
+    <div class="menu" data-menu="file">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">File</button>
+      <ul class="menu-drop" role="menu">
+        <li><button type="button" data-act="new">New Stack<span class="key">⌘N</span></button></li>
+        <li class="sep"></li>
+        <li><button type="button" data-act="download">Download .md<span class="key">⌘S</span></button></li>
+        <li><button type="button" data-act="download-all">Download Whole Stack</button></li>
+      </ul>
+    </div>
+
+    <div class="menu" data-menu="edit">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Edit</button>
+      <ul class="menu-drop" role="menu">
+        <li><button type="button" data-act="copy">Copy Card Text<span class="key">⌘C</span></button></li>
+        <li class="sep"></li>
+        <li><button type="button" data-act="author">Edit This Card<span class="key">⌘E</span></button></li>
+        <li><button type="button" data-act="revert">Revert Edits</button></li>
+      </ul>
+    </div>
+
+    <div class="menu" data-menu="card">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Card</button>
+      <ul class="menu-drop" role="menu">
+        <li><button type="button" data-act="first">First Card</button></li>
+        <li><button type="button" data-act="prev">Prev Card<span class="key">←</span></button></li>
+        <li><button type="button" data-act="next">Next Card<span class="key">→</span></button></li>
+        <li><button type="button" data-act="last">Last Card</button></li>
+      </ul>
+    </div>
+
+    <div class="menu" data-menu="go">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Go</button>
+      <ul class="menu-drop wide" role="menu" id="go-menu">
+        <li class="empty"><span>No cards yet</span></li>
+      </ul>
+    </div>
+
+    <div class="menu" data-menu="tools">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Tools</button>
+      <ul class="menu-drop wide" role="menu" id="tools-menu">
+        <li class="empty"><span>Loading…</span></li>
+      </ul>
+    </div>
+
+    <span class="menubar-spacer"></span>
+    <span class="model" id="model-chip">connecting…</span>
+  </div>
+
+  <div class="body">
+
+    <aside class="shoebox">
+      <div class="chip">Cards</div>
+      <ol class="index" id="index">
+        <li class="index-empty">The stack is empty.<br>Ask below to paint the first card.</li>
+      </ol>
+
+      <form class="ask" id="ask-form">
+        <label class="chip" for="input">Ask</label>
+        <div class="ask-field">
+          <textarea id="input" rows="2" spellcheck="false"
+            placeholder="Paste a docs URL and ask about it…"></textarea>
+        </div>
+        <div class="ask-row">
+          <button class="btn primary painted" id="send" type="submit"><span>Ask</span></button>
+          <span class="status" id="status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </aside>
+
+    <main class="stage" id="stage">
+      <article class="card intro painted" id="intro-card">
+        <header class="card-head">
+          <h1 class="card-title">Home</h1>
+          <span class="boxes" aria-hidden="true"><i></i><i></i><i></i></span>
+        </header>
+        <div class="card-field">
+          <div class="md intro-body">
+            <p class="lede">Every document is a card. Ask for one and it gets painted into the stack.</p>
+            <p>Give it a URL. It works out what kind of source that URL is, extracts it, and hands you Markdown a language model can actually read — so the model stops guessing about a library it was never trained on.</p>
+
+            <h2>What it reads</h2>
+            <table class="kinds">
+              <tbody>
+                <tr><td><code>llms.txt</code></td><td>The LLM-native docs standard, passed straight through.</td></tr>
+                <tr><td><code>openapi</code></td><td>Swagger or OpenAPI, JSON or YAML, rendered as endpoint tables.</td></tr>
+                <tr><td><code>sitemap</code></td><td>Every page listed in a <code>sitemap.xml</code>, indexes included.</td></tr>
+                <tr><td><code>github</code></td><td>A repo's README plus everything under <code>docs/</code>.</td></tr>
+                <tr><td><code>html</code></td><td>A docs site, with nav, footers and chrome stripped out.</td></tr>
+                <tr><td><code>raw_text</code></td><td>Markdown or plain text, cleaned up.</td></tr>
+              </tbody>
+            </table>
+
+            <p>Cards are yours to edit before you keep them. <strong>Edit This Card</strong> turns the document back into a text field, and the download takes your version, not the model's.</p>
+
+            <h2>Try one</h2>
+            <ul class="starters">
+              <li><button type="button" class="starter" data-q="Fetch https://petstore3.swagger.io/api/v3/openapi.json and give me a table of the pet endpoints with their summaries."><svg class="icon arrow"><use href="#i-arrow"/></svg>An OpenAPI spec, as endpoint tables</button></li>
+              <li><button type="button" class="starter" data-q="Read the README at https://github.com/psf/requests and summarise what the library does and how to install it."><svg class="icon arrow"><use href="#i-arrow"/></svg>A GitHub repo's README</button></li>
+              <li><button type="button" class="starter" data-q="Fetch https://docs.python.org/3/library/json.html and list every function it documents with its signature."><svg class="icon arrow"><use href="#i-arrow"/></svg>A docs page, function by function</button></li>
+            </ul>
+          </div>
+        </div>
+      </article>
+    </main>
+
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

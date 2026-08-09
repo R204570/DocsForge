@@ -5,7 +5,7 @@ docsforge — Universal software documentation → Markdown for LLMs.
 Detects what KIND of source it is and extracts accordingly:
   - llms.txt / llms-full.txt      (the LLM-native docs standard)
   - OpenAPI / Swagger (JSON/YAML)  → API reference tables
-  - sitemap.xml                    → structured crawl
+  - sitemap.xml                    → structured crawl (incl. sitemap indexes)
   - GitHub repo                    → README + /docs via API
   - Generic HTML docs site         → readability extraction
   - Raw Markdown / plaintext       → passthrough + cleanup
@@ -17,178 +17,519 @@ Usage:
   python docsforge.py https://docs.example.com --crawl --max-pages 50
   python docsforge.py https://site.com --js            # JS-rendered
   python docsforge.py https://site.com --single-file   # one combined .md
+
+Library use:
+  from docsforge import forge, Options
+  docs = forge("https://docs.example.com", Options(crawl=True, max_pages=10))
 """
 
-import argparse, os, re, sys, time, json, hashlib
-from urllib.parse import urljoin, urlparse, urldefrag
+from __future__ import annotations
+
+import argparse
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import socket
+import sys
+import time
 from collections import deque
+from dataclasses import dataclass, field
+from urllib.parse import urldefrag, urljoin, urlparse
 
 import requests
 
-HEADERS = {"User-Agent": "docsforge/1.0"}
+__version__ = "1.1.0"
+
+HEADERS = {"User-Agent": f"docsforge/{__version__}"}
 TIMEOUT = 25
+
+# Extensions that are never worth following during a crawl.
+SKIP_EXT = (
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
+    ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+    ".mp4", ".webm", ".mp3", ".wav", ".ogg", ".mov", ".avi",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".exe", ".dmg", ".msi", ".deb", ".rpm", ".whl", ".jar",
+    ".css", ".js", ".map",
+)
+
+STRATEGIES = ("llms_txt", "openapi", "sitemap", "github", "raw_text", "html")
+
+
+class ForgeError(RuntimeError):
+    """A user-facing failure: bad URL, unreachable host, unusable source."""
+
+
+@dataclass
+class Doc:
+    """One extracted document."""
+    url: str
+    title: str
+    markdown: str
+
+    def as_dict(self) -> dict:
+        return {"url": self.url, "title": self.title, "markdown": self.markdown}
+
+
+@dataclass
+class Options:
+    crawl: bool = False
+    max_pages: int = 25
+    js: bool = False
+    delay: float = 0.4
+    force: str | None = None
+    # Fetching a user-supplied URL server-side is an SSRF vector, so private /
+    # loopback targets are refused unless explicitly allowed.
+    allow_private: bool = field(
+        default_factory=lambda: os.environ.get("DOCSFORGE_ALLOW_PRIVATE", "") not in ("", "0", "false", "False")
+    )
+    github_token: str | None = field(
+        default_factory=lambda: os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    )
+    verbose: bool = True
+
+
+@dataclass
+class Detection:
+    """Result of source sniffing: the strategy, the URL to use, and any body
+    we already downloaded while sniffing (so handlers never re-fetch)."""
+    kind: str
+    url: str
+    body: str | None = None
+
+
+def _log(opts: Options, msg: str) -> None:
+    if opts.verbose:
+        print(msg, file=sys.stderr)
+
+
+def enable_utf8_console(streams=("stdout", "stderr")) -> None:
+    """Windows consoles default to cp1252, which blows up on the arrows and box
+    characters this tool prints. Force UTF-8 where we can, degrade where we can't."""
+    for name in streams:
+        stream = getattr(sys, name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+# ─────────────────────────────────────────────────────────────
+# Fetching
+# ─────────────────────────────────────────────────────────────
+class Fetcher:
+    """Owns the HTTP session and (at most one) Playwright browser.
+
+    The browser is started lazily and reused for every page, which is the
+    difference between a 50-page JS crawl taking seconds vs. minutes.
+    """
+
+    def __init__(self, opts: Options):
+        self.opts = opts
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS)
+        self._pw = None
+        self._browser = None
+
+    def __enter__(self) -> "Fetcher":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._browser is not None:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
+        if self._pw is not None:
+            try:
+                self._pw.stop()
+            except Exception:
+                pass
+            self._pw = None
+        self.session.close()
+
+    # -- safety ------------------------------------------------
+    def guard(self, url: str) -> None:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ForgeError(f"Only http/https URLs are supported, got: {url!r}")
+        if not parsed.netloc:
+            raise ForgeError(f"URL has no host: {url!r}")
+        if self.opts.allow_private:
+            return
+        if _resolves_private(parsed.hostname or ""):
+            raise ForgeError(
+                f"Refusing to fetch private/loopback address: {parsed.hostname}. "
+                f"Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it."
+            )
+
+    # -- primitives --------------------------------------------
+    def get(self, url: str, **kw) -> requests.Response:
+        self.guard(url)
+        kw.setdefault("timeout", TIMEOUT)
+        try:
+            return self.session.get(url, **kw)
+        except requests.RequestException as e:
+            raise ForgeError(f"Request failed for {url}: {e}") from e
+
+    def text(self, url: str, **kw) -> str:
+        r = self.get(url, **kw)
+        if r.status_code >= 400:
+            raise ForgeError(f"HTTP {r.status_code} for {url}")
+        return _decode(r)
+
+    def html(self, url: str) -> str:
+        """Fetch a page as HTML, rendering JS if the run asked for it."""
+        if self.opts.js:
+            return self._render(url)
+        r = self.get(url)
+        if r.status_code >= 400:
+            raise ForgeError(f"HTTP {r.status_code} for {url}")
+        ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype and not (ctype.startswith("text/") or ctype.endswith(("xml", "json", "+xml"))):
+            raise ForgeError(f"Not a text document ({ctype}) at {url}")
+        return _decode(r)
+
+    def _render(self, url: str) -> str:
+        self.guard(url)
+        page = self._page()
+        try:
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            return page.content()
+        except Exception as e:
+            raise ForgeError(f"JS render failed for {url}: {e}") from e
+        finally:
+            page.close()
+
+    def _page(self):
+        if self._browser is None:
+            try:
+                from playwright.sync_api import sync_playwright
+            except ImportError as e:
+                raise ForgeError(
+                    "--js needs Playwright: pip install playwright && playwright install chromium"
+                ) from e
+            self._pw = sync_playwright().start()
+            self._browser = self._pw.chromium.launch()
+        return self._browser.new_page()
+
+
+def _decode(r: requests.Response) -> str:
+    """requests guesses latin-1 for text/* without a charset, which mangles
+    UTF-8 docs. Fall back to content sniffing when the server didn't say."""
+    ctype = r.headers.get("content-type", "").lower()
+    if "charset=" not in ctype:
+        r.encoding = r.apparent_encoding or "utf-8"
+    return r.text
+
+
+def _resolves_private(host: str) -> bool:
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False  # let the actual request produce the real error
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────
 # Source detection
 # ─────────────────────────────────────────────────────────────
-def detect_source(url, session):
-    """Return a strategy name based on URL + a cheap probe."""
+def detect_source(url: str, fetcher: Fetcher) -> Detection:
+    """Pick an extraction strategy from the URL plus one cheap probe.
+
+    Any body downloaded while probing is carried on the Detection so the
+    handler does not fetch the same bytes twice.
+    """
     u = url.lower()
-    host = urlparse(url).netloc
+    host = (urlparse(url).hostname or "").lower()
+    path = urlparse(url).path
 
-    if "github.com" in host and not u.endswith((".md", ".txt")):
-        return "github"
-    if u.endswith("llms-full.txt") or u.endswith("llms.txt"):
-        return "llms_txt"
+    if host in ("github.com", "www.github.com") and not u.endswith((".md", ".txt")):
+        return Detection("github", url)
+    if u.endswith(("llms-full.txt", "llms.txt")):
+        return Detection("llms_txt", url)
+    if u.endswith("sitemap.xml") or path.endswith("/sitemap_index.xml"):
+        return Detection("sitemap", url)
+
     if u.endswith((".yaml", ".yml", ".json")):
-        # Could be OpenAPI — check content
+        # Might be an OpenAPI spec — we need the body either way, so keep it.
         try:
-            r = session.get(url, timeout=TIMEOUT)
-            if _looks_like_openapi(r.text):
-                return "openapi"
-        except Exception:
-            pass
-    if u.endswith("sitemap.xml"):
-        return "sitemap"
-    if u.endswith((".md", ".markdown", ".txt")):
-        return "raw_text"
+            body = fetcher.text(url)
+        except ForgeError:
+            body = None
+        if body is not None:
+            kind = "openapi" if _looks_like_openapi(body) else "raw_text"
+            return Detection(kind, url, body)
 
-    # For bare domains, probe for llms.txt (the modern convention)
-    if urlparse(url).path.strip("/") == "":
-        for candidate in ("llms.txt", "llms-full.txt"):
+    if u.endswith((".md", ".markdown", ".txt", ".rst")):
+        return Detection("raw_text", url)
+
+    # Bare domain: probe for the llms.txt convention before falling back.
+    if path.strip("/") == "":
+        for candidate in ("llms-full.txt", "llms.txt"):
             probe = urljoin(url, "/" + candidate)
             try:
-                r = session.head(probe, timeout=10, allow_redirects=True)
-                if r.status_code == 200:
-                    return "llms_txt_redirect:" + probe
-            except Exception:
-                pass
-    return "html"
+                r = fetcher.get(probe, timeout=10, allow_redirects=True)
+            except ForgeError:
+                continue
+            ctype = r.headers.get("content-type", "").lower()
+            if r.status_code == 200 and "html" not in ctype:
+                return Detection("llms_txt", probe, _decode(r))
+
+    return Detection("html", url)
 
 
-def _looks_like_openapi(text):
+def _looks_like_openapi(text: str) -> bool:
     t = text.lstrip()[:2000]
-    return ('"openapi"' in t or "openapi:" in t or
-            '"swagger"' in t or "swagger:" in t)
+    return ('"openapi"' in t or re.search(r"^openapi\s*:", t, re.M) is not None
+            or '"swagger"' in t or re.search(r"^swagger\s*:", t, re.M) is not None)
 
 
 # ─────────────────────────────────────────────────────────────
 # Strategy: llms.txt (already LLM-ready)
 # ─────────────────────────────────────────────────────────────
-def handle_llms_txt(url, session, args):
-    r = session.get(url, timeout=TIMEOUT)
-    r.raise_for_status()
-    header = _meta_header(url, "llms.txt")
-    return [(url, "llms.txt", header + r.text.strip())]
+def handle_llms_txt(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    body = det.body if det.body is not None else fetcher.text(det.url)
+    return [Doc(det.url, "llms.txt", _meta_header(det.url, "llms.txt") + body.strip())]
 
 
 # ─────────────────────────────────────────────────────────────
 # Strategy: OpenAPI / Swagger → readable API reference
 # ─────────────────────────────────────────────────────────────
-def handle_openapi(url, session, args):
-    r = session.get(url, timeout=TIMEOUT)
-    r.raise_for_status()
-    try:
-        spec = json.loads(r.text)
-    except json.JSONDecodeError:
-        import yaml  # pip install pyyaml
-        spec = yaml.safe_load(r.text)
+def handle_openapi(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    body = det.body if det.body is not None else fetcher.text(det.url)
+    spec = _parse_spec(body)
 
-    title = spec.get("info", {}).get("title", "API Reference")
-    version = spec.get("info", {}).get("version", "")
-    desc = spec.get("info", {}).get("description", "")
+    info = spec.get("info") or {}
+    title = info.get("title") or "API Reference"
+    version = info.get("version") or ""
+    desc = info.get("description") or ""
 
-    lines = [_meta_header(url, "openapi"),
-             f"**Version:** {version}\n" if version else "",
-             (desc.strip() + "\n\n") if desc else "",
-             "## Endpoints\n"]
+    out: list[str] = [_meta_header(det.url, "openapi").rstrip("\n"), "", f"# {title}", ""]
+    if version:
+        out += [f"**Version:** {version}", ""]
 
-    for path, methods in sorted(spec.get("paths", {}).items()):
-        for method, op in methods.items():
-            if method.lower() not in ("get", "post", "put", "patch", "delete"):
+    servers = [s.get("url", "") for s in (spec.get("servers") or []) if s.get("url")]
+    if servers:
+        out += ["**Servers:** " + ", ".join(f"`{s}`" for s in servers), ""]
+    if desc.strip():
+        out += [desc.strip(), ""]
+
+    out += ["## Endpoints", ""]
+
+    paths = spec.get("paths") or {}
+    for path, item in sorted(paths.items()):
+        if not isinstance(item, dict):
+            continue
+        item = _deref(spec, item)
+        # Parameters declared once for the whole path apply to every operation.
+        shared = [p for p in (item.get("parameters") or []) if isinstance(p, dict)]
+
+        for method, op in item.items():
+            if method.lower() not in ("get", "post", "put", "patch", "delete", "head", "options"):
                 continue
-            summary = op.get("summary", "")
-            lines.append(f"### `{method.upper()} {path}`")
-            if summary:
-                lines.append(f"{summary}\n")
-            if op.get("description"):
-                lines.append(op["description"].strip() + "\n")
+            if not isinstance(op, dict):
+                continue
+            out += _render_operation(spec, path, method, op, shared)
 
-            params = op.get("parameters", [])
-            if params:
-                lines.append("| Param | In | Type | Required | Description |")
-                lines.append("|---|---|---|---|---|")
-                for p in params:
-                    schema = p.get("schema", {})
-                    lines.append(
-                        f"| `{p.get('name','')}` | {p.get('in','')} "
-                        f"| {schema.get('type','')} | {p.get('required', False)} "
-                        f"| {p.get('description','').replace(chr(10),' ')} |"
-                    )
-                lines.append("")
+    return [Doc(det.url, title, "\n".join(out).rstrip() + "\n")]
 
-            # Request body (brief)
-            rb = op.get("requestBody", {})
-            if rb:
-                lines.append("**Request body:** " +
-                             ", ".join(rb.get("content", {}).keys()) + "\n")
 
-            # Responses
-            resp = op.get("responses", {})
-            if resp:
-                codes = ", ".join(f"`{c}`" for c in resp.keys())
-                lines.append(f"**Responses:** {codes}\n")
-            lines.append("")
+def _render_operation(spec: dict, path: str, method: str, op: dict, shared: list) -> list[str]:
+    lines = [f"### `{method.upper()} {path}`", ""]
 
-    return [(url, title, "\n".join(l for l in lines if l is not None))]
+    if op.get("deprecated"):
+        lines += ["> **Deprecated**", ""]
+    if op.get("summary"):
+        lines += [str(op["summary"]).strip(), ""]
+    if op.get("description"):
+        lines += [str(op["description"]).strip(), ""]
+
+    params = [_deref(spec, p) for p in shared + list(op.get("parameters") or [])]
+    params = [p for p in params if isinstance(p, dict) and p.get("name")]
+    # An operation-level param overrides a path-level one with the same name+in.
+    seen: dict[tuple, dict] = {}
+    for p in params:
+        seen[(p.get("name"), p.get("in"))] = p
+    params = list(seen.values())
+
+    if params:
+        lines += ["| Param | In | Type | Required | Description |",
+                  "|---|---|---|---|---|"]
+        for p in params:
+            schema = _deref(spec, p.get("schema") or {})
+            lines.append(
+                f"| `{p.get('name', '')}` "
+                f"| {p.get('in', '')} "
+                f"| {_type_of(spec, schema)} "
+                f"| {'yes' if p.get('required') else 'no'} "
+                f"| {_cell(p.get('description', ''))} |"
+            )
+        lines.append("")
+
+    rb = _deref(spec, op.get("requestBody") or {})
+    if rb:
+        content = rb.get("content") or {}
+        required = " (required)" if rb.get("required") else ""
+        types = ", ".join(f"`{c}`" for c in content) or "`—`"
+        lines.append(f"**Request body{required}:** {types}")
+        for ctype, media in content.items():
+            schema = _deref(spec, (media or {}).get("schema") or {})
+            named = _type_of(spec, schema, raw=(media or {}).get("schema"))
+            if named and named != "object":
+                lines.append(f"- `{ctype}` → {named}")
+        lines.append("")
+
+    responses = op.get("responses") or {}
+    if responses:
+        lines += ["| Response | Description |", "|---|---|"]
+        for code, resp in responses.items():
+            resp = _deref(spec, resp if isinstance(resp, dict) else {})
+            lines.append(f"| `{code}` | {_cell(resp.get('description', ''))} |")
+        lines.append("")
+
+    return lines
+
+
+def _parse_spec(body: str) -> dict:
+    try:
+        spec = json.loads(body)
+    except json.JSONDecodeError:
+        try:
+            import yaml
+        except ImportError as e:
+            raise ForgeError("YAML spec needs PyYAML: pip install pyyaml") from e
+        try:
+            spec = yaml.safe_load(body)
+        except Exception as e:
+            raise ForgeError(f"Could not parse spec as JSON or YAML: {e}") from e
+    if not isinstance(spec, dict):
+        raise ForgeError("Spec did not parse to an object")
+    return spec
+
+
+def _deref(spec: dict, node, depth: int = 0):
+    """Resolve local `#/...` JSON pointers. Foreign refs are left alone."""
+    while isinstance(node, dict) and "$ref" in node and depth < 10:
+        ref = node["$ref"]
+        if not isinstance(ref, str) or not ref.startswith("#/"):
+            return node
+        cur = spec
+        for part in ref[2:].split("/"):
+            part = part.replace("~1", "/").replace("~0", "~")
+            if not isinstance(cur, dict) or part not in cur:
+                return node
+            cur = cur[part]
+        node, depth = cur, depth + 1
+    return node
+
+
+def _type_of(spec: dict, schema, raw=None) -> str:
+    """Human-readable type, preferring the component name behind a $ref."""
+    if isinstance(raw, dict) and isinstance(raw.get("$ref"), str):
+        name = raw["$ref"].rsplit("/", 1)[-1]
+        if name:
+            return f"`{name}`"
+    if not isinstance(schema, dict):
+        return ""
+    if schema.get("enum"):
+        return "enum"
+    t = schema.get("type")
+    if t == "array":
+        inner = schema.get("items") or {}
+        return f"{_type_of(spec, _deref(spec, inner), inner) or 'any'}[]"
+    if isinstance(t, list):
+        return " | ".join(str(x) for x in t)
+    for combiner in ("oneOf", "anyOf", "allOf"):
+        if schema.get(combiner):
+            return combiner
+    return str(t or "")
+
+
+def _cell(text) -> str:
+    """Flatten arbitrary text into something safe for a Markdown table cell."""
+    s = re.sub(r"\s+", " ", str(text or "")).strip()
+    return s.replace("|", "\\|")
 
 
 # ─────────────────────────────────────────────────────────────
 # Strategy: GitHub repo → README + docs via API
 # ─────────────────────────────────────────────────────────────
-def handle_github(url, session, args):
-    parts = urlparse(url).path.strip("/").split("/")
+def handle_github(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    parts = [p for p in urlparse(det.url).path.strip("/").split("/") if p]
     if len(parts) < 2:
-        raise ValueError("Not a repo URL")
-    owner, repo = parts[0], parts[1]
+        raise ForgeError(f"Not a GitHub repo URL: {det.url}")
+    owner, repo = parts[0], parts[1].removesuffix(".git")
     api = f"https://api.github.com/repos/{owner}/{repo}"
 
-    docs = []
-    # README
-    rr = session.get(api + "/readme",
-                     headers={**HEADERS, "Accept": "application/vnd.github.raw"},
-                     timeout=TIMEOUT)
-    if rr.status_code == 200:
-        docs.append((url, f"{repo} — README",
-                     _meta_header(url, "github-readme") + rr.text.strip()))
+    auth = {"Authorization": f"Bearer {opts.github_token}"} if opts.github_token else {}
+    if not opts.github_token:
+        _log(opts, "  note: set GITHUB_TOKEN to raise the GitHub API rate limit")
 
-    # /docs directory markdown files
-    tree = session.get(api + "/git/trees/HEAD?recursive=1", timeout=TIMEOUT)
+    docs: list[Doc] = []
+
+    rr = fetcher.get(api + "/readme",
+                     headers={**auth, "Accept": "application/vnd.github.raw"})
+    if rr.status_code == 404:
+        raise ForgeError(f"GitHub repo not found (or private): {owner}/{repo}")
+    if rr.status_code == 403 and "rate limit" in rr.text.lower():
+        raise ForgeError("GitHub API rate limit hit. Set GITHUB_TOKEN and retry.")
+    if rr.status_code == 200:
+        docs.append(Doc(det.url, f"{repo} — README",
+                        _meta_header(det.url, "github-readme") + _decode(rr).strip()))
+
+    tree = fetcher.get(api + "/git/trees/HEAD?recursive=1", headers=auth)
     if tree.status_code == 200:
-        for node in tree.json().get("tree", []):
-            p = node["path"]
-            if p.lower().endswith((".md", ".mdx")) and (
-                p.lower().startswith("docs/") or "/docs/" in p.lower()
-            ):
-                raw = f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{p}"
-                fr = session.get(raw, timeout=TIMEOUT)
-                if fr.status_code == 200:
-                    docs.append((raw, p,
-                                 _meta_header(raw, "github-doc") + fr.text.strip()))
-                if len(docs) >= args.max_pages:
-                    break
+        try:
+            nodes = tree.json().get("tree", [])
+        except ValueError:
+            nodes = []
+        for node in nodes:
+            if len(docs) >= opts.max_pages:
+                break
+            p = node.get("path", "")
+            low = p.lower()
+            if not low.endswith((".md", ".mdx")):
+                continue
+            if not (low.startswith("docs/") or "/docs/" in low):
+                continue
+            raw = f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{p}"
+            fr = fetcher.get(raw)
+            if fr.status_code == 200:
+                docs.append(Doc(raw, p, _meta_header(raw, "github-doc") + _decode(fr).strip()))
+                _log(opts, f"  [{len(docs)}] {p}")
+
+    if not docs:
+        raise ForgeError(f"No README or docs/*.md found in {owner}/{repo}")
     return docs
 
 
 # ─────────────────────────────────────────────────────────────
 # Strategy: raw markdown / text passthrough
 # ─────────────────────────────────────────────────────────────
-def handle_raw_text(url, session, args):
-    r = session.get(url, timeout=TIMEOUT)
-    r.raise_for_status()
-    return [(url, os.path.basename(urlparse(url).path),
-             _meta_header(url, "raw") + r.text.strip())]
+def handle_raw_text(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    body = det.body if det.body is not None else fetcher.text(det.url)
+    name = os.path.basename(urlparse(det.url).path) or det.url
+    return [Doc(det.url, name, _meta_header(det.url, "raw") + body.strip())]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -202,160 +543,279 @@ CONTENT = ["main", "article", "[role=main]", ".markdown-body",
            ".doc-content", ".content", ".prose", "#content", "#main"]
 
 
-def _fetch_html(url, session, js):
-    if js:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            b = p.chromium.launch()
-            pg = b.new_page()
-            pg.goto(url, wait_until="networkidle", timeout=30000)
-            html = pg.content()
-            b.close()
-        return html
-    return session.get(url, timeout=TIMEOUT).text
+def _soup(html: str, parser: str = "html.parser"):
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError as e:
+        raise ForgeError("HTML extraction needs: pip install beautifulsoup4") from e
+    return BeautifulSoup(html, parser)
 
 
-def _html_to_md(html, url):
-    from bs4 import BeautifulSoup
-    from markdownify import markdownify as md
-    soup = BeautifulSoup(html, "html.parser")
-    title = (soup.title.string.strip()
-             if soup.title and soup.title.string else "Untitled")
+def _html_to_md(html: str, url: str, soup=None) -> tuple[str, str]:
+    try:
+        from markdownify import markdownify as md
+    except ImportError as e:
+        raise ForgeError("HTML extraction needs: pip install markdownify") from e
+
+    soup = soup if soup is not None else _soup(html)
+    title = soup.title.get_text(strip=True) if soup.title else ""
+    title = title or "Untitled"
+
     for sel in STRIP:
         for el in soup.select(sel):
             el.decompose()
+
     main = None
     for sel in CONTENT:
-        f = soup.select_one(sel)
-        if f and len(f.get_text(strip=True)) > 200:
-            main = f
+        found = soup.select_one(sel)
+        if found and len(found.get_text(strip=True)) > 200:
+            main = found
             break
-    main = main or soup.body or soup
+    main = main if main is not None else (soup.body or soup)
+
     body = md(str(main), heading_style="ATX", bullets="-")
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
     return title, _meta_header(url, "html") + body
 
 
-def handle_html(url, session, args):
-    if args.crawl:
-        return _crawl_html(url, session, args)
-    html = _fetch_html(url, session, args.js)
-    title, doc = _html_to_md(html, url)
-    return [(url, title, doc)]
+def handle_html(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    if opts.crawl:
+        return _crawl_html(det.url, fetcher, opts)
+    html = fetcher.html(det.url)
+    title, doc = _html_to_md(html, det.url)
+    return [Doc(det.url, title, doc)]
 
 
-def _crawl_html(start, session, args):
-    seen, out = set(), []
-    q = deque([start])
-    host = urlparse(start).netloc
-    while q and len(out) < args.max_pages:
-        url = urldefrag(q.popleft())[0]
+def _crawlable(link: str, host: str) -> bool:
+    p = urlparse(link)
+    if p.scheme not in ("http", "https"):
+        return False
+    if (p.hostname or "").lower() != host:
+        return False
+    return not p.path.lower().endswith(SKIP_EXT)
+
+
+def _crawl_html(start: str, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    seen: set[str] = set()
+    out: list[Doc] = []
+    queue = deque([urldefrag(start)[0]])
+    host = (urlparse(start).hostname or "").lower()
+
+    while queue and len(out) < opts.max_pages:
+        url = queue.popleft()
         if url in seen:
             continue
         seen.add(url)
         try:
-            html = _fetch_html(url, session, args.js)
-        except Exception as e:
-            print(f"  skip {url}: {e}", file=sys.stderr)
+            html = fetcher.html(url)
+
+            # Parse once: link discovery needs the nav _html_to_md strips out.
+            soup = _soup(html)
+            for a in soup.find_all("a", href=True):
+                link = urldefrag(urljoin(url, a["href"]))[0]
+                if link not in seen and _crawlable(link, host):
+                    queue.append(link)
+
+            title, doc = _html_to_md(html, url, soup=soup)
+        except ForgeError as e:
+            _log(opts, f"  skip {url}: {e}")
             continue
-        title, doc = _html_to_md(html, url)
-        out.append((url, title, doc))
-        print(f"  [{len(out)}] {url}")
-        from bs4 import BeautifulSoup
-        for a in BeautifulSoup(html, "html.parser").find_all("a", href=True):
-            link = urldefrag(urljoin(url, a["href"]))[0]
-            if urlparse(link).netloc == host and link.startswith("http") \
-                    and link not in seen:
-                q.append(link)
-        time.sleep(args.delay)
+        except Exception as e:  # one broken page must not end the crawl
+            _log(opts, f"  skip {url}: {type(e).__name__}: {e}")
+            continue
+
+        out.append(Doc(url, title, doc))
+        _log(opts, f"  [{len(out)}] {url}")
+
+        if queue and len(out) < opts.max_pages:
+            time.sleep(opts.delay)
+
+    if not out:
+        raise ForgeError(f"Crawl produced no pages from {start}")
+    return out
+
+
+# ─────────────────────────────────────────────────────────────
+# Strategy: sitemap.xml
+# ─────────────────────────────────────────────────────────────
+def _xml_soup(text: str):
+    """Prefer a real XML parser, but degrade instead of exploding when lxml
+    is not installed — the README used to call it optional."""
+    for parser in ("lxml-xml", "xml", "html.parser"):
+        try:
+            return _soup(text, parser)
+        except Exception:
+            continue
+    raise ForgeError("Could not parse sitemap XML")
+
+
+def _sitemap_links(text: str, fetcher: Fetcher, opts: Options, depth: int = 0) -> list[str]:
+    soup = _xml_soup(text)
+    locs = [el.get_text(strip=True) for el in soup.find_all("loc")]
+    locs = [l for l in locs if l]
+
+    # A sitemap index points at more sitemaps; follow one level down.
+    if soup.find("sitemapindex") is not None and depth < 2:
+        nested: list[str] = []
+        for sm in locs:
+            if len(nested) >= opts.max_pages:
+                break
+            try:
+                nested += _sitemap_links(fetcher.text(sm), fetcher, opts, depth + 1)
+            except ForgeError as e:
+                _log(opts, f"  skip sitemap {sm}: {e}")
+        return nested
+    return locs
+
+
+def handle_sitemap(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
+    body = det.body if det.body is not None else fetcher.text(det.url)
+    links = _sitemap_links(body, fetcher, opts)[: opts.max_pages]
+    if not links:
+        raise ForgeError(f"No <loc> entries found in {det.url}")
+
+    out: list[Doc] = []
+    for link in links:
+        try:
+            html = fetcher.html(link)
+            title, doc = _html_to_md(html, link)
+        except ForgeError as e:
+            _log(opts, f"  skip {link}: {e}")
+            continue
+        except Exception as e:  # one broken page must not end the run
+            _log(opts, f"  skip {link}: {type(e).__name__}: {e}")
+            continue
+        out.append(Doc(link, title, doc))
+        _log(opts, f"  [{len(out)}] {link}")
+        time.sleep(opts.delay)
+
+    if not out:
+        raise ForgeError(f"Every page listed in {det.url} failed to fetch")
     return out
 
 
 # ─────────────────────────────────────────────────────────────
 # Shared helpers
 # ─────────────────────────────────────────────────────────────
-def _meta_header(url, kind):
+def _meta_header(url: str, kind: str) -> str:
     return (f"<!-- source: {url} | type: {kind} | "
             f"scraped: {time.strftime('%Y-%m-%d %H:%M')} -->\n\n")
 
 
-def _slug(url):
-    p = urlparse(url).path.strip("/").replace("/", "-") or "index"
-    p = re.sub(r"[^a-zA-Z0-9\-_.]", "", p)
-    return (p[:80] or hashlib.md5(url.encode()).hexdigest()[:10])
+def _slug(url: str) -> str:
+    """Filename stem for a URL. Includes the host and a short hash so pages
+    from different sites (or different query strings) never collide."""
+    p = urlparse(url)
+    host = re.sub(r"[^a-zA-Z0-9]+", "-", (p.hostname or "")).strip("-")
+    path = re.sub(r"[^a-zA-Z0-9\-_.]+", "-", p.path.strip("/").replace("/", "-")).strip("-")
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:8]
+    stem = "-".join(x for x in (host, path or "index") if x)[:80].strip("-")
+    return f"{stem or 'doc'}-{digest}"
 
 
 HANDLERS = {
     "llms_txt": handle_llms_txt,
     "openapi": handle_openapi,
+    "sitemap": handle_sitemap,
     "github": handle_github,
     "raw_text": handle_raw_text,
     "html": handle_html,
-    "sitemap": None,  # handled inline below
 }
 
 
-def handle_sitemap(url, session, args):
-    from bs4 import BeautifulSoup
-    r = session.get(url, timeout=TIMEOUT)
-    soup = BeautifulSoup(r.text, "xml")
-    locs = [l.text for l in soup.find_all("loc")][:args.max_pages]
-    out = []
-    for link in locs:
-        try:
-            html = _fetch_html(link, session, args.js)
-            title, doc = _html_to_md(html, link)
-            out.append((link, title, doc))
-            print(f"  [{len(out)}] {link}")
-            time.sleep(args.delay)
-        except Exception as e:
-            print(f"  skip {link}: {e}", file=sys.stderr)
-    return out
+# ─────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────
+def forge(url: str, opts: Options | None = None, fetcher: Fetcher | None = None) -> list[Doc]:
+    """Extract `url` into a list of Docs. This is the entry point the MCP
+    server and the web app both call."""
+    opts = opts or Options()
+    if opts.force and opts.force not in HANDLERS:
+        raise ForgeError(f"Unknown strategy {opts.force!r}. Choose from: {', '.join(HANDLERS)}")
+
+    own = fetcher is None
+    fetcher = fetcher or Fetcher(opts)
+    try:
+        if opts.force:
+            det = Detection(opts.force, url)
+        else:
+            det = detect_source(url, fetcher)
+        _log(opts, f"Detected source type: {det.kind}")
+        return HANDLERS[det.kind](det, fetcher, opts)
+    finally:
+        if own:
+            fetcher.close()
+
+
+def write_docs(docs: list[Doc], out_dir: str, single_file: bool = False,
+               source_url: str = "") -> list[str]:
+    """Write Docs to disk; returns the paths written."""
+    os.makedirs(out_dir, exist_ok=True)
+    written: list[str] = []
+    if single_file:
+        combined = "\n\n---\n\n".join(d.markdown for d in docs)
+        path = os.path.join(out_dir, _slug(source_url or (docs[0].url if docs else "doc")) + "-combined.md")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(combined)
+        written.append(path)
+    else:
+        for d in docs:
+            path = os.path.join(out_dir, _slug(d.url) + ".md")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(d.markdown)
+            written.append(path)
+    return written
 
 
 # ─────────────────────────────────────────────────────────────
-def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="docsforge",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("url")
-    ap.add_argument("-o", "--out", default="./docs_md")
-    ap.add_argument("--crawl", action="store_true")
+    ap.add_argument("-o", "--out", default="./docs_md", help="output directory")
+    ap.add_argument("--crawl", action="store_true", help="follow same-host links")
     ap.add_argument("--max-pages", type=int, default=25)
     ap.add_argument("--js", action="store_true", help="render JS (needs playwright)")
     ap.add_argument("--delay", type=float, default=0.4)
     ap.add_argument("--single-file", action="store_true")
-    ap.add_argument("--force", choices=list(HANDLERS) + ["sitemap"],
-                    help="skip detection, force a strategy")
-    args = ap.parse_args()
+    ap.add_argument("--force", choices=list(HANDLERS), help="skip detection, force a strategy")
+    ap.add_argument("--allow-private", action="store_true",
+                    help="permit private/loopback hosts (off by default)")
+    ap.add_argument("-q", "--quiet", action="store_true")
+    ap.add_argument("--version", action="version", version=f"docsforge {__version__}")
+    args = ap.parse_args(argv)
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
-    os.makedirs(args.out, exist_ok=True)
+    enable_utf8_console()
 
-    kind = args.force or detect_source(args.url, session)
-    if kind.startswith("llms_txt_redirect:"):
-        args.url = kind.split(":", 1)[1]
-        kind = "llms_txt"
-    print(f"Detected source type: {kind}")
+    opts = Options(
+        crawl=args.crawl,
+        max_pages=args.max_pages,
+        js=args.js,
+        delay=args.delay,
+        force=args.force,
+        verbose=not args.quiet,
+    )
+    if args.allow_private:
+        opts.allow_private = True
 
-    if kind == "sitemap":
-        docs = handle_sitemap(args.url, session, args)
-    else:
-        docs = HANDLERS[kind](args.url, session, args)
+    try:
+        docs = forge(args.url, opts)
+        paths = write_docs(docs, args.out, args.single_file, source_url=args.url)
+    except ForgeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\ninterrupted", file=sys.stderr)
+        return 130
 
-    if args.single_file:
-        combined = "\n\n---\n\n".join(d for _, _, d in docs)
-        fn = os.path.join(args.out, _slug(args.url) + "-combined.md")
-        open(fn, "w", encoding="utf-8").write(combined)
-        print(f"  wrote {fn}")
-    else:
-        for url, title, doc in docs:
-            fn = os.path.join(args.out, _slug(url) + ".md")
-            open(fn, "w", encoding="utf-8").write(doc)
-            print(f"  wrote {fn}")
-
+    for p in paths:
+        print(f"  wrote {p}")
     print(f"\nDone. {len(docs)} document(s) → {args.out}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
