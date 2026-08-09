@@ -1,0 +1,51 @@
+{
+  "title": "Choose the visual world for the DocsForge panel",
+  "question": "The roll assigned Progressive Flight Strip. Keep it, take an alternate, or re-roll.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Progressive Flight Strip",
+      "kicker": "THE ROLL",
+      "lineage": "air traffic control progressive strip bays",
+      "thesis": "Every fetch is a strip in a bay, and the tint of the strip is what kind of source it is.",
+      "palette": ["#1c1f21", "#f2ede1", "#12386b", "#c2691a", "#a8281f"],
+      "materials": ["tinted strip stock", "anodized bay rail", "controller's pen"],
+      "viewport": "A dark bay rail down the left holds one tinted strip per source, each printed with its type, byte count and status; the selected strip's Markdown fills the paper pane at right, with copy and download at its foot.",
+      "risk": "A bay of strips becomes decorative chrome the moment the tints stop actually classifying anything.",
+      "board": "https://impeccable.style/worlds/cards/broadcast-programming-teletext-service.webp"
+    },
+    {
+      "id": "challenger-teletext",
+      "label": "Teletext Service",
+      "lineage": "broadcast teletext magazines",
+      "thesis": "Documentation as a broadcast index: three-digit pages, not sections.",
+      "case": "Fuses well on tables, loading counters and status flags, but its sacred 40x24 cell grid scales rather than reflows, which a narrow docked panel cannot survive.",
+      "hero": "https://impeccable.style/worlds/cards/broadcast-programming-teletext-service-hero.webp"
+    },
+    {
+      "id": "challenger-hypercard",
+      "label": "HyperCard Stack",
+      "lineage": "one-bit HyperCard shoebox stacks",
+      "thesis": "The tool for reading the docs is the tool for making the document.",
+      "case": "Conceptually the closest fit of the three, since reading and authoring really are one act here; fuses poorly because one-bit dither and fixed-proportion cards fight dense API tables and long code blocks.",
+      "hero": "https://impeccable.style/worlds/cards/medium-native-hypercard-stack-shoebox-hero.webp"
+    },
+    {
+      "id": "challenger-miura",
+      "label": "Miura Deployable Sheet",
+      "lineage": "Miura-fold deployable sheets",
+      "thesis": "One URL is a packet; one pull deploys it into a vast precise field.",
+      "case": "The packet-to-field unfold is an apt metaphor for what a fetch does; fuses poorly because a parallelogram crease grid ruling every block is hostile to reading long Markdown.",
+      "hero": "https://impeccable.style/worlds/cards/paper-folds-pleats-deployable-miura-orbit-sheet-hero.webp"
+    }
+  ],
+  "reroll": true,
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "A centred chat column with bubbles and a rendered Markdown reply, executed impeccably.",
+    "viewport": "Conversation down the middle, composer pinned at the bottom, each reply rendered with copy and download actions.",
+    "risk": "It is what every AI chat surface already looks like, including the one currently in this repo."
+  },
+  "steer": true
+}
