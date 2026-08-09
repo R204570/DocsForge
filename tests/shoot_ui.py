@@ -75,13 +75,20 @@ def sse(event, payload):
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
-def canned_stream(markdown, html, url):
+def canned_stream(markdown, html, url, cut=None):
+    """cut=N stops after N characters of markdown and never sends `done`, so
+    the mid-flight painting state can actually be photographed."""
     parts = [
         sse("tool", {"phase": "start", "name": "fetch_docs", "args": {"url": url}}),
-        sse("tool", {"phase": "end", "name": "fetch_docs", "ok": True,
-                     "chars": 8761, "preview": ""}),
     ]
-    # Chunk the markdown the way the model would stream it.
+    if cut is not None:
+        # Leave the tool running and the field half-painted.
+        for i in range(0, cut, 90):
+            parts.append(sse("token", {"text": markdown[i:i + 90]}))
+        return "".join(parts)
+
+    parts.append(sse("tool", {"phase": "end", "name": "fetch_docs", "ok": True,
+                              "chars": 8761, "preview": ""}))
     step = 90
     for i in range(0, len(markdown), step):
         parts.append(sse("token", {"text": markdown[i:i + step]}))
@@ -94,7 +101,6 @@ def render(markdown):
 
 
 errors = []
-turn = {"n": 0}
 
 
 def watch(page):
@@ -104,6 +110,9 @@ def watch(page):
 
 
 def stub(page, bodies):
+    """Serve each canned stream in turn; the last one repeats."""
+    turn = {"n": 0}
+
     def handler(route):
         i = min(turn["n"], len(bodies) - 1)
         turn["n"] += 1
@@ -139,12 +148,27 @@ with sync_playwright() as p:
     print("shot-2-menu.png        — File menu open")
     page.keyboard.press("Escape")
 
+    # The painting state needs its own page: a completed stream races past it.
+    if not LIVE:
+        paint = browser.new_page(viewport={"width": 1280, "height": 880})
+        watch(paint)
+        stub(paint, [canned_stream(CANNED, "", "https://petstore3.swagger.io/api/v3/openapi.json", cut=430)])
+        paint.goto(BASE, wait_until="networkidle")
+        paint.fill("#input", PROMPT)
+        paint.click("#send")
+        paint.wait_for_selector(".sources li.running", timeout=90000)
+        paint.wait_for_timeout(900)
+        paint.screenshot(path="shot-3-painting.png")
+        print("shot-3-painting.png    — tool running, raw markdown mid-stream")
+        paint.close()
+
     page.fill("#input", PROMPT)
     page.click("#send")
-    page.wait_for_selector(".sources li", timeout=90000)
-    page.wait_for_timeout(700)
-    page.screenshot(path="shot-3-painting.png")
-    print("shot-3-painting.png    — tool row, raw markdown streaming")
+    if LIVE:
+        page.wait_for_selector(".sources li", timeout=90000)
+        page.wait_for_timeout(700)
+        page.screenshot(path="shot-3-painting.png")
+        print("shot-3-painting.png    — tool row, raw markdown streaming")
 
     page.wait_for_selector(".card-foot .btn:not(:disabled)", timeout=180000)
     page.wait_for_timeout(900)
@@ -180,7 +204,6 @@ with sync_playwright() as p:
         "return !!(t&&h&&t.textContent.trim()===h.textContent.trim());})()")
 
     # ── mobile, same round ────────────────────────────────
-    turn["n"] = 0
     m = browser.new_page(viewport={"width": 420, "height": 880})
     watch(m)
     if not LIVE:

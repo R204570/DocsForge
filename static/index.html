@@ -17,7 +17,8 @@
   chat log. Refuses the centred conversation column every AI panel ships.
   OWN-WORLD: One-bit ink on paper, no colour anywhere. Four dither levels carry every
   fill, shadow and selected state. Painted objects wear rough hand borders; system
-  controls stay crisp. Pixelify Sans sets Chicago's voice. Pressed inverts to solid black.
+  controls stay crisp. DotGothic16 sets Chicago's voice and Silkscreen the small
+  uppercase labels, both self-hosted. Pressed inverts to solid black.
   STORY: A developer blocked because the model does not know their library pastes a URL,
   watches the fetch paint a new card, edits the Markdown in place, leaves with the .md.
   FIRST VIEWPORT: Menu bar across the top; shoebox index down the left with the Ask field
@@ -38,6 +39,10 @@
       <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="3" result="noise"/>
       <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.2" xChannelSelector="R" yChannelSelector="G"/>
     </filter>
+    <pattern id="stip" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="1" height="1" fill="currentColor"/>
+      <rect x="2" y="2" width="1" height="1" fill="currentColor"/>
+    </pattern>
   </defs>
 
   <symbol id="i-stack" viewBox="0 0 16 16"><path d="M1.5 3.5h9v7h-9zM4.5 6.5h9v7h-9z"/></symbol>
@@ -50,6 +55,14 @@
   <symbol id="i-bang" viewBox="0 0 16 16"><path d="M8 3v6M8 11.5v1.5"/></symbol>
   <symbol id="i-globe" viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z"/><path d="M1.5 8h13M8 1.5c-4 4.5-4 8.5 0 13c4-4.5 4-8.5 0-13z"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10"/><path d="M9 4.5L12.5 8L9 11.5"/></symbol>
+
+  <!-- The shoebox itself, for the empty stack. Stippled like the board. -->
+  <symbol id="i-shoebox" viewBox="0 0 120 92">
+    <rect x="15" y="57" width="90" height="24" fill="url(#stip)" stroke="none"/>
+    <path d="M28 47V19h13v28M45 47V13h13v34M62 47V17h13v30M79 47V23h13v24"/>
+    <path d="M14.5 46.5h91v35h-91z"/>
+    <path d="M14.5 56.5h91"/>
+  </symbol>
 </svg>
 
 <div class="stack" id="stack">
@@ -61,30 +74,30 @@
     <div class="menu" data-menu="file">
       <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">File</button>
       <ul class="menu-drop" role="menu">
-        <li><button type="button" data-act="new">New Stack<span class="key">⌘N</span></button></li>
+        <li><button type="button" data-act="new"><span>New Stack</span><span class="key" data-key="N"></span></button></li>
         <li class="sep"></li>
-        <li><button type="button" data-act="download">Download .md<span class="key">⌘S</span></button></li>
-        <li><button type="button" data-act="download-all">Download Whole Stack</button></li>
+        <li><button type="button" data-act="download"><span>Download .md</span><span class="key" data-key="S"></span></button></li>
+        <li><button type="button" data-act="download-all"><span>Download Whole Stack</span></button></li>
       </ul>
     </div>
 
     <div class="menu" data-menu="edit">
       <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Edit</button>
       <ul class="menu-drop" role="menu">
-        <li><button type="button" data-act="copy">Copy Card Text<span class="key">⌘C</span></button></li>
+        <li><button type="button" data-act="copy"><span>Copy Card Text</span></button></li>
         <li class="sep"></li>
-        <li><button type="button" data-act="author">Edit This Card<span class="key">⌘E</span></button></li>
-        <li><button type="button" data-act="revert">Revert Edits</button></li>
+        <li><button type="button" data-act="author"><span>Edit This Card</span><span class="key" data-key="E"></span></button></li>
+        <li><button type="button" data-act="revert"><span>Revert Edits</span></button></li>
       </ul>
     </div>
 
     <div class="menu" data-menu="card">
       <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Card</button>
       <ul class="menu-drop" role="menu">
-        <li><button type="button" data-act="first">First Card</button></li>
-        <li><button type="button" data-act="prev">Prev Card<span class="key">←</span></button></li>
-        <li><button type="button" data-act="next">Next Card<span class="key">→</span></button></li>
-        <li><button type="button" data-act="last">Last Card</button></li>
+        <li><button type="button" data-act="first"><span>First Card</span></button></li>
+        <li><button type="button" data-act="prev"><span>Prev Card</span><span class="key">Left</span></button></li>
+        <li><button type="button" data-act="next"><span>Next Card</span><span class="key">Right</span></button></li>
+        <li><button type="button" data-act="last"><span>Last Card</span></button></li>
       </ul>
     </div>
 
@@ -111,7 +124,11 @@
     <aside class="shoebox">
       <div class="chip">Cards</div>
       <ol class="index" id="index">
-        <li class="index-empty">The stack is empty.<br>Ask below to paint the first card.</li>
+        <li class="index-empty">
+          <svg class="shoebox-art" viewBox="0 0 120 92" aria-hidden="true"><use href="#i-shoebox"/></svg>
+          <p>The stack is empty.</p>
+          <p class="dim">Ask below and the first card gets painted here.</p>
+        </li>
       </ol>
 
       <form class="ask" id="ask-form">

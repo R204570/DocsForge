@@ -40,8 +40,9 @@ function icon(id, cls) {
   return svg;
 }
 
-function labelled(tag, cls, text) {
+function labelled(tag, cls, text, iconId) {
   const n = el(tag, cls);
+  if (iconId) n.append(icon(iconId));
   n.append(el("span", null, text));
   return n;
 }
@@ -96,7 +97,16 @@ function renderIndex() {
 
   if (!state.cards.length) {
     const li = el("li", "index-empty");
-    li.innerHTML = "The stack is empty.<br>Ask below to paint the first card.";
+    const art = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    art.setAttribute("class", "shoebox-art");
+    art.setAttribute("viewBox", "0 0 120 92");
+    art.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#i-shoebox");
+    art.append(use);
+    li.append(art);
+    li.append(el("p", null, "The stack is empty."));
+    li.append(el("p", "dim", "Ask below and the first card gets painted here."));
     indexEl.append(li);
     return;
   }
@@ -225,13 +235,13 @@ function errorBlock(message) {
 function cardFoot(c) {
   const foot = el("footer", "card-foot");
 
-  const back = labelled("button", "btn", "Back");
+  const back = labelled("button", "btn", "Back", "i-back");
   back.type = "button";
   back.disabled = !state.trail.length;
   back.addEventListener("click", goBack);
   foot.append(back);
 
-  const author = labelled("button", "btn", state.authoring ? "Done Editing" : "Edit This Card");
+  const author = labelled("button", "btn", state.authoring ? "Done Editing" : "Edit This Card", "i-brush");
   author.type = "button";
   author.disabled = c.status !== "done";
   author.setAttribute("aria-pressed", String(state.authoring));
@@ -247,13 +257,13 @@ function cardFoot(c) {
     foot.append(revert);
   }
 
-  const copy = labelled("button", "btn", "Copy");
+  const copy = labelled("button", "btn", "Copy", "i-copy");
   copy.type = "button";
   copy.disabled = c.status === "painting";
   copy.addEventListener("click", () => copyCard(copy));
   foot.append(copy);
 
-  const dl = labelled("button", "btn primary", "Download .md");
+  const dl = labelled("button", "btn primary", "Download .md", "i-down");
   dl.type = "button";
   dl.disabled = c.status === "painting";
   dl.addEventListener("click", () => downloadCard(c));
@@ -713,7 +723,16 @@ function bootIntro() {
   stageEl.append(introCard());
 }
 
+/** Menu shortcuts name the key this platform actually uses. */
+function labelShortcuts() {
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  $$(".menu-drop .key[data-key]").forEach((k) => {
+    k.textContent = (mac ? "⌘" : "Ctrl+") + k.dataset.key;
+  });
+}
+
 bootIntro();
+labelShortcuts();
 wireMenus();
 renderIndex();
 refreshMenus();
