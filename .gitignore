@@ -1,0 +1,45 @@
+# secrets
+.env
+.env.local
+
+# scrape output
+docs_md/
+*.md.bak
+
+# local UI screenshots (tests/shoot_ui.py)
+shot-*.png
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# impeccable working files (keep the decision record, drop the scratch)
+.impeccable/refs/
+.impeccable/typetest/
+
+# local agent-harness config from tooling installs
+.codex/
+.cursor/
+.agents/
+.gemini/
+.opencode/
