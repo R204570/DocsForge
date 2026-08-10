@@ -40,8 +40,40 @@ function icon(id, cls) {
   return svg;
 }
 
-function labelled(tag, cls, text) {
+/* What the detector decided a card was forged from. The board's framed picture
+   region, carrying the product's first principle instead of decoration. */
+const KIND_ICON = {
+  openapi: "k-openapi",
+  github: "k-github",
+  sitemap: "k-sitemap",
+  html: "k-html",
+  llms: "k-llms",
+  raw: "k-raw",
+};
+const KIND_LABEL = {
+  openapi: "OpenAPI",
+  github: "GitHub",
+  sitemap: "Sitemap",
+  html: "HTML docs",
+  llms: "llms.txt",
+  raw: "Markdown",
+};
+
+function sourceFrame(kind, cls) {
+  const frame = el("div", cls ? `frame ${cls}` : "frame");
+  frame.title = KIND_LABEL[kind] || "Unknown source";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#${KIND_ICON[kind] || "k-raw"}`);
+  svg.append(use);
+  frame.append(svg);
+  return frame;
+}
+
+function labelled(tag, cls, text, iconId) {
   const n = el(tag, cls);
+  if (iconId) n.append(icon(iconId));
   n.append(el("span", null, text));
   return n;
 }
@@ -50,8 +82,13 @@ const card = (i) => state.cards[i];
 const currentCard = () => (state.current >= 0 ? state.cards[state.current] : null);
 const bodyOf = (c) => (c.authored !== null && c.authored !== undefined ? c.authored : c.markdown);
 
+/** The Ask field has no placeholder — a greyed one would be the only value in
+    this world that is not ink, paper or dither. The hint lives here instead,
+    and working status replaces it while a card is being painted. */
+const HINT = "Paste a docs URL and ask about it.";
+
 function setStatus(text) {
-  statusEl.textContent = text || "";
+  statusEl.textContent = text || HINT;
 }
 
 function setBusy(on) {
@@ -96,7 +133,16 @@ function renderIndex() {
 
   if (!state.cards.length) {
     const li = el("li", "index-empty");
-    li.innerHTML = "The stack is empty.<br>Ask below to paint the first card.";
+    const art = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    art.setAttribute("class", "shoebox-art");
+    art.setAttribute("viewBox", "0 0 120 92");
+    art.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#i-shoebox");
+    art.append(use);
+    li.append(art);
+    li.append(el("p", null, "The stack is empty."));
+    li.append(el("p", "dim", "Ask below and the first card gets painted here."));
     indexEl.append(li);
     return;
   }
@@ -108,13 +154,17 @@ function renderIndex() {
     if (i === state.current) btn.setAttribute("aria-current", "true");
     if (c.status === "painting") btn.classList.add("painting");
 
-    btn.append(el("span", "t", c.title));
+    if (c.kind) btn.append(sourceFrame(c.kind, "sm"));
+
+    const text = el("span", "index-text");
+    text.append(el("span", "t", c.title));
 
     const meta = el("span", "m");
     meta.append(el("span", null, c.status === "error" ? "failed" : `card ${i + 1}`));
     const chars = bodyOf(c).length;
     if (chars) meta.append(el("span", "num", `${chars.toLocaleString()} ch`));
-    btn.append(meta);
+    text.append(meta);
+    btn.append(text);
 
     btn.addEventListener("click", () => goTo(i));
     li.append(btn);
@@ -139,6 +189,7 @@ function renderStage() {
 
   // head
   const head = el("header", "card-head");
+  if (c.kind) head.append(sourceFrame(c.kind));
   head.append(el("h2", "card-title", c.title));
   const boxes = el("span", "boxes");
   boxes.setAttribute("aria-hidden", "true");
@@ -149,6 +200,7 @@ function renderStage() {
   // meta
   const meta = el("div", "card-meta");
   meta.append(el("span", null, `card ${state.current + 1} of ${state.cards.length}`));
+  if (c.kind) meta.append(el("span", null, KIND_LABEL[c.kind] || c.kind));
   meta.append(el("span", null, c.time));
   if (c.authored !== null && c.authored !== undefined) meta.append(el("span", null, "edited"));
   if (c.status === "done") meta.append(el("span", null, `${bodyOf(c).length.toLocaleString()} characters`));
@@ -225,13 +277,13 @@ function errorBlock(message) {
 function cardFoot(c) {
   const foot = el("footer", "card-foot");
 
-  const back = labelled("button", "btn", "Back");
+  const back = labelled("button", "btn", "Back", "i-back");
   back.type = "button";
   back.disabled = !state.trail.length;
   back.addEventListener("click", goBack);
   foot.append(back);
 
-  const author = labelled("button", "btn", state.authoring ? "Done Editing" : "Edit This Card");
+  const author = labelled("button", "btn", state.authoring ? "Done Editing" : "Edit This Card", "i-brush");
   author.type = "button";
   author.disabled = c.status !== "done";
   author.setAttribute("aria-pressed", String(state.authoring));
@@ -247,13 +299,13 @@ function cardFoot(c) {
     foot.append(revert);
   }
 
-  const copy = labelled("button", "btn", "Copy");
+  const copy = labelled("button", "btn", "Copy", "i-copy");
   copy.type = "button";
   copy.disabled = c.status === "painting";
   copy.addEventListener("click", () => copyCard(copy));
   foot.append(copy);
 
-  const dl = labelled("button", "btn primary", "Download .md");
+  const dl = labelled("button", "btn primary", "Download .md", "i-down");
   dl.type = "button";
   dl.disabled = c.status === "painting";
   dl.addEventListener("click", () => downloadCard(c));
@@ -556,6 +608,7 @@ async function ask(question) {
     renderedHtml: "",
     authored: null,
     sources: [],
+    kind: "",
     status: "painting",
     error: null,
     time: stamp(),
@@ -616,7 +669,9 @@ async function ask(question) {
               s.running = false;
               s.ok = data.ok;
               s.chars = data.chars;
+              s.kind = data.kind || "";
             }
+            if (data.kind) c.kind = data.kind;
             setStatus("reading…");
           }
           if (live()) renderStage();
@@ -713,7 +768,16 @@ function bootIntro() {
   stageEl.append(introCard());
 }
 
+/** Menu shortcuts name the key this platform actually uses. */
+function labelShortcuts() {
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  $$(".menu-drop .key[data-key]").forEach((k) => {
+    k.textContent = (mac ? "⌘" : "Ctrl+") + k.dataset.key;
+  });
+}
+
 bootIntro();
+labelShortcuts();
 wireMenus();
 renderIndex();
 refreshMenus();

@@ -1,12 +1,24 @@
 /* ─────────────────────────────────────────────────────────
    DocsForge — HyperCard shoebox stack.
-   One bit: ink and paper. Every grey in this file is a dither
-   pattern, never an opacity and never a hex between the two.
+   One bit: ink and paper. Every grey here is a dither pattern,
+   never an opacity and never a hex between the two.
+
+   Two ways to lay dither down, and they are not interchangeable:
+     --d*       masks over --ink. Theme-independent, but they need
+                their own box, so they can only be used where a
+                pseudo-element is free to sit behind the content.
+     --stipple  a plain background-image, flipped per theme. Use
+                this on anything that has text in it: a positioned
+                pseudo paints AFTER inline content and would sit
+                on top of the words.
    ───────────────────────────────────────────────────────── */
 
 :root {
   --ink: #000000;
   --paper: #ffffff;
+
+  --stipple: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23000'/%3E%3Crect x='2' y='0' width='1' height='1' fill='%23000'/%3E%3Crect x='1' y='2' width='1' height='1' fill='%23000'/%3E%3Crect x='3' y='2' width='1' height='1' fill='%23000'/%3E%3C/svg%3E");
+  --stipple-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23000'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23000'/%3E%3C/svg%3E");
 
   /* Dither levels. Used as MASKS over --ink so they invert with the theme.
      4x4 cells, crisp edges, no anti-aliasing anywhere. */
@@ -29,7 +41,12 @@
 /* The host may be dark. Invert rather than introduce a colour: inverting is
    what this world does when something is selected, so it stays in grammar. */
 @media (prefers-color-scheme: dark) {
-  :root { --ink: #ffffff; --paper: #101010; }
+  :root {
+    --ink: #ffffff;
+    --paper: #101010;
+    --stipple: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23fff'/%3E%3Crect x='2' y='0' width='1' height='1' fill='%23fff'/%3E%3Crect x='1' y='2' width='1' height='1' fill='%23fff'/%3E%3Crect x='3' y='2' width='1' height='1' fill='%23fff'/%3E%3C/svg%3E");
+    --stipple-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23fff'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23fff'/%3E%3C/svg%3E");
+  }
 }
 
 * { box-sizing: border-box; }
@@ -41,6 +58,9 @@ body {
   font-family: var(--body);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  /* DotGothic16 and Silkscreen ship one weight each. Synthesised bold smears
+     a pixel grid, so weight comes from size and inversion instead. */
+  font-synthesis: none;
 }
 
 /* The desktop behind the window: the classic 50% checkerboard. */
@@ -61,7 +81,7 @@ body {
    on top of its paper background instead of behind it. */
 .stack-shadow {
   position: absolute;
-  inset: 14px 2px 2px 14px;
+  inset: 19px 7px 7px 19px;
   z-index: 0;
   background-color: var(--ink);
   -webkit-mask-image: var(--d50);
@@ -87,7 +107,7 @@ body {
 /* ── the stack window ─────────────────────────────────── */
 .stack {
   position: absolute;
-  inset: 8px;
+  inset: 13px;
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -120,7 +140,6 @@ body {
   display: flex;
   align-items: center;
   font-family: var(--display);
-  font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.01em;
   padding-right: 14px;
@@ -137,7 +156,11 @@ body {
   white-space: nowrap;
 }
 
+/* The raised layer lives on .menu, not .menu-drop: if the dropdown itself
+   made a stacking context, its negative-z shadow would paint over its own
+   paper and under the labels, which is how the menu became illegible. */
 .menu { position: relative; display: flex; }
+.menu[data-open="true"] { z-index: 40; }
 
 .menu-title {
   font-family: var(--display);
@@ -160,7 +183,6 @@ body {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 40;
   min-width: 190px;
   margin: 0;
   padding: 3px 0;
@@ -242,6 +264,7 @@ body {
   display: inline-block;
   align-self: flex-start;
   font-family: var(--label);
+  font-weight: 700;
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -263,12 +286,30 @@ body {
 .index-empty {
   font-size: 12.5px;
   line-height: 1.55;
-  padding: 6px 2px;
+  padding: 26px 8px 6px;
+  text-align: center;
+}
+.index-empty p { margin: 0 0 4px; }
+.index-empty .dim { font-size: 11.5px; }
+
+.shoebox-art {
+  display: block;
+  width: 108px;
+  height: 83px;
+  margin: 0 auto 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  color: var(--ink);
 }
 
 .index-card {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
   width: 100%;
   text-align: left;
   font: inherit;
@@ -281,18 +322,17 @@ body {
   cursor: default;
 }
 
-/* Selected card takes the stipple, exactly as the stack spec has it. */
-.index-card[aria-current="true"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-color: var(--ink);
-  -webkit-mask-image: var(--d25);
-  mask-image: var(--d25);
-  -webkit-mask-size: 4px 4px;
-  mask-size: 4px 4px;
-  pointer-events: none;
+/* Selected card takes the stipple, exactly as the stack spec has it. As a
+   background, not an overlay — an overlay would print it over the title. */
+/* Selection inverts. The board stipples a large content card, but any dither
+   under 12.5px type muddies it, and "pressed inverts to solid black" is the
+   same world's own rule — so the rail takes the rule that stays legible. */
+.index-card[aria-current="true"] {
+  background: var(--ink);
+  color: var(--paper);
 }
+
+.index-text { flex: 1 1 auto; min-width: 0; }
 
 .index-card .t {
   display: block;
@@ -369,7 +409,6 @@ body {
   max-height: 132px;
   padding: 8px 9px;
 }
-#input::placeholder { color: var(--ink); opacity: 0.55; }
 
 .ask-row {
   display: flex;
@@ -380,14 +419,18 @@ body {
 
 .status {
   font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.35;
-  min-height: 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  min-height: 15px;
+  margin: 9px 10px 0;
 }
 
 /* ── buttons ──────────────────────────────────────────── */
 .btn {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--display);
   font-size: 12.5px;
   color: var(--ink);
@@ -456,6 +499,10 @@ body {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* Hug the content and cap at the stage: a four-line answer should be a
+     four-line card, not a field of blank paper with a foot at the bottom. */
+  align-self: flex-start;
+  max-height: 100%;
   background: var(--paper);
   border: var(--rule) solid var(--ink);
   /* Two outlined rectangles behind the card: the rest of the shoebox. */
@@ -476,8 +523,7 @@ body {
 .card-title {
   flex: 1 1 auto;
   font-family: var(--display);
-  font-weight: 700;
-  font-size: 17px;
+  font-size: 21px;
   line-height: 1.25;
   letter-spacing: 0.005em;
   margin: 0;
@@ -485,6 +531,32 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The framed source glyph: what the detector decided this card came from. */
+.frame {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: var(--rule) solid var(--ink);
+  background-image: var(--stipple-light);
+  background-size: 4px 4px;
+}
+.frame svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.frame.sm { width: 26px; height: 26px; }
+.frame.sm svg { width: 17px; height: 17px; }
+
+.index-card[aria-current="true"] .frame { border-color: var(--paper); }
+.index-card[aria-current="true"] .frame svg { stroke: var(--paper); }
 
 .boxes { display: flex; gap: 4px; flex: 0 0 auto; }
 .boxes i {
@@ -642,17 +714,17 @@ textarea.author {
 
 .md h1, .md h2, .md h3, .md h4 {
   font-family: var(--display);
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.25;
   margin: 26px 0 9px;
 }
-.md h1 { font-size: 19px; }
+.md h1 { font-size: 21px; }
 .md h2 {
-  font-size: 16px;
+  font-size: 17.5px;
   border-bottom: var(--rule) solid var(--ink);
   padding-bottom: 5px;
 }
-.md h3 { font-size: 14px; }
+.md h3 { font-size: 15px; }
 .md h4 { font-size: 13px; }
 
 .md p { margin: 0 0 12px; }
@@ -712,28 +784,17 @@ textarea.author {
 }
 /* Header row takes the stipple rather than a grey fill. */
 .md th {
-  position: relative;
   font-family: var(--display);
-  font-weight: 700;
   font-size: 12px;
-}
-.md th::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-color: var(--ink);
-  -webkit-mask-image: var(--d12);
-  mask-image: var(--d12);
-  -webkit-mask-size: 4px 4px;
-  mask-size: 4px 4px;
-  pointer-events: none;
+  background-image: var(--stipple-light);
+  background-size: 4px 4px;
 }
 .md img { max-width: 100%; height: auto; }
 
 /* ── intro card ───────────────────────────────────────── */
 .intro-body .lede {
   font-family: var(--display);
-  font-size: 17px;
+  font-size: 25px;
   line-height: 1.4;
   margin-bottom: 16px;
 }
