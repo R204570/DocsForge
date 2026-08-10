@@ -191,12 +191,21 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 42 offline unit tests, no network
-
-python tests/smoke_mcp.py           # live: spawns the MCP server over stdio
-python app.py --port 8123 &         # live: drives one real Groq turn
-python tests/smoke_web.py 8123
+python -m pytest tests/ -q          # 62 offline unit tests, no network
 ```
+
+The live checks need the network, and the last two need `GROQ_API_KEY`:
+
+```bash
+python tests/smoke_mcp.py           # spawns the MCP server over stdio
+python app.py --port 8123 &
+python tests/smoke_web.py 8123      # one real Groq turn, end to end
+python tests/smoke_multiturn.py 8123
+python tests/shoot_ui.py 8123       # screenshots every UI state
+```
+
+`shoot_ui.py` stubs the model stream by default, so it costs no tokens and is
+deterministic; pass `--live` to drive a real turn instead.
 
 ## Output
 
