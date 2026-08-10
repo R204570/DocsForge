@@ -19,6 +19,8 @@ const state = {
   busy: false,
   authoring: false,
   tools: [],
+  providers: [],
+  provider: null,
 };
 
 let nextId = 1;
@@ -201,6 +203,7 @@ function renderStage() {
   const meta = el("div", "card-meta");
   meta.append(el("span", null, `card ${state.current + 1} of ${state.cards.length}`));
   if (c.kind) meta.append(el("span", null, KIND_LABEL[c.kind] || c.kind));
+  if (c.model) meta.append(el("span", null, c.model));
   meta.append(el("span", null, c.time));
   if (c.authored !== null && c.authored !== undefined) meta.append(el("span", null, "edited"));
   if (c.status === "done") meta.append(el("span", null, `${bodyOf(c).length.toLocaleString()} characters`));
@@ -208,6 +211,16 @@ function renderStage() {
 
   // sources
   if (c.sources.length) art.append(sourceList(c));
+
+  if (c.notices.length) {
+    const list = el("ul", "sources notices");
+    c.notices.forEach((n) => {
+      const li = el("li");
+      li.append(icon("i-bang", "ico"), el("span", "nm", n));
+      list.append(li);
+    });
+    art.append(list);
+  }
 
   // field
   const field = el("div", "card-field");
@@ -523,8 +536,46 @@ function runAction(act, arg) {
     case "next": return goTo(Math.min(state.cards.length - 1, state.current + 1));
     case "last": return goTo(state.cards.length - 1);
     case "goto": return goTo(Number(arg));
+    case "provider": return pickProvider(arg);
     default: return undefined;
   }
+}
+
+/** Switch model provider. The choice rides on the next request, so a stack
+    can mix providers — useful when one hits its daily cap mid-session. */
+function pickProvider(name) {
+  const chosen = state.providers.find((p) => p.name === name);
+  if (!chosen || !chosen.available) return;
+  state.provider = name;
+  $("#model-chip").textContent = `${chosen.label} · ${chosen.model || "cli"}`;
+  renderProviderMenu();
+  setStatus(`Now using ${chosen.label}.`);
+}
+
+function renderProviderMenu() {
+  const menu = $("#model-menu");
+  if (!menu) return;
+  menu.innerHTML = "";
+
+  state.providers.forEach((p) => {
+    const li = el("li");
+    const b = el("button");
+    b.type = "button";
+    b.dataset.act = "provider";
+    b.dataset.arg = p.name;
+    b.disabled = !p.available;
+    b.title = p.available
+      ? `${p.notes} — ${p.model || "uses the CLI default model"}`
+      : `Needs ${p.env_key} in .env — ${p.docs}`;
+    b.append(el("span", null, p.label));
+    b.append(el("span", "key", p.name === state.provider ? "•" : (p.available ? "" : "no key")));
+    li.append(b);
+    menu.append(li);
+  });
+
+  const note = el("li", "empty");
+  note.append(el("span", null, "Greyed out means no API key in .env."));
+  menu.append(el("li", "sep"), note);
 }
 
 /** Enable/disable menu items against what the stack can actually do. */
@@ -608,7 +659,10 @@ async function ask(question) {
     renderedHtml: "",
     authored: null,
     sources: [],
+    notices: [],
     kind: "",
+    provider: "",
+    model: "",
     status: "painting",
     error: null,
     time: stamp(),
@@ -624,7 +678,10 @@ async function ask(question) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: [...prior, { role: "user", content: question }] }),
+      body: JSON.stringify({
+        messages: [...prior, { role: "user", content: question }],
+        provider: state.provider,
+      }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -675,8 +732,14 @@ async function ask(question) {
             setStatus("reading…");
           }
           if (live()) renderStage();
+        } else if (event === "notice") {
+          c.notices.push(data.message);
+          setStatus(data.message);
+          if (live()) renderStage();
         } else if (event === "done") {
           finished = true;
+          c.provider = data.provider || "";
+          c.model = data.model || "";
           c.markdown = data.markdown;
           c.status = "done";
           c.title = titleFrom(question, data.markdown);
@@ -788,7 +851,14 @@ fetch("/api/config")
   .then((r) => r.json())
   .then((cfg) => {
     state.tools = cfg.tools || [];
-    $("#model-chip").textContent = cfg.model;
+    state.providers = cfg.providers || [];
+    state.provider = cfg.provider || null;
+
+    const current = state.providers.find((p) => p.name === state.provider);
+    $("#model-chip").textContent = current
+      ? `${current.label} · ${current.model || "cli"}`
+      : "no provider";
+    renderProviderMenu();
 
     const menu = $("#tools-menu");
     menu.innerHTML = "";
@@ -807,7 +877,9 @@ fetch("/api/config")
     note.append(el("span", null, "The model calls these; so can any MCP client."));
     menu.append(el("li", "sep"), note);
 
-    if (!cfg.groq_ready) setStatus("GROQ_API_KEY missing — add it to .env and restart.");
+    if (!cfg.ready) {
+      setStatus("No provider configured — add a key to .env, or install the claude CLI.");
+    }
   })
   .catch(() => {
     $("#model-chip").textContent = "offline";
