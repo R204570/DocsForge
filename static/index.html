@@ -116,13 +116,6 @@
       </ul>
     </div>
 
-    <div class="menu" data-menu="model">
-      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Model</button>
-      <ul class="menu-drop wide" role="menu" id="model-menu">
-        <li class="empty"><span>Loading…</span></li>
-      </ul>
-    </div>
-
     <div class="menu" data-menu="tools">
       <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Tools</button>
       <ul class="menu-drop wide" role="menu" id="tools-menu">
@@ -131,7 +124,17 @@
     </div>
 
     <span class="menubar-spacer"></span>
-    <span class="model" id="model-chip">connecting…</span>
+
+    <!-- The active model, and the control that changes it. Right-hand status
+         menus are where a Mac menu bar has always put this. -->
+    <div class="menu" data-menu="provider">
+      <button class="menu-title model" type="button" id="model-chip"
+              role="menuitem" aria-haspopup="true" aria-expanded="false"
+              title="Switch model provider">connecting…</button>
+      <ul class="menu-drop wide right" role="menu" id="model-menu">
+        <li class="empty"><span>Loading…</span></li>
+      </ul>
+    </div>
   </div>
 
   <div class="body">
@@ -183,6 +186,8 @@
             </table>
 
             <p>Cards are yours to edit before you keep them. <strong>Edit This Card</strong> turns the document back into a text field, and the download takes your version, not the model's.</p>
+
+            <p>The model in use is named at the top right — click it to switch. Providers with no API key in <code>.env</code> are greyed out, so when one runs out of quota you can move to another mid-stack.</p>
 
             <h2>Try one</h2>
             <ul class="starters">
