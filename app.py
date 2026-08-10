@@ -133,7 +133,9 @@ def _sse(event: str, data: dict) -> str:
 
 # Every extracted doc opens with `<!-- source: URL | type: KIND | scraped: … -->`,
 # so the source type the detector picked is already in the tool result.
-_KIND_RE = re.compile(r"<!--\s*source:[^|]*\|\s*type:\s*([a-z0-9_.\-]+)", re.I)
+# Non-greedy up to the `| type:` delimiter, not `[^|]*`: a source URL may
+# itself contain a pipe, and that would end the match on the wrong one.
+_KIND_RE = re.compile(r"<!--\s*source:.*?\|\s*type:\s*([a-z0-9_.\-]+)", re.I)
 
 
 def _kind_of(result: str) -> str:

@@ -79,7 +79,9 @@ def drive_chat(prompt):
                         print(f"\n  [tool] {payload['name']} {payload.get('args')}")
                     else:
                         status = "ok" if payload["ok"] else "FAILED"
-                        print(f"  [tool] {payload['name']} -> {status}, {payload['chars']:,} chars")
+                        kind = payload.get("kind") or "-"
+                        print(f"  [tool] {payload['name']} -> {status}, "
+                              f"{payload['chars']:,} chars, kind={kind}")
                         if not payload["ok"]:
                             print(f"         {payload['preview']}")
                 elif event == "done":
