@@ -88,7 +88,7 @@ def canned_stream(markdown, html, url, cut=None):
         return "".join(parts)
 
     parts.append(sse("tool", {"phase": "end", "name": "fetch_docs", "ok": True,
-                              "chars": 8761, "preview": ""}))
+                              "chars": 8761, "kind": "openapi", "preview": ""}))
     step = 90
     for i in range(0, len(markdown), step):
         parts.append(sse("token", {"text": markdown[i:i + step]}))
@@ -228,6 +228,23 @@ with sync_playwright() as p:
         "desktop": page.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"),
         "mobile": m.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"),
     }
+
+    # ── dark host: the world must inverse, not recolour ───
+    d = browser.new_page(viewport={"width": 1280, "height": 880}, color_scheme="dark")
+    watch(d)
+    if not LIVE:
+        stub(d, bodies)
+    d.goto(BASE, wait_until="networkidle")
+    d.fill("#input", PROMPT)
+    d.click("#send")
+    try:
+        d.wait_for_selector(".card-foot .btn:not(:disabled)", timeout=180000)
+        d.wait_for_timeout(900)
+    except Exception as exc:
+        print(f"  (dark answer wait: {exc})")
+    d.screenshot(path="shot-9-dark.png")
+    print("shot-9-dark.png        — inverted for a dark host")
+
     browser.close()
 
 print(f"\nmode                : {'live groq' if LIVE else 'stubbed stream'}")

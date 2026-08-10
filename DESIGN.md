@@ -122,11 +122,29 @@ into a text field, and the download takes the edited version.
 | ≤ 860px | One column. Rail becomes a horizontal card strip; explicit `grid-template-rows: auto minmax(0,1fr)` — without it, grid's default `align-content: stretch` inflates the auto row and leaves a dead gap. |
 | ≤ 560px | Window full-bleed, no desktop, no border, model chip hidden. |
 
-## Known open
+## Source frame
 
-From the finish review, not yet closed:
+The board's framed picture region, carrying information rather than decoration:
+every card shows **what kind of source it was forged from**. A 34px stippled
+frame in the card head, 26px in the rail, plus the kind in words in the meta row.
 
-- Ornament density is below the quality-bar board; the card's framed picture
-  region has no counterpart.
-- Focal scale is shallow: the whole type system runs 9–19px.
-- `#input::placeholder` uses `opacity: 0.55`, the one grey that is not a dither.
+No second detector was written for this. Every document DocsForge produces
+already opens with `<!-- source: … | type: KIND | scraped: … -->`, so `app.py`
+reads the kind straight out of the tool result and sends it on the `tool` end
+event. Six glyphs (`#k-openapi`, `#k-github`, `#k-sitemap`, `#k-html`,
+`#k-llms`, `#k-raw`), authored in the same grammar as the rest.
+
+On the inverted selected rail card the frame's border and stroke flip to paper.
+
+## Type scale
+
+9px (Silkscreen chip) → 25px (intro lede), with the card title at 21px as the
+focal element. An embedded panel rules out a display hero, but not a hierarchy.
+
+## Verified
+
+- Both themes probed by computed style, not by eye: ink/paper, card, chip,
+  status and the filled primary button all invert. Contrast is 21:1 each way.
+- Desktop 1280 and mobile 420 captured in one round; no horizontal overflow at
+  either, no console errors.
+- `detect.mjs` clean over all three static files.

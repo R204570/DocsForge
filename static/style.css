@@ -307,7 +307,9 @@ body {
 
 .index-card {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
   width: 100%;
   text-align: left;
   font: inherit;
@@ -329,6 +331,8 @@ body {
   background: var(--ink);
   color: var(--paper);
 }
+
+.index-text { flex: 1 1 auto; min-width: 0; }
 
 .index-card .t {
   display: block;
@@ -405,7 +409,6 @@ body {
   max-height: 132px;
   padding: 8px 9px;
 }
-#input::placeholder { color: var(--ink); opacity: 0.55; }
 
 .ask-row {
   display: flex;
@@ -416,9 +419,10 @@ body {
 
 .status {
   font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.35;
-  min-height: 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  min-height: 15px;
+  margin: 9px 10px 0;
 }
 
 /* ── buttons ──────────────────────────────────────────── */
@@ -519,7 +523,7 @@ body {
 .card-title {
   flex: 1 1 auto;
   font-family: var(--display);
-  font-size: 17px;
+  font-size: 21px;
   line-height: 1.25;
   letter-spacing: 0.005em;
   margin: 0;
@@ -527,6 +531,32 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The framed source glyph: what the detector decided this card came from. */
+.frame {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: var(--rule) solid var(--ink);
+  background-image: var(--stipple-light);
+  background-size: 4px 4px;
+}
+.frame svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.frame.sm { width: 26px; height: 26px; }
+.frame.sm svg { width: 17px; height: 17px; }
+
+.index-card[aria-current="true"] .frame { border-color: var(--paper); }
+.index-card[aria-current="true"] .frame svg { stroke: var(--paper); }
 
 .boxes { display: flex; gap: 4px; flex: 0 0 auto; }
 .boxes i {
@@ -688,13 +718,13 @@ textarea.author {
   line-height: 1.25;
   margin: 26px 0 9px;
 }
-.md h1 { font-size: 19px; }
+.md h1 { font-size: 21px; }
 .md h2 {
-  font-size: 16px;
+  font-size: 17.5px;
   border-bottom: var(--rule) solid var(--ink);
   padding-bottom: 5px;
 }
-.md h3 { font-size: 14px; }
+.md h3 { font-size: 15px; }
 .md h4 { font-size: 13px; }
 
 .md p { margin: 0 0 12px; }
@@ -764,7 +794,7 @@ textarea.author {
 /* ── intro card ───────────────────────────────────────── */
 .intro-body .lede {
   font-family: var(--display);
-  font-size: 17px;
+  font-size: 25px;
   line-height: 1.4;
   margin-bottom: 16px;
 }

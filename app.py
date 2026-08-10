@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Any, Iterator
 
@@ -130,6 +131,23 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# Every extracted doc opens with `<!-- source: URL | type: KIND | scraped: … -->`,
+# so the source type the detector picked is already in the tool result.
+_KIND_RE = re.compile(r"<!--\s*source:[^|]*\|\s*type:\s*([a-z0-9_.\-]+)", re.I)
+
+
+def _kind_of(result: str) -> str:
+    match = _KIND_RE.search(result or "")
+    if not match:
+        return ""
+    kind = match.group(1).lower()
+    if kind.startswith("github"):
+        return "github"
+    if kind.startswith("llms"):
+        return "llms"
+    return {"raw": "raw"}.get(kind, kind)
+
+
 def _accumulate_tool_calls(delta, sink: dict[int, dict]) -> None:
     """Tool calls arrive split across streaming chunks; stitch them by index."""
     for tc in getattr(delta, "tool_calls", None) or []:
@@ -225,6 +243,7 @@ def chat_stream(history: list[dict]) -> Iterator[str]:
                     "name": call["name"],
                     "ok": ok,
                     "chars": len(result),
+                    "kind": _kind_of(result),
                     "preview": result[:200],
                 })
                 messages.append({
