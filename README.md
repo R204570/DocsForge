@@ -144,25 +144,58 @@ Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (60k default) with
 ## 3. Web chat
 
 ```bash
-cp .env.example .env      # then put your GROQ_API_KEY in it
+cp .env.example .env      # add a key for ONE provider — or none at all
 python app.py             # http://127.0.0.1:8000
 ```
 
-A single-page chat with the composer pinned to the bottom. You type a question, the model fetches whatever docs it needs through the tools above, and the reply is rendered as Markdown. Every reply carries **View Markdown / Copy .md / Download .md** actions, so you can take the raw `.md` straight out of the page.
+A single-page chat built as a HyperCard card stack: every answer is a card, the
+shoebox index runs down the left, and the current card holds the document. Each
+card carries **Edit This Card / Copy / Download .md**, so the Markdown is
+something you keep, not just something you read. Tool calls appear inline as
+they run, with the source type each card was forged from.
 
-Tool calls appear inline as they run, so you can see what was fetched and how much came back.
+### Providers
+
+Pick one from the **Model** menu; unconfigured ones are greyed out. The choice
+rides on each request, so when one provider hits its daily cap you switch and
+keep going — the stack can mix providers.
+
+| Provider | Key | Default model | Notes |
+|---|---|---|---|
+| **Claude Code** | *none* | your CLI default | Runs the local `claude` CLI against your existing login. **No API key and no per-token bill.** |
+| **Claude** | `ANTHROPIC_API_KEY` | `claude-opus-5` | Strongest on long documents and tool use. |
+| **Groq** | `GROQ_API_KEY` | `llama-3.3-70b-versatile` | Fast and cheap; free tier caps at 100k tokens/day. |
+| **ChatGPT** | `OPENAI_API_KEY` | `gpt-4.1` | Billed per token, no free tier. |
+| **Gemini** | `GEMINI_API_KEY` | `gemini-2.5-flash` | Large free tier. |
+
+Each provider is one file in `providers/`, and they all speak the same small
+event stream (`text`, `tool_start`, `tool_end`, `notice`) so `app.py` never
+learns which one is running. What differs is the tool-calling shape, which is
+why each owns its own loop:
+
+- `groq.py` and `chatgpt.py` share `_openai_shape.py` — `tool_calls` deltas
+  stitched by index, answered with `role: "tool"` messages.
+- `claude.py` — `tool_use` blocks answered by `tool_result` blocks in one user
+  turn. Sends **no** `temperature`/`top_p`/`top_k`: they were removed on Opus 5
+  and return a 400. Refusal fallbacks are on by default (`ANTHROPIC_FALLBACKS=off`).
+- `gemini.py` — `functionCall` / `functionResponse` parts, automatic function
+  calling disabled so the JSON-Schema tool definitions stay shared.
+- `claudecode.py` — the odd one out: it shells out to the `claude` CLI with
+  **DocsForge's own MCP server attached**, so the tools run out of process over
+  real MCP. `--strict-mcp-config` keeps your other MCP servers out of the session.
+
+Adding a provider means one file and one line in `providers/__init__.py`.
 
 ### Configuration
 
-All optional except the key — defaults shown.
+Everything is optional; see `.env.example` for the full list.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GROQ_API_KEY` | — | **Required.** From https://console.groq.com/keys |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq model with tool-calling support. |
-| `GROQ_TEMPERATURE` | `1` | |
-| `GROQ_MAX_TOKENS` | `2048` | Per-turn completion cap. |
-| `GROQ_TOP_P` | `1` | |
+| `DOCSFORGE_PROVIDER` | first configured | Which provider to start on. |
+| `<NAME>_MODEL` | per provider | Override a provider's model, e.g. `CLAUDE_MODEL`. |
+| `ANTHROPIC_FALLBACKS` | `default` | `off` disables Claude's server-side refusal fallbacks. |
+| `OPENAI_BASE_URL` | — | Point ChatGPT at Azure or an OpenAI-compatible host. |
 | `GITHUB_TOKEN` | — | Raises the GitHub API rate limit. |
 | `DOCSFORGE_MAX_CHARS` | `60000` | Largest tool result returned to a model. |
 | `DOCSFORGE_OUT_ROOT` | `./docs_md` | Directory `save_docs` may write into. |
@@ -173,8 +206,8 @@ All optional except the key — defaults shown.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/` | The chat UI. |
-| `GET` | `/api/config` | Model name, key presence, tool list. |
-| `POST` | `/api/chat` | SSE stream: `token`, `tool`, `done`, `error` events. |
+| `GET` | `/api/config` | Provider catalog, current default, tool list. |
+| `POST` | `/api/chat` | SSE stream: `token`, `tool`, `notice`, `done`, `error`. Takes an optional `provider`. |
 | `POST` | `/api/render` | Markdown → sanitized HTML. |
 
 The server is stateless — the browser holds the conversation and posts it back each turn.
@@ -191,7 +224,7 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 62 offline unit tests, no network
+python -m pytest tests/ -q          # 80 offline unit tests, no network
 ```
 
 The live checks need the network, and the last two need `GROQ_API_KEY`:

@@ -1,18 +1,19 @@
 """
 Shared tool layer for DocsForge.
 
-One definition of each tool, consumed by two callers:
+One definition of each tool, consumed by every caller:
 
   * mcp_server.py — exposes them over MCP (stdio / HTTP) to any MCP client.
-  * app.py        — exposes the same schemas to Groq for tool calling.
+  * providers/*   — hands the same schemas to Claude, Groq, OpenAI and Gemini.
 
-Keeping both on this module means the web chat and an MCP client such as
+Keeping everything on this module means the web chat and an MCP client such as
 Claude Code get byte-identical behaviour from the same code path.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +26,27 @@ MAX_CHARS = int(os.environ.get("DOCSFORGE_MAX_CHARS", "60000"))
 # save_docs writes are confined to this root so a model cannot scribble
 # anywhere on the filesystem.
 OUT_ROOT = Path(os.environ.get("DOCSFORGE_OUT_ROOT", Path.cwd() / "docs_md")).resolve()
+
+
+# Every extracted doc opens with `<!-- source: URL | type: KIND | scraped: … -->`,
+# so the source type the detector picked is already in the tool result. Reading
+# it back beats writing a second copy of the detection logic.
+# Non-greedy up to the `| type:` delimiter, not `[^|]*`: a source URL may itself
+# contain a pipe, and that would end the match on the wrong one.
+_KIND_RE = re.compile(r"<!--\s*source:.*?\|\s*type:\s*([a-z0-9_.\-]+)", re.I)
+
+
+def kind_of(result: str) -> str:
+    """Which kind of source a tool result was forged from, or ""."""
+    match = _KIND_RE.search(result or "")
+    if not match:
+        return ""
+    kind = match.group(1).lower()
+    if kind.startswith("github"):
+        return "github"
+    if kind.startswith("llms"):
+        return "llms"
+    return kind
 
 
 def _truncate(text: str, limit: int = MAX_CHARS) -> str:

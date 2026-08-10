@@ -2,16 +2,19 @@
 """
 DocsForge web chat.
 
-A single-page chat UI (input pinned to the bottom) backed by Groq, wired to the
-DocsForge tools from forge_tools.py — the same tools mcp_server.py exposes over
-MCP. Ask it about any docs URL and it fetches, extracts, and answers in
-Markdown, which the page renders.
+A single-page chat UI (a HyperCard-style card stack) backed by any of five
+model providers, all wired to the DocsForge tools from forge_tools.py — the
+same tools mcp_server.py exposes over MCP. Ask it about any docs URL and it
+fetches, extracts, and answers in Markdown, which the page renders.
+
+The provider is chosen per request, so when one runs out of quota you switch
+in the UI and keep working.
 
 Run:
   python app.py                 # http://127.0.0.1:8000
   python app.py --port 8080 --reload
 
-Requires GROQ_API_KEY in .env (or the environment).
+Needs at least one provider configured — see .env.example.
 """
 
 from __future__ import annotations
@@ -19,9 +22,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
-from typing import Any, Iterator
+from typing import Iterator
 
 import nh3
 from dotenv import find_dotenv, load_dotenv
@@ -34,19 +36,12 @@ from pydantic import BaseModel, Field
 load_dotenv(find_dotenv(usecwd=True))
 
 import forge_tools  # noqa: E402  (after load_dotenv so tool config sees .env)
+import providers  # noqa: E402
 from docsforge import enable_utf8_console  # noqa: E402
+from providers import MAX_CONTENT, MAX_HISTORY, ProviderError  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
-
-MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-TEMPERATURE = float(os.environ.get("GROQ_TEMPERATURE", "1"))
-MAX_TOKENS = int(os.environ.get("GROQ_MAX_TOKENS", "2048"))
-TOP_P = float(os.environ.get("GROQ_TOP_P", "1"))
-
-MAX_TOOL_ROUNDS = 4        # tool → model → tool → … before we force an answer
-MAX_HISTORY = 40           # messages accepted from the client
-MAX_CONTENT = 100_000      # per-message character cap
 
 SYSTEM_PROMPT = """You are DocsForge, an assistant that turns software documentation into clean, useful Markdown.
 
@@ -65,6 +60,7 @@ Answer formatting — this matters, the UI renders your reply as Markdown:
 - Put code in fenced blocks with a language tag.
 - Link to sources inline with real URLs.
 - When you summarise fetched docs, be faithful to them and say so if something was truncated or failed to load.
+- Keep responses focused and concise; put the answer first and supporting detail after.
 """
 
 
@@ -92,20 +88,8 @@ def render_markdown(text: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-# Groq
+# Request handling
 # ─────────────────────────────────────────────────────────────
-def groq_client():
-    from groq import Groq
-
-    key = os.environ.get("GROQ_API_KEY")
-    if not key:
-        raise RuntimeError(
-            "GROQ_API_KEY is not set. Put it in .env at the project root, e.g.\n"
-            "  GROQ_API_KEY=gsk_..."
-        )
-    return Groq(api_key=key)
-
-
 class ChatMessage(BaseModel):
     role: str
     content: str = ""
@@ -113,6 +97,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
+    provider: str | None = None
 
 
 def _clean_history(messages: list[ChatMessage]) -> list[dict]:
@@ -131,135 +116,50 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-# Every extracted doc opens with `<!-- source: URL | type: KIND | scraped: … -->`,
-# so the source type the detector picked is already in the tool result.
-# Non-greedy up to the `| type:` delimiter, not `[^|]*`: a source URL may
-# itself contain a pipe, and that would end the match on the wrong one.
-_KIND_RE = re.compile(r"<!--\s*source:.*?\|\s*type:\s*([a-z0-9_.\-]+)", re.I)
-
-
-def _kind_of(result: str) -> str:
-    match = _KIND_RE.search(result or "")
-    if not match:
-        return ""
-    kind = match.group(1).lower()
-    if kind.startswith("github"):
-        return "github"
-    if kind.startswith("llms"):
-        return "llms"
-    return {"raw": "raw"}.get(kind, kind)
-
-
-def _accumulate_tool_calls(delta, sink: dict[int, dict]) -> None:
-    """Tool calls arrive split across streaming chunks; stitch them by index."""
-    for tc in getattr(delta, "tool_calls", None) or []:
-        slot = sink.setdefault(tc.index, {"id": "", "name": "", "args": ""})
-        if getattr(tc, "id", None):
-            slot["id"] = tc.id
-        fn = getattr(tc, "function", None)
-        if fn is not None:
-            if getattr(fn, "name", None):
-                slot["name"] = fn.name
-            if getattr(fn, "arguments", None):
-                slot["args"] += fn.arguments
-
-
-def chat_stream(history: list[dict]) -> Iterator[str]:
-    """Drive Groq with tool calling, emitting SSE as it goes."""
+def chat_stream(history: list[dict], provider_name: str | None) -> Iterator[str]:
+    """Drive the chosen provider, mapping its events onto SSE."""
     try:
-        client = groq_client()
-    except RuntimeError as e:
+        provider = providers.get(provider_name)
+    except ProviderError as e:
         yield _sse("error", {"message": str(e)})
         return
 
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}, *history]
-    tools = forge_tools.openai_tools()
-    answer_parts: list[str] = []
-
+    answer: list[str] = []
     try:
-        for round_index in range(MAX_TOOL_ROUNDS + 1):
-            last_round = round_index == MAX_TOOL_ROUNDS
-            completion = client.chat.completions.create(
-                model=MODEL,
-                messages=messages,
-                tools=tools,
-                # On the final round drop tools so the model has to answer.
-                tool_choice="none" if last_round else "auto",
-                temperature=TEMPERATURE,
-                max_completion_tokens=MAX_TOKENS,
-                top_p=TOP_P,
-                stream=True,
-                stop=None,
-            )
-
-            content_parts: list[str] = []
-            pending: dict[int, dict] = {}
-
-            for chunk in completion:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                piece = getattr(delta, "content", None)
-                if piece:
-                    content_parts.append(piece)
-                    yield _sse("token", {"text": piece})
-                _accumulate_tool_calls(delta, pending)
-
-            text = "".join(content_parts)
-            if text.strip():
-                answer_parts.append(text)
-
-            calls = [pending[i] for i in sorted(pending) if pending[i]["name"]]
-            if not calls:
-                break
-
-            messages.append({
-                "role": "assistant",
-                "content": text or None,
-                "tool_calls": [
-                    {
-                        "id": c["id"] or f"call_{i}",
-                        "type": "function",
-                        "function": {"name": c["name"], "arguments": c["args"] or "{}"},
-                    }
-                    for i, c in enumerate(calls)
-                ],
-            })
-
-            for i, call in enumerate(calls):
-                try:
-                    args = json.loads(call["args"] or "{}")
-                    if not isinstance(args, dict):
-                        raise ValueError("arguments were not a JSON object")
-                except (json.JSONDecodeError, ValueError) as e:
-                    result = f"Error: could not parse arguments for {call['name']}: {e}"
-                    args = {}
-                    yield _sse("tool", {"phase": "start", "name": call["name"], "args": {}})
-                else:
-                    yield _sse("tool", {"phase": "start", "name": call["name"], "args": args})
-                    result = forge_tools.run_tool(call["name"], args)
-
-                ok = not result.startswith("Error:")
+        for event in provider.stream(
+            system=SYSTEM_PROMPT,
+            history=history,
+            tools=forge_tools.TOOLS,
+            run_tool=forge_tools.run_tool,
+        ):
+            kind = event["type"]
+            if kind == "text":
+                answer.append(event["text"])
+                yield _sse("token", {"text": event["text"]})
+            elif kind == "tool_start":
+                yield _sse("tool", {"phase": "start", "name": event["name"], "args": event["args"]})
+            elif kind == "tool_end":
                 yield _sse("tool", {
                     "phase": "end",
-                    "name": call["name"],
-                    "ok": ok,
-                    "chars": len(result),
-                    "kind": _kind_of(result),
-                    "preview": result[:200],
+                    "name": event["name"],
+                    "ok": event["ok"],
+                    "chars": event["chars"],
+                    "kind": event["kind"],
+                    "preview": event["preview"],
                 })
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call["id"] or f"call_{i}",
-                    "name": call["name"],
-                    "content": result,
-                })
+            elif kind == "notice":
+                yield _sse("notice", {"message": event["message"]})
 
-        markdown = "\n\n".join(p.strip() for p in answer_parts if p.strip())
-        if not markdown:
-            markdown = "_(no response generated)_"
-        yield _sse("done", {"markdown": markdown, "html": render_markdown(markdown)})
+        markdown = "".join(answer).strip() or "_(no response generated)_"
+        yield _sse("done", {
+            "markdown": markdown,
+            "html": render_markdown(markdown),
+            "provider": provider.name,
+            "model": provider.model(),
+        })
 
+    except ProviderError as e:
+        yield _sse("error", {"message": str(e)})
     except Exception as e:  # network blips, bad key, model errors
         yield _sse("error", {"message": f"{type(e).__name__}: {e}"})
 
@@ -267,7 +167,7 @@ def chat_stream(history: list[dict]) -> Iterator[str]:
 # ─────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────
-app = FastAPI(title="DocsForge Chat", version="1.1.0")
+app = FastAPI(title="DocsForge Chat", version="1.2.0")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -278,9 +178,11 @@ def index():
 
 @app.get("/api/config")
 def config():
+    catalog = providers.catalog()
     return {
-        "model": MODEL,
-        "groq_ready": bool(os.environ.get("GROQ_API_KEY")),
+        "providers": catalog,
+        "provider": providers.default_name(),
+        "ready": any(p["available"] for p in catalog),
         "tools": [{"name": t.name, "description": t.description} for t in forge_tools.TOOLS],
     }
 
@@ -296,7 +198,7 @@ def chat(req: ChatRequest):
     if not history:
         return JSONResponse({"detail": "No messages provided."}, status_code=400)
     return StreamingResponse(
-        chat_stream(history),
+        chat_stream(history, req.provider),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -316,9 +218,13 @@ def main(argv: list[str] | None = None) -> int:
 
     enable_utf8_console()
 
-    if not os.environ.get("GROQ_API_KEY"):
-        print("warning: GROQ_API_KEY not found in environment or .env — "
-              "the UI will load but chat will error.", file=sys.stderr)
+    ready = [p for p in providers.PROVIDERS if p.available()]
+    if not ready:
+        print("warning: no provider is configured — the UI will load but chat will error.\n"
+              "         Add a key to .env (see .env.example) or install the claude CLI.",
+              file=sys.stderr)
+    else:
+        print("providers ready: " + ", ".join(p.label for p in ready), file=sys.stderr)
 
     import uvicorn
     print(f"DocsForge chat → http://{args.host}:{args.port}", file=sys.stderr)

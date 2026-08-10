@@ -13,11 +13,19 @@ pydantic>=2.0
 # ── web chat (app.py) ────────────────────────────────────
 fastapi>=0.110
 uvicorn>=0.27
-groq>=0.11
 python-dotenv>=1.0
 markdown-it-py>=3.0
 linkify-it-py>=2.0   # auto-links bare URLs in rendered output
 nh3>=0.2             # sanitises model/scraped HTML before it hits the page
+
+# ── model providers (providers/) ─────────────────────────
+# You only need the SDK for the provider(s) you actually use; each one is
+# imported lazily and reports a clear error if its package is missing.
+# providers/claudecode.py needs no package at all — it drives the `claude` CLI.
+groq>=0.11           # providers/groq.py
+anthropic>=0.70      # providers/claude.py
+openai>=1.40         # providers/chatgpt.py
+google-genai>=1.0    # providers/gemini.py
 
 # ── optional ─────────────────────────────────────────────
 # playwright        # only needed for --js / js:true; then: playwright install chromium
