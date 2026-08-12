@@ -109,6 +109,54 @@ async def save_docs(
     )
 
 
+@server.tool(
+    description=(
+        "Learn a WHOLE technology from one starting URL. Use this whenever the caller "
+        "wants all of something's documentation, or asks about a library you do not "
+        "already know well. Give it any page of the docs and it finds the rest — via "
+        "llms.txt, the sitemap, or a crawl scoped to that docs section — then stores "
+        "everything as one Markdown file in the knowledge base. Returns a summary, not "
+        "the documentation; read it back with read_knowledge_base."
+    )
+)
+async def harvest_docs(
+    url: Annotated[str, Field(description="Any page of the documentation, usually the introduction.")],
+    name: Annotated[str | None, Field(description="What to file it under, e.g. \"effect\".")] = None,
+    max_pages: Annotated[int, Field(ge=1, le=2000, description="Upper bound on pages to fetch.")] = 200,
+    js: Js = False,
+    scope: Annotated[str, Field(description="\"section\" (default), \"host\", or a literal path prefix.")] = "section",
+) -> str:
+    return await anyio.to_thread.run_sync(
+        lambda: forge_tools.tool_harvest_docs(url, name=name, max_pages=max_pages, js=js, scope=scope)
+    )
+
+
+@server.tool(
+    description=(
+        "List the technologies already harvested and stored locally. Check this first "
+        "when asked about a library — if it is stored, read it instead of fetching."
+    )
+)
+async def list_knowledge_base() -> str:
+    return await anyio.to_thread.run_sync(forge_tools.tool_list_knowledge_base)
+
+
+@server.tool(
+    description=(
+        "Read stored documentation back out of the knowledge base. Pass `section` to get "
+        "only the pages whose title matches a phrase, which is how you answer a specific "
+        "question without pulling a whole manual into context."
+    )
+)
+async def read_knowledge_base(
+    name: Annotated[str, Field(description="The stored name, as shown by list_knowledge_base.")],
+    section: Annotated[str | None, Field(description="Optional phrase to match against page titles.")] = None,
+) -> str:
+    return await anyio.to_thread.run_sync(
+        lambda: forge_tools.tool_read_knowledge_base(name, section=section)
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="docsforge-mcp", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

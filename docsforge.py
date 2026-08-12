@@ -35,7 +35,7 @@ import socket
 import sys
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import requests
@@ -80,6 +80,9 @@ class Options:
     js: bool = False
     delay: float = 0.4
     force: str | None = None
+    #: Crawl boundary: "section" keeps to the docs root the start URL sits in,
+    #: "host" is the whole domain, anything else is used as a literal prefix.
+    scope: str = "section"
     # Fetching a user-supplied URL server-side is an SSRF vector, so private /
     # loopback targets are refused unless explicitly allowed.
     allow_private: bool = field(
@@ -283,19 +286,53 @@ def detect_source(url: str, fetcher: Fetcher) -> Detection:
     if u.endswith((".md", ".markdown", ".txt", ".rst")):
         return Detection("raw_text", url)
 
-    # Bare domain: probe for the llms.txt convention before falling back.
-    if path.strip("/") == "":
-        for candidate in ("llms-full.txt", "llms.txt"):
-            probe = urljoin(url, "/" + candidate)
-            try:
-                r = fetcher.get(probe, timeout=10, allow_redirects=True)
-            except ForgeError:
-                continue
-            ctype = r.headers.get("content-type", "").lower()
-            if r.status_code == 200 and "html" not in ctype:
-                return Detection("llms_txt", probe, _decode(r))
+    # Probe the origin for an LLM-native dump, whatever depth the URL is at.
+    # A single docs page is rarely what someone wants when the whole site is
+    # published as one file two directories up.
+    for candidate in ("llms-full.txt", "llms.txt"):
+        probe = urljoin(url, "/" + candidate)
+        try:
+            r = fetcher.get(probe, timeout=10, allow_redirects=True)
+        except ForgeError:
+            continue
+        ctype = r.headers.get("content-type", "").lower()
+        if r.status_code == 200 and "html" not in ctype:
+            return Detection("llms_txt", probe, _decode(r))
 
     return Detection("html", url)
+
+
+SITEMAP_CANDIDATES = ("/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml",
+                      "/sitemap-0.xml", "/docs/sitemap.xml")
+
+
+def find_sitemap(url: str, fetcher: Fetcher, opts: Options) -> str | None:
+    """Look for a sitemap: robots.txt first (it is the declared location),
+    then the conventional paths. Returns a URL or None."""
+    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+
+    try:
+        robots = fetcher.text(origin + "/robots.txt", timeout=10)
+    except ForgeError:
+        robots = ""
+    for line in robots.splitlines():
+        if line.lower().startswith("sitemap:"):
+            found = line.split(":", 1)[1].strip()
+            if found:
+                _log(opts, f"  sitemap from robots.txt: {found}")
+                return found
+
+    for candidate in SITEMAP_CANDIDATES:
+        probe = origin + candidate
+        try:
+            r = fetcher.get(probe, timeout=10, allow_redirects=True)
+        except ForgeError:
+            continue
+        ctype = r.headers.get("content-type", "").lower()
+        if r.status_code == 200 and ("xml" in ctype or r.text.lstrip().startswith("<?xml")):
+            _log(opts, f"  sitemap found at {probe}")
+            return probe
+    return None
 
 
 def _looks_like_openapi(text: str) -> bool:
@@ -586,20 +623,79 @@ def handle_html(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
     return [Doc(det.url, title, doc)]
 
 
-def _crawlable(link: str, host: str) -> bool:
+# Path segments that mark the start of a documentation section.
+DOC_ROOTS = ("docs", "doc", "documentation", "guide", "guides", "manual",
+             "reference", "learn", "handbook", "api")
+
+_VERSION = re.compile(r"^v?\d+(\.\d+)*$", re.I)
+
+
+def docs_scope(url: str) -> str:
+    """The path prefix a crawl should stay inside, derived from the start URL.
+
+    Docs usually share a domain with marketing, a blog and a changelog, so
+    "same host" is far too wide a net — crawling from an Effect docs page that
+    way walks straight into /podcast. Anchor on the documentation root instead:
+
+        /docs/v3/getting-started/introduction/  ->  /docs/v3/
+        /guide/setup                            ->  /guide/
+        /some/deep/page                         ->  /some/deep/   (its folder)
+    """
+    parts = [p for p in urlparse(url).path.split("/") if p]
+    if not parts:
+        return "/"
+
+    for i, part in enumerate(parts):
+        if part.lower() in DOC_ROOTS:
+            keep = parts[: i + 1]
+            # Keep a version segment with it: /docs/v3/, not just /docs/.
+            if i + 1 < len(parts) and _VERSION.match(parts[i + 1]):
+                keep.append(parts[i + 1])
+            return "/" + "/".join(keep) + "/"
+
+    # No recognisable docs root: stay in the start page's own folder.
+    folder = parts[:-1] if "." in parts[-1] or len(parts) > 1 else parts
+    return "/" + "/".join(folder) + "/" if folder else "/"
+
+
+def _normalize(url: str) -> str:
+    """Drop the fragment and a trailing slash so `/intro` and `/intro/` are
+    one page, not two fetches of the same content."""
+    url = urldefrag(url)[0]
+    parsed = urlparse(url)
+    path = parsed.path
+    if len(path) > 1 and path.endswith("/"):
+        url = url.replace(path, path[:-1], 1)
+    return url
+
+
+def _crawlable(link: str, host: str, prefix: str = "/") -> bool:
     p = urlparse(link)
     if p.scheme not in ("http", "https"):
         return False
     if (p.hostname or "").lower() != host:
         return False
-    return not p.path.lower().endswith(SKIP_EXT)
+    if p.path.lower().endswith(SKIP_EXT):
+        return False
+    # Compare with a trailing slash on both sides so /docs/v3 matches /docs/v3/.
+    path = p.path if p.path.endswith("/") else p.path + "/"
+    return path.startswith(prefix)
 
 
 def _crawl_html(start: str, fetcher: Fetcher, opts: Options) -> list[Doc]:
     seen: set[str] = set()
     out: list[Doc] = []
-    queue = deque([urldefrag(start)[0]])
+    queue = deque([_normalize(start)])
     host = (urlparse(start).hostname or "").lower()
+
+    # "Same host" is not the right boundary for a docs site — see docs_scope.
+    if opts.scope == "host":
+        prefix = "/"
+    elif opts.scope in ("", "section", None):
+        prefix = docs_scope(start)
+    else:
+        prefix = opts.scope if opts.scope.endswith("/") else opts.scope + "/"
+    _log(opts, f"  crawling within {prefix}")
 
     while queue and len(out) < opts.max_pages:
         url = queue.popleft()
@@ -612,8 +708,8 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options) -> list[Doc]:
             # Parse once: link discovery needs the nav _html_to_md strips out.
             soup = _soup(html)
             for a in soup.find_all("a", href=True):
-                link = urldefrag(urljoin(url, a["href"]))[0]
-                if link not in seen and _crawlable(link, host):
+                link = _normalize(urljoin(url, a["href"]))
+                if link not in seen and link not in queue and _crawlable(link, host, prefix):
                     queue.append(link)
 
             title, doc = _html_to_md(html, url, soup=soup)
@@ -745,6 +841,89 @@ def forge(url: str, opts: Options | None = None, fetcher: Fetcher | None = None)
     finally:
         if own:
             fetcher.close()
+
+
+def harvest(url: str, opts: Options | None = None,
+            fetcher: Fetcher | None = None) -> tuple[list[Doc], str]:
+    """Get a WHOLE documentation set from one starting URL.
+
+    `forge()` answers "extract this URL". This answers "extract this
+    technology", which is a different question — the caller has one link into a
+    docs site and wants everything under it. Strategies, best first:
+
+      1. llms-full.txt / llms.txt — the site already published itself for us.
+      2. sitemap.xml, filtered to the docs section — complete and cheap, and it
+         finds pages no nav links to.
+      3. A scoped crawl — works anywhere, but only reaches what is linked.
+
+    Returns the documents and the name of the strategy that produced them.
+    """
+    opts = opts or Options()
+    own = fetcher is None
+    fetcher = fetcher or Fetcher(opts)
+    try:
+        det = detect_source(url, fetcher)
+        if det.kind in ("llms_txt", "openapi", "github", "raw_text"):
+            _log(opts, f"  harvesting via {det.kind}")
+            return HANDLERS[det.kind](det, fetcher, opts), det.kind
+
+        prefix = docs_scope(url) if opts.scope in ("", "section", None) else (
+            "/" if opts.scope == "host" else opts.scope)
+        host = (urlparse(url).hostname or "").lower()
+
+        sitemap = find_sitemap(url, fetcher, opts)
+        if sitemap:
+            try:
+                links = _sitemap_links(fetcher.text(sitemap), fetcher, opts)
+            except ForgeError:
+                links = []
+            scoped = [l for l in dict.fromkeys(_normalize(l) for l in links)
+                      if _crawlable(l, host, prefix)]
+            # One or two hits usually means the sitemap does not really cover
+            # the docs; a crawl will do better than a near-empty list.
+            if len(scoped) >= 3:
+                _log(opts, f"  harvesting {len(scoped)} pages from the sitemap")
+                out: list[Doc] = []
+                for link in scoped[: opts.max_pages]:
+                    try:
+                        title, body = _html_to_md(fetcher.html(link), link)
+                    except Exception as e:
+                        _log(opts, f"  skip {link}: {e}")
+                        continue
+                    out.append(Doc(link, title, body))
+                    _log(opts, f"  [{len(out)}] {link}")
+                    time.sleep(opts.delay)
+                if out:
+                    return out, "sitemap"
+
+        _log(opts, "  harvesting by crawl")
+        crawl_opts = replace(opts, crawl=True)
+        return _crawl_html(url, fetcher, crawl_opts), "crawl"
+    finally:
+        if own:
+            fetcher.close()
+
+
+def combine(docs: list[Doc], url: str, strategy: str = "") -> str:
+    """One Markdown file for a whole technology: contents, then every page."""
+    host = urlparse(url).hostname or url
+    lines = [
+        f"# {host} documentation",
+        "",
+        f"<!-- harvested: {len(docs)} pages | from: {url} | via: {strategy} | "
+        f"{time.strftime('%Y-%m-%d %H:%M')} -->",
+        "",
+        "## Contents",
+        "",
+    ]
+    for i, d in enumerate(docs, 1):
+        lines.append(f"{i}. [{d.title}]({d.url})")
+    lines.append("")
+
+    for d in docs:
+        body = re.sub(r"^<!-- source:.*?-->\n+", "", d.markdown, count=1, flags=re.S)
+        lines += ["", "---", "", f"## {d.title}", "", f"Source: <{d.url}>", "", body.strip(), ""]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def write_docs(docs: list[Doc], out_dir: str, single_file: bool = False,

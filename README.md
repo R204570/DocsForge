@@ -138,6 +138,9 @@ Or in an MCP client config file:
 | `detect_source_type` | `url` | Which strategy the URL would use — a cheap probe. |
 | `fetch_docs` | `url`, `crawl`, `max_pages`, `js`, `force` | The extracted Markdown. |
 | `save_docs` | `url`, `out_dir`, `crawl`, `max_pages`, `js`, `force`, `single_file` | Paths written to disk. |
+| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope` | Learns a whole technology from one URL and stores it. Returns a summary. |
+| `list_knowledge_base` | — | What has already been harvested. |
+| `read_knowledge_base` | `name`, `section` | Reads stored docs back, optionally only matching pages. |
 
 Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (60k default) with an explicit truncation marker.
 
@@ -220,6 +223,39 @@ Everything is optional; see `.env.example` for the full list.
 
 The server is stateless — the browser holds the conversation and posts it back each turn.
 
+## Learning a whole technology
+
+`fetch_docs` answers "extract this URL". `harvest_docs` answers "extract this
+technology" — the question you actually have when a model does not know a stack:
+
+```
+harvest_docs(url="https://www.effect.website/docs/v3/getting-started/introduction/")
+  -> 200 pages, 2,668,643 characters, stored as knowledge_base/effect.md
+```
+
+Give it any page of a docs site and it finds the rest, best strategy first:
+
+1. **`llms.txt` / `llms-full.txt`** — the site already published itself for machines.
+2. **`sitemap.xml`**, filtered to the docs section — complete, cheap, and it finds
+   pages nothing links to. Located via `robots.txt` first, then the usual paths.
+3. **A scoped crawl** — works anywhere, but only reaches what is linked.
+
+Everything lands as one Markdown file with a contents index, and
+`read_knowledge_base(name, section=...)` reads it back so a stored technology is
+never re-scraped to answer a question.
+
+### Why the crawl is scoped
+
+Documentation shares a domain with marketing, blogs and changelogs. Crawling by
+host from an Effect docs page reached `/podcast` and `/community-hub` within four
+pages, and those pages then dominated the truncated result the model saw — so it
+summarised a podcast feed instead of the library.
+
+`harvest_docs` therefore stays inside the *documentation root* of the start URL
+(`/docs/v3/getting-started/introduction/` -> `/docs/v3/`), which took that same
+crawl from 7/12 relevant pages to 200/200. Pass `scope="host"` for the old
+behaviour, or a literal prefix like `scope="/docs/v3/"` to pin it exactly.
+
 ## Security
 
 DocsForge fetches URLs chosen by whoever is talking to it, which in the MCP and web paths can be a language model. Two guards apply there:
@@ -232,7 +268,7 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 90 offline unit tests, no network
+python -m pytest tests/ -q          # 122 offline unit tests, no network
 ```
 
 The live checks need the network, and the last two need `GROQ_API_KEY`:

@@ -12,12 +12,17 @@ Claude Code get byte-identical behaviour from the same code path.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
-from docsforge import Doc, ForgeError, Options, detect_source, Fetcher, forge, write_docs
+from docsforge import (
+    Doc, Fetcher, ForgeError, Options, combine, detect_source, forge, harvest, write_docs,
+)
 
 # Cap what we hand back to a model — docs sites can be enormous and blowing the
 # context window helps nobody.
@@ -70,6 +75,43 @@ def _bundle(docs: list[Doc]) -> str:
     return _truncate("\n".join(parts) + "\n" + body)
 
 
+# ─────────────────────────────────────────────────────────────
+# Knowledge base
+# ─────────────────────────────────────────────────────────────
+# A harvested technology is written here once and read back afterwards. The
+# point of the whole tool is that a model that does not know a stack can be
+# handed the stack; re-scraping a docs site on every question defeats that.
+KB_ROOT = Path(os.environ.get("DOCSFORGE_KB_ROOT", Path.cwd() / "knowledge_base")).resolve()
+KB_INDEX = KB_ROOT / "index.json"
+
+
+def _kb_slug(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9._-]+", "-", (name or "").lower()).strip("-")
+    return slug[:64] or "untitled"
+
+
+def _kb_load() -> dict:
+    if not KB_INDEX.exists():
+        return {}
+    try:
+        return json.loads(KB_INDEX.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+
+
+def _kb_save(index: dict) -> None:
+    KB_ROOT.mkdir(parents=True, exist_ok=True)
+    KB_INDEX.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _name_from_url(url: str) -> str:
+    host = (urlparse(url).hostname or "docs").lower()
+    for strip in ("www.", "docs."):
+        if host.startswith(strip):
+            host = host[len(strip):]
+    return host.split(".")[0] or "docs"
+
+
 def _options(crawl=False, max_pages=25, js=False, force=None, delay=0.4) -> Options:
     return Options(
         crawl=bool(crawl),
@@ -117,6 +159,93 @@ def tool_save_docs(url: str, out_dir: str = "docs_md", crawl: bool = False,
 # ─────────────────────────────────────────────────────────────
 # Schemas (JSON Schema, shared by MCP and Groq)
 # ─────────────────────────────────────────────────────────────
+def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
+                      js: bool = False, scope: str = "section") -> str:
+    """Harvest a WHOLE documentation set and store it in the knowledge base."""
+    opts = _options(crawl=True, max_pages=max_pages, js=js, delay=0.2)
+    opts.scope = scope or "section"
+
+    started = time.time()
+    docs, strategy = harvest(url, opts)
+    if not docs:
+        raise ForgeError(f"Harvested nothing from {url}")
+
+    slug = _kb_slug(name or _name_from_url(url))
+    KB_ROOT.mkdir(parents=True, exist_ok=True)
+    path = KB_ROOT / f"{slug}.md"
+    body = combine(docs, url, strategy)
+    path.write_text(body, encoding="utf-8")
+
+    index = _kb_load()
+    index[slug] = {
+        "name": slug,
+        "source": url,
+        "strategy": strategy,
+        "pages": len(docs),
+        "characters": len(body),
+        "file": str(path),
+        "harvested": time.strftime("%Y-%m-%d %H:%M"),
+        "titles": [d.title for d in docs][:400],
+    }
+    _kb_save(index)
+
+    listing = "\n".join(f"{i}. {d.title}" for i, d in enumerate(docs[:40], 1))
+    more = f"\n… and {len(docs) - 40} more" if len(docs) > 40 else ""
+    return (
+        f"Harvested **{slug}** — {len(docs)} pages, {len(body):,} characters, "
+        f"via {strategy}, in {time.time() - started:.0f}s.\n"
+        f"Stored at `{path}`.\n\n"
+        f"Read it back with `read_knowledge_base(name=\"{slug}\")` — do NOT re-harvest "
+        f"to answer questions about it.\n\n"
+        f"Pages:\n{listing}{more}"
+    )
+
+
+def tool_list_knowledge_base() -> str:
+    """What technologies have already been harvested."""
+    index = _kb_load()
+    if not index:
+        return ("The knowledge base is empty. Harvest a technology first with "
+                "`harvest_docs(url=...)`.")
+    lines = [f"{len(index)} technolog{'y' if len(index) == 1 else 'ies'} stored in {KB_ROOT}:", ""]
+    for entry in sorted(index.values(), key=lambda e: e["name"]):
+        lines.append(
+            f"- **{entry['name']}** — {entry['pages']} pages, "
+            f"{entry['characters']:,} chars, from {entry['source']} "
+            f"({entry['harvested']}, via {entry['strategy']})"
+        )
+    return "\n".join(lines)
+
+
+def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
+    """Read stored documentation back, optionally only the matching sections."""
+    index = _kb_load()
+    slug = _kb_slug(name)
+    entry = index.get(slug)
+    if entry is None:
+        known = ", ".join(sorted(index)) or "(nothing stored yet)"
+        raise ForgeError(f"No stored documentation called {slug!r}. Available: {known}")
+
+    path = Path(entry["file"])
+    if not path.exists():
+        raise ForgeError(f"{slug} is in the index but its file is missing: {path}")
+    body = path.read_text(encoding="utf-8")
+
+    if not section:
+        return _truncate(body)
+
+    # Pull just the "## Title" blocks whose heading matches.
+    needle = section.lower()
+    blocks = re.split(r"\n(?=## )", body)
+    hits = [b for b in blocks if needle in b.split("\n", 1)[0].lower()]
+    if not hits:
+        titles = ", ".join(t for t in entry.get("titles", [])[:40])
+        raise ForgeError(
+            f"No section of {slug} matches {section!r}. Pages include: {titles}"
+        )
+    return _truncate(f"# {slug}: sections matching {section!r}\n\n" + "\n\n".join(hits))
+
+
 _URL = {"type": "string", "description": "Absolute http(s) URL of the documentation source."}
 _CRAWL = {"type": "boolean", "default": False,
           "description": "Follow same-host links from the start URL. HTML sources only."}
@@ -189,6 +318,65 @@ TOOLS: list[Tool] = [
             "required": ["url"],
         },
         tool_save_docs,
+    ),
+    Tool(
+        "harvest_docs",
+        "Learn a WHOLE technology from one starting URL. Use this whenever the user "
+        "wants all of something's documentation, or asks about a library or framework "
+        "you do not already know well. Give it any page of the docs and it finds the "
+        "rest — via llms.txt, the sitemap, or a crawl scoped to that docs section — "
+        "then stores everything as one Markdown file in the knowledge base. "
+        "Prefer this over repeated fetch_docs calls: it is the tool that turns an "
+        "unknown stack into something you can actually answer questions about. "
+        "It returns a summary, not the documentation; read it back with "
+        "read_knowledge_base.",
+        {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string",
+                        "description": "Any page of the documentation — usually the "
+                                       "introduction or getting-started page."},
+                "name": {"type": "string",
+                         "description": "What to file it under, e.g. \"effect\". "
+                                        "Defaults to the site's domain."},
+                "max_pages": {"type": "integer", "default": 200, "minimum": 1, "maximum": 2000,
+                              "description": "Upper bound on pages to fetch."},
+                "js": _JS,
+                "scope": {"type": "string", "default": "section",
+                          "description": "\"section\" stays inside the docs root the URL "
+                                         "sits in (right for almost every site), \"host\" "
+                                         "allows the whole domain, or give a literal path "
+                                         "prefix such as \"/docs/v3/\"."},
+            },
+            "required": ["url"],
+        },
+        tool_harvest_docs,
+    ),
+    Tool(
+        "list_knowledge_base",
+        "List the technologies already harvested and stored locally. Check this FIRST "
+        "when asked about a library or framework — if it is already stored, read it "
+        "instead of fetching anything.",
+        {"type": "object", "properties": {}},
+        tool_list_knowledge_base,
+    ),
+    Tool(
+        "read_knowledge_base",
+        "Read stored documentation back out of the knowledge base. Pass `section` to get "
+        "only the pages whose title matches a phrase (for example \"error handling\"), "
+        "which is how you answer a specific question without pulling a whole manual "
+        "into context.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": "The stored name, as shown by list_knowledge_base."},
+                "section": {"type": "string",
+                            "description": "Optional phrase to match against page titles."},
+            },
+            "required": ["name"],
+        },
+        tool_read_knowledge_base,
     ),
 ]
 

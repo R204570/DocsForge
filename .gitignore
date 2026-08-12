@@ -43,3 +43,6 @@ Thumbs.db
 .agents/
 .gemini/
 .opencode/
+
+# harvested documentation (rebuild with harvest_docs)
+knowledge_base/
