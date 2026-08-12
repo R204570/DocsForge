@@ -166,7 +166,8 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
     opts.scope = scope or "section"
 
     started = time.time()
-    docs, strategy = harvest(url, opts)
+    stats: dict = {}
+    docs, strategy = harvest(url, opts, stats=stats)
     if not docs:
         raise ForgeError(f"Harvested nothing from {url}")
 
@@ -177,6 +178,7 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
     path.write_text(body, encoding="utf-8")
 
     index = _kb_load()
+    truncated = bool(stats.get("truncated"))
     index[slug] = {
         "name": slug,
         "source": url,
@@ -185,16 +187,28 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
         "characters": len(body),
         "file": str(path),
         "harvested": time.strftime("%Y-%m-%d %H:%M"),
-        "titles": [d.title for d in docs][:400],
+        "complete": not truncated,
+        "titles": [d.title for d in docs][:1000],
     }
     _kb_save(index)
 
-    listing = "\n".join(f"{i}. {d.title}" for i, d in enumerate(docs[:40], 1))
-    more = f"\n… and {len(docs) - 40} more" if len(docs) > 40 else ""
+    listing = "\n".join(f"{i}. {d.title}" for i, d in enumerate(docs[:30], 1))
+    more = f"\n… and {len(docs) - 30} more" if len(docs) > 30 else ""
+
+    warning = ""
+    if truncated:
+        left = stats.get("remaining") or 0
+        warning = (
+            f"\n\n**INCOMPLETE — stopped at the {max_pages}-page limit"
+            f"{f', {left}+ pages still queued' if left else ''}.** "
+            f"This is a partial copy of the documentation. Say so if you answer from it, "
+            f"and re-run with a higher `max_pages` to finish the job."
+        )
+
     return (
         f"Harvested **{slug}** — {len(docs)} pages, {len(body):,} characters, "
         f"via {strategy}, in {time.time() - started:.0f}s.\n"
-        f"Stored at `{path}`.\n\n"
+        f"Stored at `{path}`.{warning}\n\n"
         f"Read it back with `read_knowledge_base(name=\"{slug}\")` — do NOT re-harvest "
         f"to answer questions about it.\n\n"
         f"Pages:\n{listing}{more}"
@@ -209,10 +223,11 @@ def tool_list_knowledge_base() -> str:
                 "`harvest_docs(url=...)`.")
     lines = [f"{len(index)} technolog{'y' if len(index) == 1 else 'ies'} stored in {KB_ROOT}:", ""]
     for entry in sorted(index.values(), key=lambda e: e["name"]):
+        flag = "" if entry.get("complete", True) else "  **[INCOMPLETE — hit the page limit]**"
         lines.append(
             f"- **{entry['name']}** — {entry['pages']} pages, "
             f"{entry['characters']:,} chars, from {entry['source']} "
-            f"({entry['harvested']}, via {entry['strategy']})"
+            f"({entry['harvested']}, via {entry['strategy']}){flag}"
         )
     return "\n".join(lines)
 
@@ -232,18 +247,44 @@ def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
     body = path.read_text(encoding="utf-8")
 
     if not section:
-        return _truncate(body)
+        if len(body) > MAX_CHARS:
+            return _truncate(
+                f"<!-- {slug} is {len(body):,} characters; showing the first "
+                f"{MAX_CHARS:,}. Pass `section` to get the relevant pages instead. -->\n\n"
+                + body
+            )
+        return body
 
-    # Pull just the "## Title" blocks whose heading matches.
+    # Titles first: a page whose heading matches is what was asked for. Only if
+    # nothing matches by title is the body searched, because a manual this size
+    # mentions "error" on nearly every page.
     needle = section.lower()
     blocks = re.split(r"\n(?=## )", body)
-    hits = [b for b in blocks if needle in b.split("\n", 1)[0].lower()]
-    if not hits:
-        titles = ", ".join(t for t in entry.get("titles", [])[:40])
+    titled = [b for b in blocks if needle in b.split("\n", 1)[0].lower()]
+    how = "title"
+
+    if not titled:
+        titled = [b for b in blocks if needle in b.lower()]
+        how = "content"
+
+    if not titled:
+        titles = ", ".join(entry.get("titles", [])[:40])
         raise ForgeError(
-            f"No section of {slug} matches {section!r}. Pages include: {titles}"
+            f"Nothing in {slug} matches {section!r}, in page titles or text. "
+            f"Pages include: {titles}"
         )
-    return _truncate(f"# {slug}: sections matching {section!r}\n\n" + "\n\n".join(hits))
+
+    found = len(titled)
+    header = (
+        f"# {slug}: {found} page{'s' if found != 1 else ''} matching {section!r} "
+        f"(by {how})\n"
+    )
+    if not entry.get("complete", True):
+        header += (
+            "\n> This copy is INCOMPLETE — the harvest hit its page limit. "
+            "Say so if the answer depends on it.\n"
+        )
+    return _truncate(header + "\n" + "\n\n".join(titled))
 
 
 _URL = {"type": "string", "description": "Absolute http(s) URL of the documentation source."}

@@ -242,7 +242,23 @@ Give it any page of a docs site and it finds the rest, best strategy first:
 
 Everything lands as one Markdown file with a contents index, and
 `read_knowledge_base(name, section=...)` reads it back so a stored technology is
-never re-scraped to answer a question.
+never re-scraped to answer a question. `section` matches page titles first and
+falls back to searching the text, so a specific question pulls the handful of
+relevant pages instead of a whole manual.
+
+### Partial harvests announce themselves
+
+`max_pages` defaults to 200, and plenty of docs sites are bigger — the Effect v3
+docs have 600+ reachable pages. A harvest that hits the cap is **reported as
+incomplete**, in the harvest result, in `list_knowledge_base`, and again every
+time the content is read:
+
+```
+**INCOMPLETE — stopped at the 200-page limit, 400+ pages still queued.**
+```
+
+That matters more than the cap itself: a third of a manual that looks whole
+produces confident, wrong answers. Re-run with a higher `max_pages` to finish.
 
 ### Why the crawl is scoped
 
@@ -268,7 +284,7 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 122 offline unit tests, no network
+python -m pytest tests/ -q          # 130 offline unit tests, no network
 ```
 
 The live checks need the network, and the last two need `GROQ_API_KEY`:
