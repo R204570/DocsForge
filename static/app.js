@@ -564,17 +564,22 @@ function renderProviderMenu() {
     b.dataset.act = "provider";
     b.dataset.arg = p.name;
     b.disabled = !p.available;
+    // Unavailable means different things now: a hosted provider is missing its
+    // key, a local one is not running. Say which.
+    const reason = p.env_key ? "no key" : "not running";
     b.title = p.available
       ? `${p.notes} — ${p.model || "uses the CLI default model"}`
-      : `Needs ${p.env_key} in .env — ${p.docs}`;
+      : (p.env_key
+          ? `Needs ${p.env_key} in .env — ${p.docs}`
+          : `Not reachable on this machine — ${p.docs}`);
     b.append(el("span", null, p.label));
-    b.append(el("span", "key", p.name === state.provider ? "•" : (p.available ? "" : "no key")));
+    b.append(el("span", "key", p.name === state.provider ? "•" : (p.available ? "" : reason)));
     li.append(b);
     menu.append(li);
   });
 
   const note = el("li", "empty");
-  note.append(el("span", null, "Greyed out means no API key in .env."));
+  note.append(el("span", null, "no key = add it to .env · not running = start it locally"));
   menu.append(el("li", "sep"), note);
 }
 

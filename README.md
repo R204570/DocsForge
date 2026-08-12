@@ -163,6 +163,7 @@ keep going — the stack can mix providers.
 | Provider | Key | Default model | Notes |
 |---|---|---|---|
 | **Claude Code** | *none* | your CLI default | Runs the local `claude` CLI against your existing login. **No API key and no per-token bill.** |
+| **Ollama** | *none* | best installed | Models running on your own machine. **No key, no quota, works offline.** |
 | **Claude** | `ANTHROPIC_API_KEY` | `claude-opus-5` | Strongest on long documents and tool use. |
 | **Groq** | `GROQ_API_KEY` | `llama-3.3-70b-versatile` | Fast and cheap; free tier caps at 100k tokens/day. |
 | **ChatGPT** | `OPENAI_API_KEY` | `gpt-4.1` | Billed per token, no free tier. |
@@ -180,6 +181,11 @@ why each owns its own loop:
   and return a 400. Refusal fallbacks are on by default (`ANTHROPIC_FALLBACKS=off`).
 - `gemini.py` — `functionCall` / `functionResponse` parts, automatic function
   calling disabled so the JSON-Schema tool definitions stay shared.
+- `ollama.py` — reuses the same OpenAI-shaped loop (Ollama serves an
+  OpenAI-compatible endpoint), but probes the daemon instead of checking for a
+  key, and auto-picks the best tool-capable model you have pulled. Models that
+  cannot call tools — embeddings, `phi3`, vision-only — are filtered out, since
+  one that silently answers from memory looks like DocsForge being broken.
 - `claudecode.py` — the odd one out: it shells out to the `claude` CLI with
   **DocsForge's own MCP server attached**, so the tools run out of process over
   real MCP. `--strict-mcp-config` keeps your other MCP servers out of the session.
@@ -196,6 +202,8 @@ Everything is optional; see `.env.example` for the full list.
 | `<NAME>_MODEL` | per provider | Override a provider's model, e.g. `CLAUDE_MODEL`. |
 | `ANTHROPIC_FALLBACKS` | `default` | `off` disables Claude's server-side refusal fallbacks. |
 | `OPENAI_BASE_URL` | — | Point ChatGPT at Azure or an OpenAI-compatible host. |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Where the Ollama daemon listens. |
+| `OLLAMA_MODEL` | auto | Pin a local model; otherwise the best tool-capable one installed. |
 | `GITHUB_TOKEN` | — | Raises the GitHub API rate limit. |
 | `DOCSFORGE_MAX_CHARS` | `60000` | Largest tool result returned to a model. |
 | `DOCSFORGE_OUT_ROOT` | `./docs_md` | Directory `save_docs` may write into. |
@@ -224,7 +232,7 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 80 offline unit tests, no network
+python -m pytest tests/ -q          # 90 offline unit tests, no network
 ```
 
 The live checks need the network, and the last two need `GROQ_API_KEY`:

@@ -23,12 +23,13 @@ from .base import (
     tool_end,
     tool_start,
 )
-from . import chatgpt, claude, claudecode, gemini, groq
+from . import chatgpt, claude, claudecode, gemini, groq, ollama
 
 #: Registration order is the order shown in the UI.
 PROVIDERS: list[Provider] = [
     claude.provider,
     claudecode.provider,
+    ollama.provider,
     groq.provider,
     chatgpt.provider,
     gemini.provider,

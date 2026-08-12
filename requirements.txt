@@ -24,7 +24,7 @@ nh3>=0.2             # sanitises model/scraped HTML before it hits the page
 # providers/claudecode.py needs no package at all — it drives the `claude` CLI.
 groq>=0.11           # providers/groq.py
 anthropic>=0.70      # providers/claude.py
-openai>=1.40         # providers/chatgpt.py
+openai>=1.40         # providers/chatgpt.py AND providers/ollama.py (OpenAI-compatible)
 google-genai>=1.0    # providers/gemini.py
 
 # ── optional ─────────────────────────────────────────────

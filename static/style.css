@@ -176,6 +176,10 @@ body {
 
 /* Right-hand status menus drop from their right edge, not the left. */
 .menu-drop.right { left: auto; right: 0; }
+
+/* A disabled provider still has to say WHY it is disabled, so its hint
+   survives the rule that hides shortcut keys on disabled items. */
+.menu-drop.right button:disabled .key { visibility: visible; }
 .menu-drop.right::after { inset: 5px -5px -5px 5px; }
 
 /* The raised layer lives on .menu, not .menu-drop: if the dropdown itself

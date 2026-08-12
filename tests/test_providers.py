@@ -14,16 +14,18 @@ from providers.base import Provider, ProviderError, tool_end
 
 
 # ── registry ─────────────────────────────────────────────
-def test_all_five_providers_registered():
-    assert set(providers.BY_NAME) == {"claude", "claudecode", "groq", "chatgpt", "gemini"}
+def test_all_providers_registered():
+    assert set(providers.BY_NAME) == {
+        "claude", "claudecode", "ollama", "groq", "chatgpt", "gemini",
+    }
 
 
 def test_every_provider_is_complete():
     for p in providers.PROVIDERS:
         assert p.name and p.label, p
         assert isinstance(p, Provider)
-        # claudecode uses the local CLI login, so it alone has no key/model.
-        if p.name != "claudecode":
+        # claudecode and ollama run locally, so they need no API key.
+        if p.name not in ("claudecode", "ollama"):
             assert p.env_key, p.name
             assert p.default_model, p.name
 
@@ -184,3 +186,76 @@ def test_claudecode_folds_prior_turns_into_one_prompt():
     ])
     assert "first" in folded and "answer" in folded
     assert folded.rstrip().endswith("second")
+
+
+# ── ollama: local daemon, no key ─────────────────────────
+def _fake_ollama(monkeypatch, models, up=True):
+    """Pin the daemon probe so these tests never touch the network."""
+    o = providers.get("ollama")
+    monkeypatch.setattr(o, "_refresh", lambda force=False: None)
+    monkeypatch.setattr(o, "_models", list(models))
+    monkeypatch.setattr(o, "_up", up)
+    return o
+
+
+def test_ollama_needs_no_api_key():
+    assert providers.get("ollama").env_key is None
+
+
+def test_ollama_host_follows_the_env_var(monkeypatch):
+    o = providers.get("ollama")
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    assert o.host() == "http://127.0.0.1:11434"
+    assert o.base_url().endswith("/v1")
+    monkeypatch.setenv("OLLAMA_HOST", "http://box.local:11434/")
+    assert o.host() == "http://box.local:11434"  # trailing slash trimmed
+
+
+def test_ollama_hides_models_that_cannot_chat(monkeypatch):
+    o = _fake_ollama(monkeypatch, [
+        "qwen3.5:9b", "nomic-embed-text:latest", "phi3:mini", "llava:7b", "llama3.1:8b",
+    ])
+    assert o.chat_models() == ["qwen3.5:9b", "llama3.1:8b"]
+
+
+def test_ollama_picks_the_best_tool_capable_model(monkeypatch):
+    o = _fake_ollama(monkeypatch, ["llama3.1:8b", "qwen3.5:9b", "phi3:mini"])
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    assert o.model() == "qwen3.5:9b"          # qwen3.5 outranks llama3.1
+    assert o.model("llama3.2:latest") == "llama3.2:latest"   # explicit wins
+    monkeypatch.setenv("OLLAMA_MODEL", "mistral:7b")
+    assert o.model() == "mistral:7b"          # env beats auto-detection
+
+
+def test_ollama_falls_back_rather_than_naming_something_uninstalled(monkeypatch):
+    o = _fake_ollama(monkeypatch, ["some-exotic-model:latest"])
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    assert o.model() == "some-exotic-model:latest"
+
+
+def test_ollama_is_unavailable_when_the_daemon_is_down(monkeypatch):
+    assert _fake_ollama(monkeypatch, [], up=False).available() is False
+
+
+def test_ollama_is_unavailable_with_only_embedding_models(monkeypatch):
+    # Daemon is up, but nothing on it can hold a conversation.
+    assert _fake_ollama(monkeypatch, ["nomic-embed-text:latest"], up=True).available() is False
+
+
+def test_ollama_says_how_to_start_the_daemon(monkeypatch):
+    o = _fake_ollama(monkeypatch, [], up=False)
+    monkeypatch.setattr(o, "_refresh", lambda force=False: None)
+    with pytest.raises(ProviderError, match="ollama serve"):
+        o.client()
+
+
+def test_ollama_says_what_to_pull_when_empty(monkeypatch):
+    o = _fake_ollama(monkeypatch, [], up=True)
+    with pytest.raises(ProviderError, match="ollama pull"):
+        o.client()
+
+
+def test_ollama_reuses_the_shared_openai_loop():
+    from providers._openai_shape import OpenAIShapedProvider
+
+    assert isinstance(providers.get("ollama"), OpenAIShapedProvider)
