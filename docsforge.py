@@ -682,7 +682,8 @@ def _crawlable(link: str, host: str, prefix: str = "/") -> bool:
     return path.startswith(prefix)
 
 
-def _crawl_html(start: str, fetcher: Fetcher, opts: Options) -> list[Doc]:
+def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
+                stats: dict | None = None) -> list[Doc]:
     seen: set[str] = set()
     out: list[Doc] = []
     queue = deque([_normalize(start)])
@@ -725,6 +726,14 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options) -> list[Doc]:
 
         if queue and len(out) < opts.max_pages:
             time.sleep(opts.delay)
+
+    if stats is not None:
+        # Anything still queued means max_pages cut the harvest short. Silent
+        # truncation is worse than a slow crawl: you get a third of a manual
+        # and no way to know it.
+        stats["fetched"] = len(out)
+        stats["remaining"] = len(queue)
+        stats["truncated"] = bool(queue)
 
     if not out:
         raise ForgeError(f"Crawl produced no pages from {start}")
@@ -843,8 +852,8 @@ def forge(url: str, opts: Options | None = None, fetcher: Fetcher | None = None)
             fetcher.close()
 
 
-def harvest(url: str, opts: Options | None = None,
-            fetcher: Fetcher | None = None) -> tuple[list[Doc], str]:
+def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = None,
+            stats: dict | None = None) -> tuple[list[Doc], str]:
     """Get a WHOLE documentation set from one starting URL.
 
     `forge()` answers "extract this URL". This answers "extract this
@@ -883,6 +892,10 @@ def harvest(url: str, opts: Options | None = None,
             # the docs; a crawl will do better than a near-empty list.
             if len(scoped) >= 3:
                 _log(opts, f"  harvesting {len(scoped)} pages from the sitemap")
+                if stats is not None:
+                    stats["discovered"] = len(scoped)
+                    stats["truncated"] = len(scoped) > opts.max_pages
+                    stats["remaining"] = max(0, len(scoped) - opts.max_pages)
                 out: list[Doc] = []
                 for link in scoped[: opts.max_pages]:
                     try:
@@ -898,7 +911,7 @@ def harvest(url: str, opts: Options | None = None,
 
         _log(opts, "  harvesting by crawl")
         crawl_opts = replace(opts, crawl=True)
-        return _crawl_html(url, fetcher, crawl_opts), "crawl"
+        return _crawl_html(url, fetcher, crawl_opts, stats), "crawl"
     finally:
         if own:
             fetcher.close()

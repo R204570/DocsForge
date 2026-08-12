@@ -83,12 +83,16 @@ def kb(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _store(kb, name="effect", body="# effect\n\n## Error Handling\n\nfail fast\n\n## Layers\n\nwiring"):
+DOC = "# effect\n\n## Error Handling\n\nfail fast\n\n## Layers\n\nwiring with npm\n"
+
+
+def _store(kb, name="effect", body=DOC, complete=True):
     (kb / f"{name}.md").write_text(body, encoding="utf-8")
     (kb / "index.json").write_text(json.dumps({name: {
         "name": name, "source": "https://x.dev/docs/", "strategy": "crawl",
         "pages": 2, "characters": len(body), "file": str(kb / f"{name}.md"),
         "harvested": "2026-01-01 00:00", "titles": ["Error Handling", "Layers"],
+        "complete": complete,
     }}), encoding="utf-8")
 
 
@@ -163,3 +167,78 @@ def test_harvest_schema_defaults_to_section_scope():
 
 def test_list_knowledge_base_takes_no_arguments():
     assert ft.BY_NAME["list_knowledge_base"].schema["properties"] == {}
+
+
+# ── truncation must never be silent ──────────────────────
+# A 600-page manual harvested at max_pages=200 gave a third of the docs and
+# said nothing, so answers were confidently based on a partial copy.
+def test_crawl_reports_when_the_page_cap_cut_it_short():
+    stats = {}
+
+    class Stub:
+        """Two pages that link to each other plus a third, so the queue is
+        never empty when the cap is reached."""
+        def html(self, url):
+            return ('<html><head><title>P</title></head><body><main>'
+                    + "body text " * 40
+                    + '<a href="/docs/a">a</a><a href="/docs/b">b</a>'
+                      '<a href="/docs/c">c</a></main></body></html>')
+
+    opts = df.Options(crawl=True, max_pages=2, delay=0, verbose=False)
+    df._crawl_html("https://x.dev/docs/start", Stub(), opts, stats)
+
+    assert stats["fetched"] == 2
+    assert stats["truncated"] is True
+    assert stats["remaining"] >= 1
+
+
+def test_crawl_reports_completion_when_it_runs_out_of_links():
+    stats = {}
+
+    class Stub:
+        def html(self, url):
+            return ('<html><head><title>Only</title></head><body><main>'
+                    + "body text " * 40 + '</main></body></html>')
+
+    opts = df.Options(crawl=True, max_pages=50, delay=0, verbose=False)
+    df._crawl_html("https://x.dev/docs/start", Stub(), opts, stats)
+
+    assert stats["fetched"] == 1
+    assert stats["truncated"] is False
+
+
+def test_incomplete_harvest_is_flagged_in_the_listing(kb):
+    _store(kb, complete=False)
+    assert "INCOMPLETE" in ft.tool_list_knowledge_base()
+
+
+def test_complete_harvest_is_not_flagged(kb):
+    _store(kb, complete=True)
+    assert "INCOMPLETE" not in ft.tool_list_knowledge_base()
+
+
+def test_incompleteness_follows_the_content_into_reads(kb):
+    _store(kb, complete=False)
+    out = ft.tool_read_knowledge_base("effect", section="error")
+    assert "INCOMPLETE" in out, "a partial copy must say so at the point of use"
+
+
+# ── search falls back from titles to content ─────────────
+def test_section_prefers_a_title_match(kb):
+    _store(kb)
+    out = ft.tool_read_knowledge_base("effect", section="layers")
+    assert "by title" in out
+    assert "wiring" in out and "fail fast" not in out
+
+
+def test_section_falls_back_to_searching_the_text(kb):
+    _store(kb)
+    # "npm" appears in a body, never in a heading.
+    out = ft.tool_read_knowledge_base("effect", section="npm")
+    assert "by content" in out
+    assert "wiring with npm" in out
+
+
+def test_section_reports_how_many_pages_matched(kb):
+    _store(kb)
+    assert "1 page matching" in ft.tool_read_knowledge_base("effect", section="layers")
