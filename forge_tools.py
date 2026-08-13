@@ -78,44 +78,49 @@ def _bundle(docs: list[Doc]) -> str:
 # ─────────────────────────────────────────────────────────────
 # Knowledge base
 # ─────────────────────────────────────────────────────────────
-# A harvested technology is written here once and read back afterwards. The
-# point of the whole tool is that a model that does not know a stack can be
-# handed the stack; re-scraping a docs site on every question defeats that.
-KB_ROOT = Path(os.environ.get("DOCSFORGE_KB_ROOT", Path.cwd() / "knowledge_base")).resolve()
-KB_INDEX = KB_ROOT / "index.json"
+# A harvested technology is stored once and read back afterwards. The point of
+# the whole tool is that a model which does not know a stack can be handed the
+# stack; re-scraping a docs site on every question defeats that.
+#
+# Where it goes lives in kb_store: Postgres when DOCSFORGE_DB is set and
+# reachable, a Markdown file per technology otherwise. Nothing here needs to
+# know which.
+from kb_store import (  # noqa: E402
+    StoreError, build_store, name_from_url as _name_from_url, parse_page,
+    slugify as _kb_slug, split_pages,
+)
+
+_STORE = None
 
 
-def _kb_slug(name: str) -> str:
-    slug = re.sub(r"[^a-z0-9._-]+", "-", (name or "").lower()).strip("-")
-    return slug[:64] or "untitled"
+def store():
+    """The active knowledge-base backend, built once."""
+    global _STORE
+    if _STORE is None:
+        _STORE = build_store()
+    return _STORE
 
 
-def _kb_load() -> dict:
-    if not KB_INDEX.exists():
-        return {}
-    try:
-        return json.loads(KB_INDEX.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return {}
+def reset_store(new=None):
+    """Swap the backend — used by tests and by anything that changes config."""
+    global _STORE
+    _STORE = new
+    return _STORE
 
 
-def _kb_save(index: dict) -> None:
-    KB_ROOT.mkdir(parents=True, exist_ok=True)
-    KB_INDEX.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+# A single fetch_docs call should not be able to start a 2000-page crawl by
+# accident; a harvest is explicitly asking for the whole manual, so it gets a
+# much higher ceiling. Without this split, "re-run with a higher max_pages"
+# was advice the tool silently ignored.
+FETCH_PAGE_CAP = 200
+HARVEST_PAGE_CAP = 2000
 
 
-def _name_from_url(url: str) -> str:
-    host = (urlparse(url).hostname or "docs").lower()
-    for strip in ("www.", "docs."):
-        if host.startswith(strip):
-            host = host[len(strip):]
-    return host.split(".")[0] or "docs"
-
-
-def _options(crawl=False, max_pages=25, js=False, force=None, delay=0.4) -> Options:
+def _options(crawl=False, max_pages=25, js=False, force=None, delay=0.4,
+             cap: int = FETCH_PAGE_CAP) -> Options:
     return Options(
         crawl=bool(crawl),
-        max_pages=max(1, min(int(max_pages), 200)),
+        max_pages=max(1, min(int(max_pages), cap)),
         js=bool(js),
         delay=float(delay),
         force=force or None,
@@ -162,7 +167,8 @@ def tool_save_docs(url: str, out_dir: str = "docs_md", crawl: bool = False,
 def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
                       js: bool = False, scope: str = "section") -> str:
     """Harvest a WHOLE documentation set and store it in the knowledge base."""
-    opts = _options(crawl=True, max_pages=max_pages, js=js, delay=0.2)
+    opts = _options(crawl=True, max_pages=max_pages, js=js, delay=0.2,
+                    cap=HARVEST_PAGE_CAP)
     opts.scope = scope or "section"
 
     started = time.time()
@@ -172,25 +178,15 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
         raise ForgeError(f"Harvested nothing from {url}")
 
     slug = _kb_slug(name or _name_from_url(url))
-    KB_ROOT.mkdir(parents=True, exist_ok=True)
-    path = KB_ROOT / f"{slug}.md"
-    body = combine(docs, url, strategy)
-    path.write_text(body, encoding="utf-8")
-
-    index = _kb_load()
     truncated = bool(stats.get("truncated"))
-    index[slug] = {
-        "name": slug,
-        "source": url,
-        "strategy": strategy,
-        "pages": len(docs),
-        "characters": len(body),
-        "file": str(path),
-        "harvested": time.strftime("%Y-%m-%d %H:%M"),
-        "complete": not truncated,
-        "titles": [d.title for d in docs][:1000],
-    }
-    _kb_save(index)
+
+    # Strip the per-page provenance comment: it is redundant once the page is
+    # filed under its own title and URL.
+    pages = [
+        (d.title, d.url, re.sub(r"^<!-- source:.*?-->\n+", "", d.markdown, count=1, flags=re.S))
+        for d in docs
+    ]
+    entry = store().save(slug, url, strategy, pages, complete=not truncated)
 
     listing = "\n".join(f"{i}. {d.title}" for i, d in enumerate(docs[:30], 1))
     more = f"\n… and {len(docs) - 30} more" if len(docs) > 30 else ""
@@ -205,10 +201,11 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
             f"and re-run with a higher `max_pages` to finish the job."
         )
 
+    where = entry["file"]
     return (
-        f"Harvested **{slug}** — {len(docs)} pages, {len(body):,} characters, "
+        f"Harvested **{slug}** — {len(docs)} pages, {entry['characters']:,} characters, "
         f"via {strategy}, in {time.time() - started:.0f}s.\n"
-        f"Stored at `{path}`.{warning}\n\n"
+        f"Stored in {store().kind}: `{where}`.{warning}\n\n"
         f"Read it back with `read_knowledge_base(name=\"{slug}\")` — do NOT re-harvest "
         f"to answer questions about it.\n\n"
         f"Pages:\n{listing}{more}"
@@ -217,12 +214,19 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
 
 def tool_list_knowledge_base() -> str:
     """What technologies have already been harvested."""
-    index = _kb_load()
-    if not index:
+    try:
+        entries = store().entries()
+    except StoreError as e:
+        raise ForgeError(str(e)) from e
+
+    if not entries:
         return ("The knowledge base is empty. Harvest a technology first with "
                 "`harvest_docs(url=...)`.")
-    lines = [f"{len(index)} technolog{'y' if len(index) == 1 else 'ies'} stored in {KB_ROOT}:", ""]
-    for entry in sorted(index.values(), key=lambda e: e["name"]):
+
+    backend = store()
+    lines = [f"{len(entries)} technolog{'y' if len(entries) == 1 else 'ies'} "
+             f"stored in {backend.kind} ({backend.location}):", ""]
+    for entry in entries:
         flag = "" if entry.get("complete", True) else "  **[INCOMPLETE — hit the page limit]**"
         lines.append(
             f"- **{entry['name']}** — {entry['pages']} pages, "
@@ -234,19 +238,27 @@ def tool_list_knowledge_base() -> str:
 
 def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
     """Read stored documentation back, optionally only the matching sections."""
-    index = _kb_load()
     slug = _kb_slug(name)
-    entry = index.get(slug)
-    if entry is None:
-        known = ", ".join(sorted(index)) or "(nothing stored yet)"
-        raise ForgeError(f"No stored documentation called {slug!r}. Available: {known}")
+    backend = store()
+    try:
+        entry = backend.entry(slug)
+        if entry is None:
+            known = ", ".join(e["name"] for e in backend.entries()) or "(nothing stored yet)"
+            raise ForgeError(f"No stored documentation called {slug!r}. Available: {known}")
+        body, how, found = backend.read(slug, section)
+    except StoreError as e:
+        if section:
+            # Naming real pages lets a model retry with something that exists,
+            # instead of guessing at another phrase.
+            titles = ", ".join(backend.titles(slug)[:40])
+            if titles:
+                raise ForgeError(
+                    f"Nothing in {slug} matches {section!r}, in page titles or text. "
+                    f"Pages include: {titles}"
+                ) from e
+        raise ForgeError(str(e)) from e
 
-    path = Path(entry["file"])
-    if not path.exists():
-        raise ForgeError(f"{slug} is in the index but its file is missing: {path}")
-    body = path.read_text(encoding="utf-8")
-
-    if not section:
+    if how == "all":
         if len(body) > MAX_CHARS:
             return _truncate(
                 f"<!-- {slug} is {len(body):,} characters; showing the first "
@@ -255,26 +267,6 @@ def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
             )
         return body
 
-    # Titles first: a page whose heading matches is what was asked for. Only if
-    # nothing matches by title is the body searched, because a manual this size
-    # mentions "error" on nearly every page.
-    needle = section.lower()
-    blocks = re.split(r"\n(?=## )", body)
-    titled = [b for b in blocks if needle in b.split("\n", 1)[0].lower()]
-    how = "title"
-
-    if not titled:
-        titled = [b for b in blocks if needle in b.lower()]
-        how = "content"
-
-    if not titled:
-        titles = ", ".join(entry.get("titles", [])[:40])
-        raise ForgeError(
-            f"Nothing in {slug} matches {section!r}, in page titles or text. "
-            f"Pages include: {titles}"
-        )
-
-    found = len(titled)
     header = (
         f"# {slug}: {found} page{'s' if found != 1 else ''} matching {section!r} "
         f"(by {how})\n"
@@ -284,7 +276,7 @@ def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
             "\n> This copy is INCOMPLETE — the harvest hit its page limit. "
             "Say so if the answer depends on it.\n"
         )
-    return _truncate(header + "\n" + "\n\n".join(titled))
+    return _truncate(header + "\n" + body)
 
 
 _URL = {"type": "string", "description": "Absolute http(s) URL of the documentation source."}

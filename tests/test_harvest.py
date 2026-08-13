@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import docsforge as df
 import forge_tools as ft
+from kb_store import FileStore
 
 
 # ── crawl scoping ────────────────────────────────────────
@@ -77,23 +78,21 @@ def test_combine_builds_contents_then_every_page():
 
 # ── knowledge base ───────────────────────────────────────
 @pytest.fixture
-def kb(tmp_path, monkeypatch):
-    monkeypatch.setattr(ft, "KB_ROOT", tmp_path)
-    monkeypatch.setattr(ft, "KB_INDEX", tmp_path / "index.json")
-    return tmp_path
+def kb(tmp_path):
+    """Point the tools at a throwaway file store for the duration of a test."""
+    ft.reset_store(FileStore(tmp_path))
+    yield tmp_path
+    ft.reset_store(None)
 
 
-DOC = "# effect\n\n## Error Handling\n\nfail fast\n\n## Layers\n\nwiring with npm\n"
+PAGES = [
+    ("Error Handling", "https://x.dev/docs/errors", "fail fast"),
+    ("Layers", "https://x.dev/docs/layers", "wiring with npm"),
+]
 
 
-def _store(kb, name="effect", body=DOC, complete=True):
-    (kb / f"{name}.md").write_text(body, encoding="utf-8")
-    (kb / "index.json").write_text(json.dumps({name: {
-        "name": name, "source": "https://x.dev/docs/", "strategy": "crawl",
-        "pages": 2, "characters": len(body), "file": str(kb / f"{name}.md"),
-        "harvested": "2026-01-01 00:00", "titles": ["Error Handling", "Layers"],
-        "complete": complete,
-    }}), encoding="utf-8")
+def _store(kb, name="effect", pages=PAGES, complete=True):
+    return ft.store().save(name, "https://x.dev/docs/", "crawl", pages, complete=complete)
 
 
 def test_empty_knowledge_base_says_what_to_do(kb):
@@ -242,3 +241,55 @@ def test_section_falls_back_to_searching_the_text(kb):
 def test_section_reports_how_many_pages_matched(kb):
     _store(kb)
     assert "1 page matching" in ft.tool_read_knowledge_base("effect", section="layers")
+
+
+# ── page splitting ───────────────────────────────────────
+# Scraped pages contain their own "## " headings, so splitting a combined file
+# on those alone reported a 30-page harvest as 167 pages -- and mis-counted
+# every section lookup with it.
+def test_split_pages_ignores_headings_inside_a_page():
+    docs = [
+        df.Doc("https://x.dev/docs/a", "Alpha",
+               "intro\n\n## Inner Heading\n\nmore\n\n## Another Inner\n\nyet more"),
+        df.Doc("https://x.dev/docs/b", "Beta", "beta body"),
+    ]
+    body = df.combine(docs, "https://x.dev/docs/a", "crawl")
+
+    head, pages = ft.split_pages(body)
+    assert len(pages) == 2, "inner ## headings must not count as pages"
+    assert pages[0].startswith("## Alpha")
+    assert pages[1].startswith("## Beta")
+    assert "Inner Heading" in pages[0], "inner content stays with its page"
+    assert "## Contents" in head
+
+
+def test_split_pages_handles_a_file_with_no_pages():
+    head, pages = ft.split_pages("# just a header\n\nnothing else")
+    assert pages == []
+
+
+def test_section_count_is_pages_not_blocks(kb):
+    # One page whose own body contains "## " sub-headings.
+    inner = "text\n\n## Sub One\n\na\n\n## Sub Two\n\nb"
+    _store(kb, name="t", pages=[("Error Handling", "https://x.dev/docs/e", inner)])
+
+    out = ft.tool_read_knowledge_base("t", section="error")
+    assert "1 page matching" in out
+    assert "Sub One" in out and "Sub Two" in out, "the whole page comes back, not one block"
+
+
+# ── page caps ────────────────────────────────────────────
+# The schema advertised up to 2000 pages while _options clamped everything to
+# 200, so "re-run with a higher max_pages" was advice the tool ignored.
+def test_harvest_allows_more_pages_than_a_plain_fetch():
+    assert ft._options(max_pages=900).max_pages == ft.FETCH_PAGE_CAP
+    assert ft._options(max_pages=900, cap=ft.HARVEST_PAGE_CAP).max_pages == 900
+
+
+def test_page_caps_still_bound_absurd_values():
+    assert ft._options(max_pages=99999, cap=ft.HARVEST_PAGE_CAP).max_pages == ft.HARVEST_PAGE_CAP
+    assert ft._options(max_pages=0).max_pages == 1
+
+
+def test_harvest_schema_ceiling_matches_the_code():
+    assert ft.BY_NAME["harvest_docs"].schema["properties"]["max_pages"]["maximum"] == ft.HARVEST_PAGE_CAP
