@@ -138,7 +138,7 @@ Or in an MCP client config file:
 | `detect_source_type` | `url` | Which strategy the URL would use — a cheap probe. |
 | `fetch_docs` | `url`, `crawl`, `max_pages`, `js`, `force` | The extracted Markdown. |
 | `save_docs` | `url`, `out_dir`, `crawl`, `max_pages`, `js`, `force`, `single_file` | Paths written to disk. |
-| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope` | Learns a whole technology from one URL and stores it. Returns a summary. |
+| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
 | `list_knowledge_base` | — | What has already been harvested. |
 | `read_knowledge_base` | `name`, `section` | Reads stored docs back, optionally only matching pages. |
 
@@ -246,21 +246,29 @@ never re-scraped to answer a question. `section` matches page titles first and
 falls back to searching the text, so a specific question pulls the handful of
 relevant pages instead of a whole manual.
 
-### Partial harvests announce themselves
+### How much it crawls
 
-`max_pages` defaults to 200, and plenty of docs sites are bigger — the Effect v3
-docs have 600+ reachable pages. A harvest that hits the cap is **reported as
-incomplete**, in the harvest result, in `list_knowledge_base`, and again every
-time the content is read:
+`harvest_docs` has **no page limit by default** — it keeps going until the
+documentation section is exhausted. A page count is a guess at how big someone
+else's manual is; the scope prefix above is the boundary that actually means
+something. The Effect v3 docs come to 703 pages, and nothing in DocsForge knew
+that in advance.
+
+Pass `max_pages=N` only to deliberately cut a harvest short. `fetch_docs` keeps
+its own 200-page ceiling, so a single page fetch can never turn into an
+open-ended crawl by accident.
+
+### A short harvest says so
+
+When you *do* set a limit and hit it, that is reported — in the harvest result,
+in `list_knowledge_base`, and again every time the content is read:
 
 ```
 **INCOMPLETE — stopped at the 200-page limit, 400+ pages still queued.**
 ```
 
-That matters more than the cap itself: a third of a manual that looks whole
-produces confident, wrong answers. Re-run with a higher `max_pages` to finish —
-a harvest may go up to 2000 pages (a plain `fetch_docs` crawl stays capped at
-200, so one stray call cannot start a thousand-page crawl).
+That matters more than the limit itself: a third of a manual that looks whole
+produces confident, wrong answers.
 
 ### Where harvested docs live
 
@@ -324,7 +332,7 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 159 offline unit tests, no network
+python -m pytest tests/ -q          # 165 offline unit tests, no network
 
 # The Postgres backend is skipped unless you point it at a throwaway database.
 # It is deliberately NOT DOCSFORGE_DB, so tests can never touch real harvests.
