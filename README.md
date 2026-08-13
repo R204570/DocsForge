@@ -258,7 +258,47 @@ time the content is read:
 ```
 
 That matters more than the cap itself: a third of a manual that looks whole
-produces confident, wrong answers. Re-run with a higher `max_pages` to finish.
+produces confident, wrong answers. Re-run with a higher `max_pages` to finish —
+a harvest may go up to 2000 pages (a plain `fetch_docs` crawl stays capped at
+200, so one stray call cannot start a thousand-page crawl).
+
+### Where harvested docs live
+
+Two backends, chosen automatically:
+
+| | When | What you get |
+|---|---|---|
+| **Markdown files** | the default | `knowledge_base/<name>.md`, one file per technology, plus `index.json`. Zero setup, and the file is a deliverable you can hand to anyone. |
+| **PostgreSQL** | `DOCSFORGE_DB` set and reachable | A row per page with a GIN-indexed `tsvector`. Section lookups are ranked and stay fast as the store grows, and several DocsForge instances can share one store. |
+
+```bash
+DOCSFORGE_DB=postgresql://postgres:password@127.0.0.1:5432/DocsForge
+```
+
+The schema is created on first use. If the database is unreachable DocsForge
+falls back to files rather than losing a harvest — losing ten minutes of
+crawling to a database outage would be the worse failure.
+
+The file path is anchored to the package directory rather than the working
+directory: keying it off `cwd` meant launching the app from elsewhere silently
+produced a second, empty knowledge base. Override with `DOCSFORGE_KB_ROOT`.
+Both `knowledge_base/` and `.env` are gitignored.
+
+Postgres is what makes `section=` worth using. The file backend answers it by
+regex over one large string, which cannot rank; Postgres ranks, with page
+titles weighted above body text. Over 703 harvested Effect pages (6.3 MB):
+
+```
+'error handling'                  0.20s   1 page   (by title)
+'retry with exponential backoff'  0.11s   6 pages  (by content, ranked)
+```
+
+Already have a file store? `tests/migrate_kb.py` reads the combined Markdown
+back into Postgres, so a site that took ten minutes to crawl is not crawled
+again.
+
+To read one outside the app, `tests/preview_kb.py effect` renders it into a
+browsable HTML page with a contents sidebar.
 
 ### Why the crawl is scoped
 
@@ -284,7 +324,11 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 130 offline unit tests, no network
+python -m pytest tests/ -q          # 159 offline unit tests, no network
+
+# The Postgres backend is skipped unless you point it at a throwaway database.
+# It is deliberately NOT DOCSFORGE_DB, so tests can never touch real harvests.
+DOCSFORGE_TEST_DB=postgresql://postgres:pw@127.0.0.1:5432/DocsForge python -m pytest tests/ -q
 ```
 
 The live checks need the network, and the last two need `GROQ_API_KEY`:

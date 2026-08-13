@@ -27,6 +27,11 @@ anthropic>=0.70      # providers/claude.py
 openai>=1.40         # providers/chatgpt.py AND providers/ollama.py (OpenAI-compatible)
 google-genai>=1.0    # providers/gemini.py
 
+# ── knowledge-base storage ───────────────────────────────
+# Optional. Without it, harvests are Markdown files in knowledge_base/;
+# with DOCSFORGE_DB set, they go to Postgres with a full-text index.
+psycopg[binary]>=3.1
+
 # ── optional ─────────────────────────────────────────────
 # playwright        # only needed for --js / js:true; then: playwright install chromium
 # pytest            # to run tests/
