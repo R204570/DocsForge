@@ -76,6 +76,9 @@ class Doc:
 @dataclass
 class Options:
     crawl: bool = False
+    #: 0 means no limit — keep going until the documentation section is
+    #: exhausted. A page count is an arbitrary guess at how big a manual is;
+    #: the scope prefix is the boundary that actually means something.
     max_pages: int = 25
     js: bool = False
     delay: float = 0.4
@@ -92,6 +95,12 @@ class Options:
         default_factory=lambda: os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     )
     verbose: bool = True
+
+    def limit(self) -> int | None:
+        """The page ceiling, or None for unlimited. Always go through this:
+        `list[:0]` is empty, so treating an unlimited 0 as a slice bound would
+        silently harvest nothing."""
+        return self.max_pages if self.max_pages and self.max_pages > 0 else None
 
 
 @dataclass
@@ -540,8 +549,9 @@ def handle_github(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
             nodes = tree.json().get("tree", [])
         except ValueError:
             nodes = []
+        cap = opts.limit()
         for node in nodes:
-            if len(docs) >= opts.max_pages:
+            if cap is not None and len(docs) >= cap:
                 break
             p = node.get("path", "")
             low = p.lower()
@@ -696,9 +706,12 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
         prefix = docs_scope(start)
     else:
         prefix = opts.scope if opts.scope.endswith("/") else opts.scope + "/"
-    _log(opts, f"  crawling within {prefix}")
+    # 0 = no limit: crawl until the section is exhausted.
+    limit = opts.limit()
+    _log(opts, f"  crawling within {prefix}"
+               f" ({'no page limit' if limit is None else f'up to {limit} pages'})")
 
-    while queue and len(out) < opts.max_pages:
+    while queue and (limit is None or len(out) < limit):
         url = queue.popleft()
         if url in seen:
             continue
@@ -724,7 +737,7 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
         out.append(Doc(url, title, doc))
         _log(opts, f"  [{len(out)}] {url}")
 
-        if queue and len(out) < opts.max_pages:
+        if queue and (limit is None or len(out) < limit):
             time.sleep(opts.delay)
 
     if stats is not None:
@@ -762,8 +775,9 @@ def _sitemap_links(text: str, fetcher: Fetcher, opts: Options, depth: int = 0) -
     # A sitemap index points at more sitemaps; follow one level down.
     if soup.find("sitemapindex") is not None and depth < 2:
         nested: list[str] = []
+        cap = opts.limit()
         for sm in locs:
-            if len(nested) >= opts.max_pages:
+            if cap is not None and len(nested) >= cap:
                 break
             try:
                 nested += _sitemap_links(fetcher.text(sm), fetcher, opts, depth + 1)
@@ -775,7 +789,10 @@ def _sitemap_links(text: str, fetcher: Fetcher, opts: Options, depth: int = 0) -
 
 def handle_sitemap(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
     body = det.body if det.body is not None else fetcher.text(det.url)
-    links = _sitemap_links(body, fetcher, opts)[: opts.max_pages]
+    links = _sitemap_links(body, fetcher, opts)
+    cap = opts.limit()
+    if cap is not None:
+        links = links[:cap]
     if not links:
         raise ForgeError(f"No <loc> entries found in {det.url}")
 
@@ -892,12 +909,14 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
             # the docs; a crawl will do better than a near-empty list.
             if len(scoped) >= 3:
                 _log(opts, f"  harvesting {len(scoped)} pages from the sitemap")
+                cap = opts.limit()
                 if stats is not None:
+                    over = 0 if cap is None else max(0, len(scoped) - cap)
                     stats["discovered"] = len(scoped)
-                    stats["truncated"] = len(scoped) > opts.max_pages
-                    stats["remaining"] = max(0, len(scoped) - opts.max_pages)
+                    stats["truncated"] = over > 0
+                    stats["remaining"] = over
                 out: list[Doc] = []
-                for link in scoped[: opts.max_pages]:
+                for link in (scoped if cap is None else scoped[:cap]):
                     try:
                         title, body = _html_to_md(fetcher.html(link), link)
                     except Exception as e:
@@ -961,6 +980,10 @@ def write_docs(docs: list[Doc], out_dir: str, single_file: bool = False,
 
 # ─────────────────────────────────────────────────────────────
 def main(argv: list[str] | None = None) -> int:
+    # Before parse_args: --help prints the module docstring, which contains
+    # arrows, and argparse writes it straight to a cp1252 console.
+    enable_utf8_console()
+
     ap = argparse.ArgumentParser(
         prog="docsforge",
         description=__doc__,
@@ -969,7 +992,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("url")
     ap.add_argument("-o", "--out", default="./docs_md", help="output directory")
     ap.add_argument("--crawl", action="store_true", help="follow same-host links")
-    ap.add_argument("--max-pages", type=int, default=25)
+    ap.add_argument("--max-pages", type=int, default=25, metavar="N",
+                    help="page ceiling for a crawl; 0 means no limit")
     ap.add_argument("--js", action="store_true", help="render JS (needs playwright)")
     ap.add_argument("--delay", type=float, default=0.4)
     ap.add_argument("--single-file", action="store_true")
@@ -979,8 +1003,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-q", "--quiet", action="store_true")
     ap.add_argument("--version", action="version", version=f"docsforge {__version__}")
     args = ap.parse_args(argv)
-
-    enable_utf8_console()
 
     opts = Options(
         crawl=args.crawl,

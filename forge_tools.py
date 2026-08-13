@@ -108,19 +108,25 @@ def reset_store(new=None):
     return _STORE
 
 
-# A single fetch_docs call should not be able to start a 2000-page crawl by
-# accident; a harvest is explicitly asking for the whole manual, so it gets a
-# much higher ceiling. Without this split, "re-run with a higher max_pages"
-# was advice the tool silently ignored.
+# A single fetch_docs call should not be able to start an open-ended crawl by
+# accident, so it keeps a ceiling. A harvest is explicitly asking for the whole
+# manual, and any page count there is a guess at how big someone else's
+# documentation is — the scope prefix is the boundary that actually means
+# something, so harvests are unlimited unless you ask for a limit.
 FETCH_PAGE_CAP = 200
-HARVEST_PAGE_CAP = 2000
+HARVEST_PAGE_CAP = 0  # 0 = no limit
 
 
 def _options(crawl=False, max_pages=25, js=False, force=None, delay=0.4,
              cap: int = FETCH_PAGE_CAP) -> Options:
+    requested = max(0, int(max_pages))
+    if cap:
+        pages = min(requested, cap) if requested else cap
+    else:
+        pages = requested  # 0 stays 0: unlimited
     return Options(
         crawl=bool(crawl),
-        max_pages=max(1, min(int(max_pages), cap)),
+        max_pages=pages,
         js=bool(js),
         delay=float(delay),
         force=force or None,
@@ -164,7 +170,7 @@ def tool_save_docs(url: str, out_dir: str = "docs_md", crawl: bool = False,
 # ─────────────────────────────────────────────────────────────
 # Schemas (JSON Schema, shared by MCP and Groq)
 # ─────────────────────────────────────────────────────────────
-def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
+def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
                       js: bool = False, scope: str = "section") -> str:
     """Harvest a WHOLE documentation set and store it in the knowledge base."""
     opts = _options(crawl=True, max_pages=max_pages, js=js, delay=0.2,
@@ -195,7 +201,7 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 200,
     if truncated:
         left = stats.get("remaining") or 0
         warning = (
-            f"\n\n**INCOMPLETE — stopped at the {max_pages}-page limit"
+            f"\n\n**INCOMPLETE — stopped at the {opts.max_pages}-page limit"
             f"{f', {left}+ pages still queued' if left else ''}.** "
             f"This is a partial copy of the documentation. Say so if you answer from it, "
             f"and re-run with a higher `max_pages` to finish the job."
@@ -372,8 +378,12 @@ TOOLS: list[Tool] = [
                 "name": {"type": "string",
                          "description": "What to file it under, e.g. \"effect\". "
                                         "Defaults to the site's domain."},
-                "max_pages": {"type": "integer", "default": 200, "minimum": 1, "maximum": 2000,
-                              "description": "Upper bound on pages to fetch."},
+                "max_pages": {
+                    "type": "integer", "default": 0, "minimum": 0,
+                    "description": "0 (the default) crawls the whole documentation "
+                                   "section with no page limit. Set a number only to "
+                                   "deliberately cut a harvest short.",
+                },
                 "js": _JS,
                 "scope": {"type": "string", "default": "section",
                           "description": "\"section\" stays inside the docs root the URL "

@@ -279,17 +279,72 @@ def test_section_count_is_pages_not_blocks(kb):
 
 
 # ── page caps ────────────────────────────────────────────
-# The schema advertised up to 2000 pages while _options clamped everything to
-# 200, so "re-run with a higher max_pages" was advice the tool ignored.
-def test_harvest_allows_more_pages_than_a_plain_fetch():
-    assert ft._options(max_pages=900).max_pages == ft.FETCH_PAGE_CAP
-    assert ft._options(max_pages=900, cap=ft.HARVEST_PAGE_CAP).max_pages == 900
+# A page count is a guess at how big someone else's documentation is. The
+# scope prefix is the real boundary, so a harvest runs unlimited by default and
+# max_pages=0 means "until the section is exhausted".
+def test_limit_treats_zero_as_unlimited():
+    assert df.Options(max_pages=0).limit() is None
+    assert df.Options(max_pages=25).limit() == 25
 
 
-def test_page_caps_still_bound_absurd_values():
-    assert ft._options(max_pages=99999, cap=ft.HARVEST_PAGE_CAP).max_pages == ft.HARVEST_PAGE_CAP
-    assert ft._options(max_pages=0).max_pages == 1
+def test_harvest_is_unlimited_by_default():
+    assert ft.HARVEST_PAGE_CAP == 0
+    opts = ft._options(crawl=True, max_pages=0, cap=ft.HARVEST_PAGE_CAP)
+    assert opts.max_pages == 0 and opts.limit() is None
 
 
-def test_harvest_schema_ceiling_matches_the_code():
-    assert ft.BY_NAME["harvest_docs"].schema["properties"]["max_pages"]["maximum"] == ft.HARVEST_PAGE_CAP
+def test_harvest_still_honours_a_deliberate_limit():
+    opts = ft._options(crawl=True, max_pages=50, cap=ft.HARVEST_PAGE_CAP)
+    assert opts.limit() == 50
+
+
+def test_a_plain_fetch_stays_bounded():
+    # fetch_docs must not be able to start an open-ended crawl by accident.
+    assert ft._options(max_pages=0).max_pages == ft.FETCH_PAGE_CAP
+    assert ft._options(max_pages=99999).max_pages == ft.FETCH_PAGE_CAP
+    assert ft._options(max_pages=10).max_pages == 10
+
+
+def test_harvest_schema_advertises_unlimited():
+    schema = ft.BY_NAME["harvest_docs"].schema["properties"]["max_pages"]
+    assert schema["default"] == 0
+    assert schema["minimum"] == 0
+    assert "maximum" not in schema, "an arbitrary ceiling is exactly what was removed"
+
+
+class _LinkedPages:
+    """A finite docs section whose pages all link to each other."""
+
+    def __init__(self, count=6):
+        self.count = count
+
+    def html(self, url):
+        links = "".join(f'<a href="/docs/p{i}">p{i}</a>' for i in range(self.count))
+        return ("<html><head><title>P</title></head><body><main>"
+                + "body text " * 40 + links + "</main></body></html>")
+
+
+def test_unlimited_crawl_stops_when_the_section_runs_out():
+    stats = {}
+    docs = df._crawl_html("https://x.dev/docs/start", _LinkedPages(),
+                          df.Options(crawl=True, max_pages=0, delay=0, verbose=False), stats)
+    assert len(docs) == 7                 # the start page plus its six links
+    assert stats["truncated"] is False
+    assert stats["remaining"] == 0
+
+
+def test_a_limit_still_reports_what_it_skipped():
+    stats = {}
+    docs = df._crawl_html("https://x.dev/docs/start", _LinkedPages(),
+                          df.Options(crawl=True, max_pages=3, delay=0, verbose=False), stats)
+    assert len(docs) == 3
+    assert stats["truncated"] is True
+    assert stats["remaining"] == 4
+
+
+def test_unlimited_does_not_empty_a_sitemap_slice():
+    # `links[:0]` is empty, so an unlimited harvest must not go through a slice.
+    opts = df.Options(max_pages=0)
+    links = ["a", "b", "c"]
+    cap = opts.limit()
+    assert (links if cap is None else links[:cap]) == links

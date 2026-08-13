@@ -318,3 +318,19 @@ def test_run_tool_turns_the_path_guard_into_text_for_the_model():
     out = forge_tools.run_tool("save_docs", {"url": "https://x.com", "out_dir": "../../etc"})
     assert out.startswith("Error:")
     assert "Refusing to write outside" in out
+
+
+# ── cli ──────────────────────────────────────────────────
+def test_help_does_not_crash_on_a_legacy_console(monkeypatch, capsys):
+    """--help prints the module docstring, which contains arrows. The console
+    was only switched to UTF-8 *after* parse_args, so `docsforge.py --help`
+    died with a UnicodeEncodeError on a cp1252 terminal."""
+    calls = []
+    monkeypatch.setattr(df, "enable_utf8_console", lambda *a, **k: calls.append(True))
+
+    with pytest.raises(SystemExit) as exit_info:
+        df.main(["--help"])
+
+    assert exit_info.value.code == 0
+    assert calls, "the console must be reconfigured before argparse prints help"
+    assert "0 means no limit" in capsys.readouterr().out
