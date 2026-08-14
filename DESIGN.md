@@ -60,14 +60,50 @@ page never scrolls sideways.
 
 | Region | Behaviour |
 |---|---|
-| Rail | 56px, fixed. Mark, New chat, DocsStore, then Docs pinned to the bottom. |
+| Sidebar | 56px collapsed, 264px open. Toggle, wordmark, New chat, DocsStore, the chat list, then Docs pinned to the bottom. |
 | Top bar | 52px. Conversation title left; model picker right on chat, actions and the storage chip right on DocsStore. |
 | Transcript | Scrolls; content centred on a 768px measure. |
 | Composer | Pinned below the transcript, same measure, never overlapping it. |
 
-Below 640px the rail narrows to 48px, starters stack, and the answer's
-provider/time stamp takes its own line rather than crushing the buttons beside
-it.
+Below 640px the collapsed rail narrows to 48px, starters stack, and the
+answer's provider/time stamp takes its own line rather than crushing the
+buttons beside it.
+
+## Sidebar
+
+Collapsed it is an icon rail; open it is labelled links plus every past
+conversation. Toggled by the panel button or `Ctrl`/`⌘`+`B`, and the state is
+remembered across pages — but never restored open on a narrow screen, where it
+would cover the page on load.
+
+Every row is the same shape whether or not its label is showing, so nothing
+jumps sideways when it opens. Labels and the list use `visibility` rather than
+`display` so the text does not reflow mid-change.
+
+**The width snaps; it does not animate.** Animating width reflows the whole
+page every frame, and the page next door can be holding a 703-item list. The
+softness comes from the labels and the scrim fading — both composited.
+
+Below 760px the panel stops being a column and becomes an overlay with a
+scrim: there is no width at which 264px of sidebar and a readable column both
+fit. `Escape` closes it there, and so does the scrim.
+
+The delete button on a chat row is hidden until the row is hovered, because it
+is destructive and the row's main action is "open" — but it stays reachable by
+keyboard via `:focus-visible`.
+
+### Conversations
+
+The list is the reason the sidebar is worth opening, and it is also the fix for
+a real fault: **New chat used to destroy the conversation with no way back.**
+
+Stored in `localStorage`, forty most recent, oldest evicted on quota. Only the
+Markdown is kept — the rendered HTML is several times larger and the server can
+rebuild it, so restoring a chat re-renders each answer through `/api/render`
+rather than showing a wall of raw Markdown. A conversation is saved when a turn
+finishes, when an answer is edited or reverted, and on `beforeunload`. Deleting
+the conversation you are currently reading drops you into a fresh one rather
+than leaving you on a transcript that no longer exists anywhere.
 
 ## Components
 
@@ -147,6 +183,12 @@ Every view is addressable: `#/effect/v3/41`.
 - Captured at 1440 and 420 across the empty chat, the model picker, a finished
   answer with tool rows, in-place editing, `/docs`, and DocsStore at all three
   levels. No horizontal overflow and no console errors on any of them.
+- The sidebar driven rather than eyeballed: opens to 264px with labels visible,
+  two conversations recorded and listed newest first, switching restores the
+  right transcript **rendered** rather than raw, the open state survives moving
+  to `/library` and `/docs`, deleting removes exactly one, and at 420px the
+  panel overlays the page (main column stays at the rail's edge) with the scrim
+  at full opacity.
 - Contrast measured on the built pages with alpha properly composited, not read
   off the palette. Every text pair clears 4.5:1; the lowest are the placeholder
   at 5.24:1 and the send glyph on the accent at 4.87:1. Search highlight —
