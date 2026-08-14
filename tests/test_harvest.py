@@ -22,7 +22,9 @@ from kb_store import FileStore
     ("https://www.effect.website/docs/v3", "/docs/v3/"),
     ("https://docs.python.org/3/library/json.html", "/3/library/"),
     ("https://x.dev/guide/setup", "/guide/"),
-    ("https://x.dev/reference/api/v2/things", "/reference/"),
+    # Stops at v2 rather than /reference/: mixing two versions of an API
+    # reference into one harvest is the thing versioned storage exists to stop.
+    ("https://x.dev/reference/api/v2/things", "/reference/api/v2/"),
     ("https://x.dev/documentation/v10/intro", "/documentation/v10/"),
     ("https://example.com/", "/"),
 ])
@@ -33,6 +35,21 @@ def test_docs_scope_anchors_on_the_documentation_root(url, expected):
 def test_scope_keeps_a_version_segment_but_not_a_word():
     assert df.docs_scope("https://x.dev/docs/v3/a/b") == "/docs/v3/"
     assert df.docs_scope("https://x.dev/docs/latest/a") == "/docs/"
+
+
+def test_scope_finds_a_version_below_the_docs_root():
+    # Pydantic files versions at /docs/validation/2.11/. Stopping at /docs/
+    # crawls every version of the manual at once and calls it one harvest.
+    assert (df.docs_scope("https://pydantic.dev/docs/validation/2.11/get-started/")
+            == "/docs/validation/2.11/")
+    assert (df.docs_scope("https://pydantic.dev/docs/validation/1.10/overview/")
+            == "/docs/validation/1.10/")
+
+
+def test_scope_does_not_chase_a_version_buried_deep_in_a_path():
+    # A number five levels down is far more likely to be content than a
+    # version root, and narrowing that far would miss most of the docs.
+    assert df.docs_scope("https://x.dev/docs/a/b/c/d/2.0/deep") == "/docs/"
 
 
 @pytest.mark.parametrize("link,ok", [
@@ -91,8 +108,9 @@ PAGES = [
 ]
 
 
-def _store(kb, name="effect", pages=PAGES, complete=True):
-    return ft.store().save(name, "https://x.dev/docs/", "crawl", pages, complete=complete)
+def _store(kb, name="effect", pages=PAGES, complete=True, version="v3"):
+    return ft.store().save(name, version, "https://x.dev/docs/", "crawl", pages,
+                           complete=complete)
 
 
 def test_empty_knowledge_base_says_what_to_do(kb):
@@ -133,9 +151,27 @@ def test_unmatched_section_suggests_real_page_titles(kb):
 
 def test_missing_file_is_reported_not_crashed(kb):
     _store(kb)
-    (kb / "effect.md").unlink()
+    (kb / "effect" / "v3.md").unlink()
     with pytest.raises(ft.ForgeError, match="file is missing"):
         ft.tool_read_knowledge_base("effect")
+
+
+def test_version_label_is_trusted_when_the_pages_carry_it():
+    docs = [df.Doc(f"https://pydantic.dev/docs/validation/2.11/p{i}", f"P{i}", "x")
+            for i in range(6)]
+    assert ft._version_label(
+        "https://pydantic.dev/docs/validation/2.11/get-started/", docs) == "2.11"
+
+
+def test_version_label_falls_back_when_the_harvest_ignored_the_version():
+    # A site-wide llms.txt is published once for the current release. Filing it
+    # under the version the URL happened to name would claim a precision the
+    # content does not have.
+    docs = [df.Doc("https://pydantic.dev/llms.txt", "Everything", "x")]
+    label = ft._version_label(
+        "https://pydantic.dev/docs/validation/1.10/overview/", docs)
+    assert label != "1.10"
+    assert len(label) == 10, "an unverifiable version falls back to the harvest date"
 
 
 def test_names_are_slugged_consistently():

@@ -87,7 +87,7 @@ def _bundle(docs: list[Doc]) -> str:
 # know which.
 from kb_store import (  # noqa: E402
     StoreError, build_store, name_from_url as _name_from_url, parse_page,
-    slugify as _kb_slug, split_pages,
+    slugify as _kb_slug, split_pages, version_from_url as _version_from_url,
 )
 
 _STORE = None
@@ -170,8 +170,29 @@ def tool_save_docs(url: str, out_dir: str = "docs_md", crawl: bool = False,
 # ─────────────────────────────────────────────────────────────
 # Schemas (JSON Schema, shared by MCP and Groq)
 # ─────────────────────────────────────────────────────────────
+def _version_label(url: str, docs: list[Doc]) -> str:
+    """What to call this harvest, checked against what it actually collected.
+
+    A start URL like `/docs/validation/2.11/get-started/` names a version, but
+    the harvest may not have honoured it: `llms.txt` and a site-wide sitemap
+    are published once for the whole site, so filing their output under "2.11"
+    would claim a precision the content does not have. Trust the URL's label
+    only when the pages that came back live under it.
+    """
+    label = _version_from_url(url)
+    if label == time.strftime("%Y-%m-%d"):
+        return label  # nothing to check: the URL named no version
+
+    segment = f"/{label}/"
+    carried = sum(1 for d in docs if segment in (d.url or "").lower())
+    if carried * 2 >= len(docs):
+        return label
+    return time.strftime("%Y-%m-%d")
+
+
 def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
-                      js: bool = False, scope: str = "section") -> str:
+                      js: bool = False, scope: str = "section",
+                      version: str | None = None) -> str:
     """Harvest a WHOLE documentation set and store it in the knowledge base."""
     opts = _options(crawl=True, max_pages=max_pages, js=js, delay=0.2,
                     cap=HARVEST_PAGE_CAP)
@@ -184,6 +205,9 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
         raise ForgeError(f"Harvested nothing from {url}")
 
     slug = _kb_slug(name or _name_from_url(url))
+    # v3 and v2 of the same library contradict each other, so they are stored
+    # side by side rather than one overwriting the other.
+    label = _kb_slug(version) if version else _version_label(url, docs)
     truncated = bool(stats.get("truncated"))
 
     # Strip the per-page provenance comment: it is redundant once the page is
@@ -192,7 +216,7 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
         (d.title, d.url, re.sub(r"^<!-- source:.*?-->\n+", "", d.markdown, count=1, flags=re.S))
         for d in docs
     ]
-    entry = store().save(slug, url, strategy, pages, complete=not truncated)
+    entry = store().save(slug, label, url, strategy, pages, complete=not truncated)
 
     listing = "\n".join(f"{i}. {d.title}" for i, d in enumerate(docs[:30], 1))
     more = f"\n… and {len(docs) - 30} more" if len(docs) > 30 else ""
@@ -209,54 +233,75 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
 
     where = entry["file"]
     return (
-        f"Harvested **{slug}** — {len(docs)} pages, {entry['characters']:,} characters, "
+        f"Harvested **{slug}** {label} — {len(docs)} pages, "
+        f"{entry['characters']:,} characters, "
         f"via {strategy}, in {time.time() - started:.0f}s.\n"
         f"Stored in {store().kind}: `{where}`.{warning}\n\n"
-        f"Read it back with `read_knowledge_base(name=\"{slug}\")` — do NOT re-harvest "
-        f"to answer questions about it.\n\n"
+        f"Read it back with `read_knowledge_base(name=\"{slug}\", version=\"{label}\")` "
+        f"— do NOT re-harvest to answer questions about it.\n\n"
         f"Pages:\n{listing}{more}"
     )
 
 
 def tool_list_knowledge_base() -> str:
     """What technologies have already been harvested."""
+    backend = store()
     try:
-        entries = store().entries()
+        techs, _ = backend.technologies()
     except StoreError as e:
         raise ForgeError(str(e)) from e
 
-    if not entries:
+    if not techs:
         return ("The knowledge base is empty. Harvest a technology first with "
                 "`harvest_docs(url=...)`.")
 
-    backend = store()
-    lines = [f"{len(entries)} technolog{'y' if len(entries) == 1 else 'ies'} "
+    lines = [f"{len(techs)} technolog{'y' if len(techs) == 1 else 'ies'} "
              f"stored in {backend.kind} ({backend.location}):", ""]
-    for entry in entries:
-        flag = "" if entry.get("complete", True) else "  **[INCOMPLETE — hit the page limit]**"
-        lines.append(
-            f"- **{entry['name']}** — {entry['pages']} pages, "
-            f"{entry['characters']:,} chars, from {entry['source']} "
-            f"({entry['harvested']}, via {entry['strategy']}){flag}"
+    for tech in techs:
+        flag = "" if tech.get("complete", True) else "  **[INCOMPLETE — hit the page limit]**"
+        try:
+            versions = backend.versions(tech["name"])
+        except StoreError:
+            versions = []
+        labels = ", ".join(
+            f"{v['version']} ({v['pages']} pages, {v['harvested']})" for v in versions
         )
+        lines.append(
+            f"- **{tech['name']}** — {tech['pages']} pages across "
+            f"{tech['versions']} version{'s' if tech['versions'] != 1 else ''}, "
+            f"{tech['characters']:,} chars{flag}"
+        )
+        if labels:
+            lines.append(f"    versions: {labels}")
+    lines += ["", "Pass `version=` to read_knowledge_base to pick one; "
+                  "it defaults to the most recently harvested."]
     return "\n".join(lines)
 
 
-def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
+def tool_read_knowledge_base(name: str, section: str | None = None,
+                             version: str | None = None) -> str:
     """Read stored documentation back, optionally only the matching sections."""
     slug = _kb_slug(name)
     backend = store()
     try:
-        entry = backend.entry(slug)
+        entry = backend.entry(slug, version)
         if entry is None:
-            known = ", ".join(e["name"] for e in backend.entries()) or "(nothing stored yet)"
+            if version:
+                try:
+                    have = ", ".join(v["version"] for v in backend.versions(slug))
+                    raise ForgeError(
+                        f"{slug} has no version {version!r}. Stored versions: {have}")
+                except StoreError:
+                    pass
+            stored, _ = backend.technologies()
+            known = ", ".join(t["name"] for t in stored) or "(nothing stored yet)"
             raise ForgeError(f"No stored documentation called {slug!r}. Available: {known}")
-        body, how, found = backend.read(slug, section)
+        body, how, found = backend.read(slug, section, version)
     except StoreError as e:
         if section:
             # Naming real pages lets a model retry with something that exists,
             # instead of guessing at another phrase.
-            titles = ", ".join(backend.titles(slug)[:40])
+            titles = ", ".join(backend.titles(slug, version)[:40])
             if titles:
                 raise ForgeError(
                     f"Nothing in {slug} matches {section!r}, in page titles or text. "
@@ -264,18 +309,19 @@ def tool_read_knowledge_base(name: str, section: str | None = None) -> str:
                 ) from e
         raise ForgeError(str(e)) from e
 
+    label = entry.get("version", "")
     if how == "all":
         if len(body) > MAX_CHARS:
             return _truncate(
-                f"<!-- {slug} is {len(body):,} characters; showing the first "
+                f"<!-- {slug} {label} is {len(body):,} characters; showing the first "
                 f"{MAX_CHARS:,}. Pass `section` to get the relevant pages instead. -->\n\n"
                 + body
             )
         return body
 
     header = (
-        f"# {slug}: {found} page{'s' if found != 1 else ''} matching {section!r} "
-        f"(by {how})\n"
+        f"# {slug} {label}: {found} page{'s' if found != 1 else ''} "
+        f"matching {section!r} (by {how})\n"
     )
     if not entry.get("complete", True):
         header += (
@@ -390,6 +436,11 @@ TOOLS: list[Tool] = [
                                          "sits in (right for almost every site), \"host\" "
                                          "allows the whole domain, or give a literal path "
                                          "prefix such as \"/docs/v3/\"."},
+                "version": {"type": "string",
+                            "description": "Which version of the docs this is, e.g. \"v3\". "
+                                           "Detected from the URL when omitted. Harvesting a "
+                                           "version you already hold replaces just that one; "
+                                           "other versions are kept."},
             },
             "required": ["url"],
         },
@@ -397,9 +448,9 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         "list_knowledge_base",
-        "List the technologies already harvested and stored locally. Check this FIRST "
-        "when asked about a library or framework — if it is already stored, read it "
-        "instead of fetching anything.",
+        "List the technologies already harvested and stored locally, with every "
+        "version stored for each. Check this FIRST when asked about a library or "
+        "framework — if it is already stored, read it instead of fetching anything.",
         {"type": "object", "properties": {}},
         tool_list_knowledge_base,
     ),
@@ -416,6 +467,9 @@ TOOLS: list[Tool] = [
                          "description": "The stored name, as shown by list_knowledge_base."},
                 "section": {"type": "string",
                             "description": "Optional phrase to match against page titles."},
+                "version": {"type": "string",
+                            "description": "Which stored version to read, e.g. \"v3\". "
+                                           "Defaults to the most recently harvested one."},
             },
             "required": ["name"],
         },

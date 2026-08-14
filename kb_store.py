@@ -1,17 +1,25 @@
 """
-Where harvested documentation lives.
+Where harvested documentation lives — the DocsStore.
+
+Three levels, because documentation has three levels:
+
+    technology        effect
+      version         v3, v2, or the harvest date when a site is unversioned
+        page          Introduction, Error Handling, Layers, …
+
+Keeping versions apart matters: a project's v2 and v3 docs contradict each
+other, and a model handed both will happily quote the wrong one. Re-harvesting
+a version you already have replaces that version and leaves the others alone.
 
 Two backends behind one interface:
 
-* **files** — one Markdown file per technology in `knowledge_base/`. Zero setup,
-  works anywhere, and the file is the deliverable you can hand to anyone.
-* **postgres** — a row per page. Worth it because the file backend answers
-  `section=` by regex over a 6.7 MB string, which cannot rank results and gets
-  slower with every harvest. Postgres does it with a GIN-indexed tsvector,
-  ranked and fast, and lets several DocsForge instances share one store.
+* **files** — `knowledge_base/<tech>/<version>.md`. Zero setup, and the file is
+  a deliverable you can hand to anyone.
+* **postgres** — a row per page with a GIN-indexed tsvector. Ranked search
+  across everything stored, snippets showing why a page matched, and pagination
+  that does not load the whole store to count it.
 
-Postgres is used when DOCSFORGE_DB (or DATABASE_URL) is set; otherwise files.
-Nothing else in the codebase needs to know which one is active.
+Postgres is used when DOCSFORGE_DB (or DATABASE_URL) is set; files otherwise.
 """
 
 from __future__ import annotations
@@ -24,15 +32,15 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
-# A page written by docsforge.combine() looks like:
+# A page written by a combined file looks like:
 #     ## {title}
 #
 #     Source: <url>
-#
-# Scraped pages contain their own "## " headings, so the Source line is what
-# actually marks a boundary.
 _PAGE_BOUNDARY = re.compile(r"\n(?=## [^\n]*\n+Source: <)")
 _PAGE_HEAD = re.compile(r"^## (?P<title>[^\n]*)\n+Source: <(?P<url>[^>]*)>\s*", re.S)
+
+#: A path segment that looks like a documentation version: v3, 2.1, latest…
+_VERSION_SEGMENT = re.compile(r"^(v\d+(\.\d+)*|\d+\.\d+(\.\d+)*|latest|stable|next|canary)$", re.I)
 
 
 def split_pages(body: str) -> tuple[str, list[str]]:
@@ -66,6 +74,19 @@ def name_from_url(url: str) -> str:
     return host.split(".")[0] or "docs"
 
 
+def version_from_url(url: str) -> str:
+    """The documentation version a URL points at.
+
+    Most docs sites put it in the path (/docs/v3/…, /3.12/…). When there is no
+    such segment the site publishes one version at a time, so the harvest date
+    is the only honest label — it says which snapshot this is.
+    """
+    for part in (p for p in urlparse(url).path.split("/") if p):
+        if _VERSION_SEGMENT.match(part):
+            return part.lower()
+    return time.strftime("%Y-%m-%d")
+
+
 class StoreError(RuntimeError):
     """Something the caller can act on: no such entry, unreachable database."""
 
@@ -74,17 +95,13 @@ class Store(Protocol):
     kind: str
     location: str
 
-    def save(self, slug: str, source: str, strategy: str,
-             pages: list[tuple[str, str, str]], complete: bool) -> dict: ...
-    def entries(self) -> list[dict]: ...
-    def entry(self, slug: str) -> dict | None: ...
-    def read(self, slug: str, section: str | None = None) -> tuple[str, str, int]: ...
-
 
 # ─────────────────────────────────────────────────────────────
 # Files
 # ─────────────────────────────────────────────────────────────
 class FileStore:
+    """One Markdown file per version: knowledge_base/<tech>/<version>.md"""
+
     kind = "files"
 
     def __init__(self, root: Path):
@@ -97,21 +114,25 @@ class FileStore:
         if not self.index_path.exists():
             return {}
         try:
-            return json.loads(self.index_path.read_text(encoding="utf-8"))
+            data = json.loads(self.index_path.read_text(encoding="utf-8"))
         except (ValueError, OSError):
             return {}
+        return data if isinstance(data, dict) else {}
 
     def _save(self, index: dict) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.index_path.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
 
-    # -- api ----------------------------------------------------
-    def save(self, slug, source, strategy, pages, complete) -> dict:
-        self.root.mkdir(parents=True, exist_ok=True)
-        path = self.root / f"{slug}.md"
+    def _key(self, tech: str, version: str) -> str:
+        return f"{tech}@{version}"
 
-        host = urlparse(source).hostname or source
-        out = [f"# {host} documentation", "",
+    # -- writing ------------------------------------------------
+    def save(self, tech, version, source, strategy, pages, complete) -> dict:
+        folder = self.root / tech
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{slugify(version)}.md"
+
+        out = [f"# {tech} {version} documentation", "",
                f"<!-- harvested: {len(pages)} pages | from: {source} | via: {strategy} | "
                f"{time.strftime('%Y-%m-%d %H:%M')} -->", "", "## Contents", ""]
         for i, (title, url, _) in enumerate(pages, 1):
@@ -123,46 +144,155 @@ class FileStore:
         path.write_text(text, encoding="utf-8")
 
         index = self._load()
-        index[slug] = {
-            "name": slug, "source": source, "strategy": strategy,
-            "pages": len(pages), "characters": len(text), "file": str(path),
-            "harvested": time.strftime("%Y-%m-%d %H:%M"), "complete": complete,
-            "titles": [t for t, _, _ in pages][:1000],
+        index[self._key(tech, version)] = {
+            "technology": tech, "version": version, "source": source,
+            "strategy": strategy, "pages": len(pages), "characters": len(text),
+            "file": str(path), "harvested": time.strftime("%Y-%m-%d %H:%M"),
+            # Displayed to the minute, ordered to the microsecond: two harvests
+            # in the same minute still have a newest one, and "read the newest
+            # version" has to agree with Postgres about which that is.
+            "saved": time.time(),
+            "complete": complete,
+            "titles": [t for t, _, _ in pages][:2000],
         }
         self._save(index)
-        return index[slug]
+        return index[self._key(tech, version)]
 
-    def entries(self) -> list[dict]:
-        return sorted(self._load().values(), key=lambda e: e["name"])
+    def delete(self, tech: str, version: str | None = None) -> int:
+        index = self._load()
+        doomed = [k for k, v in index.items()
+                  if v["technology"] == tech and (version is None or v["version"] == version)]
+        for key in doomed:
+            path = Path(index[key]["file"])
+            if path.exists():
+                path.unlink()
+            del index[key]
+        self._save(index)
+        return len(doomed)
 
-    def entry(self, slug: str) -> dict | None:
-        return self._load().get(slug)
+    # -- reading ------------------------------------------------
+    def _rows(self) -> list[dict]:
+        return sorted(self._load().values(),
+                      key=lambda e: (e["technology"], e["version"]))
 
-    def titles(self, slug: str) -> list[str]:
-        meta = self.entry(slug)
-        return list(meta.get("titles", [])) if meta else []
+    def technologies(self, offset: int = 0, limit: int | None = None,
+                     query: str = "") -> tuple[list[dict], int]:
+        grouped: dict[str, dict] = {}
+        for row in self._rows():
+            tech = grouped.setdefault(row["technology"], {
+                "name": row["technology"], "versions": 0, "pages": 0,
+                "characters": 0, "latest": "", "harvested": "", "complete": True,
+                "saved": 0.0,
+            })
+            tech["versions"] += 1
+            tech["pages"] += row["pages"]
+            tech["characters"] += row["characters"]
+            tech["complete"] = tech["complete"] and row.get("complete", True)
+            if row.get("saved", 0) >= tech["saved"]:
+                tech["saved"] = row.get("saved", 0)
+                tech["harvested"] = row["harvested"]
+                tech["latest"] = row["version"]
 
-    def read(self, slug, section=None) -> tuple[str, str, int]:
-        meta = self.entry(slug)
+        rows = sorted(grouped.values(), key=lambda t: t["name"])
+        if query:
+            needle = query.lower()
+            rows = [t for t in rows if needle in t["name"].lower()]
+        total = len(rows)
+        if limit is not None:
+            rows = rows[offset:offset + limit]
+        return rows, total
+
+    def versions(self, tech: str) -> list[dict]:
+        rows = [dict(r) for r in self._rows() if r["technology"] == tech]
+        if not rows:
+            raise StoreError(f"nothing stored for {tech!r}")
+        rows.sort(key=lambda r: (r.get("saved", 0.0), r["harvested"]), reverse=True)
+        return rows
+
+    def entry(self, tech: str, version: str | None = None) -> dict | None:
+        try:
+            rows = self.versions(tech)
+        except StoreError:
+            return None
+        if version is None:
+            return rows[0]
+        return next((r for r in rows if r["version"] == version), None)
+
+    def _blocks(self, tech: str, version: str | None):
+        meta = self.entry(tech, version)
         if meta is None:
-            raise StoreError(f"no stored documentation called {slug!r}")
+            raise StoreError(f"no stored documentation for {tech!r}"
+                             + (f" version {version!r}" if version else ""))
         path = Path(meta["file"])
         if not path.exists():
-            raise StoreError(f"{slug} is in the index but its file is missing: {path}")
-        body = path.read_text(encoding="utf-8")
+            raise StoreError(f"{tech} is in the index but its file is missing: {path}")
+        _, blocks = split_pages(path.read_text(encoding="utf-8"))
+        return meta, blocks
+
+    def pages(self, tech: str, version: str | None = None) -> list[dict]:
+        _, blocks = self._blocks(tech, version)
+        out = []
+        for i, block in enumerate(blocks, 1):
+            title, url, body = parse_page(block)
+            out.append({"ordinal": i, "title": title, "url": url, "characters": len(body)})
+        return out
+
+    def page(self, tech: str, version: str | None, ordinal: int) -> dict:
+        _, blocks = self._blocks(tech, version)
+        if not 1 <= ordinal <= len(blocks):
+            raise StoreError(f"{tech} has no page {ordinal}")
+        title, url, body = parse_page(blocks[ordinal - 1])
+        return {"ordinal": ordinal, "title": title, "url": url, "content": body}
+
+    def read(self, tech: str, section: str | None = None,
+             version: str | None = None) -> tuple[str, str, int]:
+        meta, blocks = self._blocks(tech, version)
         if not section:
-            return body, "all", meta["pages"]
+            return "\n\n".join(blocks), "all", len(blocks)
 
         needle = section.lower()
-        _, blocks = split_pages(body)
         hits = [b for b in blocks if needle in b.split("\n", 1)[0].lower()]
         how = "title"
         if not hits:
             hits = [b for b in blocks if needle in b.lower()]
             how = "content"
         if not hits:
-            raise StoreError(f"nothing in {slug} matches {section!r}")
+            raise StoreError(f"nothing in {tech} matches {section!r}")
         return "\n\n".join(hits), how, len(hits)
+
+    def titles(self, tech: str, version: str | None = None) -> list[str]:
+        meta = self.entry(tech, version)
+        return list(meta.get("titles", [])) if meta else []
+
+    def search(self, query: str, tech: str | None = None, version: str | None = None,
+               limit: int = 30) -> list[dict]:
+        """Substring search. Ranking is not meaningful without an index, so
+        results come back in store order — Postgres is what makes this good."""
+        needle = query.lower()
+        hits: list[dict] = []
+        for row in self._rows():
+            if tech and row["technology"] != tech:
+                continue
+            if version and row["version"] != version:
+                continue
+            try:
+                _, blocks = self._blocks(row["technology"], row["version"])
+            except StoreError:
+                continue
+            for i, block in enumerate(blocks, 1):
+                if needle not in block.lower():
+                    continue
+                title, url, body = parse_page(block)
+                where = body.lower().find(needle)
+                start = max(0, where - 90)
+                hits.append({
+                    "technology": row["technology"], "version": row["version"],
+                    "ordinal": i, "title": title, "url": url,
+                    "snippet": ("…" if start else "") + body[start:start + 240].strip() + "…",
+                })
+                if len(hits) >= limit:
+                    return hits
+        return hits
 
 
 # ─────────────────────────────────────────────────────────────
@@ -170,32 +300,39 @@ class FileStore:
 # ─────────────────────────────────────────────────────────────
 SCHEMA = """
 create table if not exists technology (
-    id            serial primary key,
-    name          text unique not null,
-    source        text not null,
-    strategy      text not null,
-    complete      boolean not null default true,
-    harvested_at  timestamptz not null default now()
+    id    serial primary key,
+    name  text unique not null
+);
+
+create table if not exists doc_version (
+    id             serial primary key,
+    technology_id  integer not null references technology(id) on delete cascade,
+    version        text not null,
+    source         text not null,
+    strategy       text not null,
+    complete       boolean not null default true,
+    harvested_at   timestamptz not null default now(),
+    unique (technology_id, version)
 );
 
 create table if not exists page (
-    id             bigserial primary key,
-    technology_id  integer not null references technology(id) on delete cascade,
-    ordinal        integer not null,
-    title          text not null,
-    url            text not null,
-    content        text not null,
+    id          bigserial primary key,
+    version_id  integer not null references doc_version(id) on delete cascade,
+    ordinal     integer not null,
+    title       text not null,
+    url         text not null,
+    content     text not null,
     -- Generated, so it can never drift from the content it indexes. Titles are
     -- weighted above body text: a page called "Error Handling" should beat one
     -- that merely mentions errors.
-    search         tsvector generated always as (
-                       setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
-                       setweight(to_tsvector('english', coalesce(content, '')), 'B')
-                   ) stored
+    search      tsvector generated always as (
+                    setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(content, '')), 'B')
+                ) stored
 );
 
 create index if not exists page_search_idx on page using gin (search);
-create index if not exists page_tech_idx on page (technology_id, ordinal);
+create index if not exists page_version_idx on page (version_id, ordinal);
 """
 
 
@@ -216,15 +353,74 @@ class PostgresStore:
         try:
             return psycopg.connect(self.dsn, connect_timeout=8)
         except Exception as e:
-            raise StoreError(f"cannot reach the knowledge-base database ({self.location}): {e}") from e
+            raise StoreError(f"cannot reach the DocsStore database ({self.location}): {e}") from e
 
     def migrate(self) -> None:
         if self._ready:
             return
         with self._connect() as cx:
+            self._upgrade_v1(cx)
             cx.execute(SCHEMA)
             cx.commit()
         self._ready = True
+
+    @staticmethod
+    def _upgrade_v1(cx) -> None:
+        """Lift a pre-versioning store into the three-level schema.
+
+        v1 hung pages straight off `technology` and made `name` unique, so a
+        re-harvest overwrote what was there. Everything already stored becomes
+        one version, labelled from its source URL — no harvest is lost.
+        """
+        old = cx.execute("""
+            select 1 from information_schema.columns
+             where table_name = 'page' and column_name = 'technology_id'
+        """).fetchone()
+        if not old:
+            return
+
+        cx.execute("""
+            create table if not exists doc_version (
+                id             serial primary key,
+                technology_id  integer not null references technology(id) on delete cascade,
+                version        text not null,
+                source         text not null,
+                strategy       text not null,
+                complete       boolean not null default true,
+                harvested_at   timestamptz not null default now(),
+                unique (technology_id, version)
+            )
+        """)
+        rows = cx.execute(
+            "select id, source, strategy, complete, harvested_at from technology").fetchall()
+        for tech_id, source, strategy, complete, harvested in rows:
+            label = version_from_url(source or "")
+            cx.execute(
+                "insert into doc_version "
+                "  (technology_id, version, source, strategy, complete, harvested_at) "
+                "values (%s, %s, %s, %s, %s, %s) on conflict do nothing",
+                (tech_id, label, source or "", strategy or "crawl",
+                 complete if complete is not None else True, harvested))
+
+        cx.execute("alter table page add column if not exists version_id integer")
+        cx.execute("""
+            update page p set version_id = v.id
+              from doc_version v
+             where v.technology_id = p.technology_id and p.version_id is null
+        """)
+        cx.execute("delete from page where version_id is null")
+        cx.execute("alter table page alter column version_id set not null")
+        cx.execute("""
+            alter table page add constraint page_version_fk
+              foreign key (version_id) references doc_version(id) on delete cascade
+        """)
+        cx.execute("drop index if exists page_tech_idx")
+        cx.execute("alter table page drop column technology_id")
+
+        # The version columns now live on doc_version; leaving copies on
+        # technology invites the two to disagree.
+        for column in ("source", "strategy", "complete", "harvested_at"):
+            cx.execute(f"alter table technology drop column if exists {column}")
 
     def available(self) -> bool:
         try:
@@ -233,100 +429,223 @@ class PostgresStore:
         except StoreError:
             return False
 
-    def save(self, slug, source, strategy, pages, complete) -> dict:
+    # -- writing ------------------------------------------------
+    def save(self, tech, version, source, strategy, pages, complete) -> dict:
         self.migrate()
         chars = sum(len(b) for _, _, b in pages)
         with self._connect() as cx:
-            # Re-harvesting replaces the old copy rather than accumulating
-            # duplicates; the cascade clears its pages.
-            cx.execute("delete from technology where name = %s", (slug,))
             tech_id = cx.execute(
-                "insert into technology (name, source, strategy, complete) "
-                "values (%s, %s, %s, %s) returning id",
-                (slug, source, strategy, complete),
-            ).fetchone()[0]
+                "insert into technology (name) values (%s) "
+                "on conflict (name) do update set name = excluded.name returning id",
+                (tech,)).fetchone()[0]
+            # Re-harvesting a version replaces that version and leaves the
+            # others alone; the cascade clears its pages.
+            cx.execute("delete from doc_version where technology_id = %s and version = %s",
+                       (tech_id, version))
+            version_id = cx.execute(
+                "insert into doc_version (technology_id, version, source, strategy, complete) "
+                "values (%s, %s, %s, %s, %s) returning id",
+                (tech_id, version, source, strategy, complete)).fetchone()[0]
             with cx.cursor().copy(
-                "copy page (technology_id, ordinal, title, url, content) from stdin"
+                "copy page (version_id, ordinal, title, url, content) from stdin"
             ) as copy:
                 for i, (title, url, body) in enumerate(pages, 1):
-                    copy.write_row((tech_id, i, title, url, body))
+                    copy.write_row((version_id, i, title, url, body))
             cx.commit()
         return {
-            "name": slug, "source": source, "strategy": strategy,
-            "pages": len(pages), "characters": chars,
-            "file": f"postgres://{self.location} (technology {slug!r})",
+            "technology": tech, "version": version, "source": source,
+            "strategy": strategy, "pages": len(pages), "characters": chars,
+            "file": f"postgres://{self.location} ({tech} {version})",
             "harvested": time.strftime("%Y-%m-%d %H:%M"), "complete": complete,
-            "titles": [t for t, _, _ in pages][:1000],
+            "titles": [t for t, _, _ in pages][:2000],
         }
 
-    def entries(self) -> list[dict]:
+    def delete(self, tech: str, version: str | None = None) -> int:
+        self.migrate()
+        with self._connect() as cx:
+            if version is None:
+                n = cx.execute("delete from technology where name = %s", (tech,)).rowcount
+            else:
+                n = cx.execute(
+                    "delete from doc_version v using technology t "
+                    " where v.technology_id = t.id and t.name = %s and v.version = %s",
+                    (tech, version)).rowcount
+            cx.commit()
+        return n
+
+    # -- reading ------------------------------------------------
+    def technologies(self, offset: int = 0, limit: int | None = None,
+                     query: str = "") -> tuple[list[dict], int]:
+        self.migrate()
+        where, params = "", []
+        if query:
+            where = "where t.name ilike %s"
+            params.append(f"%{query}%")
+
+        sql = f"""
+            select t.name,
+                   count(distinct v.id),
+                   count(p.id),
+                   coalesce(sum(length(p.content)), 0),
+                   to_char(max(v.harvested_at), 'YYYY-MM-DD HH24:MI'),
+                   bool_and(v.complete),
+                   (array_agg(v.version order by v.harvested_at desc))[1]
+              from technology t
+              left join doc_version v on v.technology_id = t.id
+              left join page p on p.version_id = v.id
+              {where}
+             group by t.id
+             order by t.name
+        """
+        with self._connect() as cx:
+            rows = cx.execute(sql, params).fetchall()
+            total = len(rows)
+            if limit is not None:
+                rows = rows[offset:offset + limit]
+        return [{
+            "name": r[0], "versions": r[1], "pages": r[2], "characters": r[3],
+            "harvested": r[4] or "", "complete": bool(r[5]) if r[5] is not None else True,
+            "latest": r[6] or "",
+        } for r in rows], total
+
+    def versions(self, tech: str) -> list[dict]:
         self.migrate()
         with self._connect() as cx:
             rows = cx.execute("""
-                select t.name, t.source, t.strategy, t.complete,
-                       to_char(t.harvested_at, 'YYYY-MM-DD HH24:MI'),
+                select v.version, v.source, v.strategy, v.complete,
+                       to_char(v.harvested_at, 'YYYY-MM-DD HH24:MI'),
                        count(p.id), coalesce(sum(length(p.content)), 0)
-                  from technology t
-                  left join page p on p.technology_id = t.id
-                 group by t.id
-                 order by t.name
-            """).fetchall()
+                  from doc_version v
+                  join technology t on t.id = v.technology_id
+                  left join page p on p.version_id = v.id
+                 where t.name = %s
+                 group by v.id
+                 order by v.harvested_at desc
+            """, (tech,)).fetchall()
+        if not rows:
+            raise StoreError(f"nothing stored for {tech!r}")
         return [{
-            "name": r[0], "source": r[1], "strategy": r[2], "complete": r[3],
-            "harvested": r[4], "pages": r[5], "characters": r[6],
-            "file": f"postgres://{self.location} (technology {r[0]!r})",
+            "technology": tech, "version": r[0], "source": r[1], "strategy": r[2],
+            "complete": r[3], "harvested": r[4], "pages": r[5], "characters": r[6],
+            "file": f"postgres://{self.location} ({tech} {r[0]})",
         } for r in rows]
 
-    def entry(self, slug: str) -> dict | None:
-        return next((e for e in self.entries() if e["name"] == slug), None)
+    def entry(self, tech: str, version: str | None = None) -> dict | None:
+        try:
+            rows = self.versions(tech)
+        except StoreError:
+            return None
+        if version is None:
+            return rows[0]
+        return next((r for r in rows if r["version"] == version), None)
 
-    def titles(self, slug: str) -> list[str]:
+    def _version_id(self, cx, tech: str, version: str | None) -> int:
+        if version is None:
+            row = cx.execute(
+                "select v.id from doc_version v join technology t on t.id = v.technology_id "
+                " where t.name = %s order by v.harvested_at desc limit 1", (tech,)).fetchone()
+        else:
+            row = cx.execute(
+                "select v.id from doc_version v join technology t on t.id = v.technology_id "
+                " where t.name = %s and v.version = %s", (tech, version)).fetchone()
+        if row is None:
+            raise StoreError(f"no stored documentation for {tech!r}"
+                             + (f" version {version!r}" if version else ""))
+        return row[0]
+
+    def pages(self, tech: str, version: str | None = None) -> list[dict]:
         self.migrate()
         with self._connect() as cx:
+            vid = self._version_id(cx, tech, version)
             rows = cx.execute(
-                "select p.title from page p join technology t on t.id = p.technology_id "
-                " where t.name = %s order by p.ordinal limit 1000", (slug,)).fetchall()
-        return [r[0] for r in rows]
+                "select ordinal, title, url, length(content) from page "
+                " where version_id = %s order by ordinal", (vid,)).fetchall()
+        return [{"ordinal": r[0], "title": r[1], "url": r[2], "characters": r[3]} for r in rows]
 
-    def read(self, slug, section=None) -> tuple[str, str, int]:
+    def page(self, tech: str, version: str | None, ordinal: int) -> dict:
         self.migrate()
         with self._connect() as cx:
-            row = cx.execute("select id, complete from technology where name = %s",
-                             (slug,)).fetchone()
-            if row is None:
-                raise StoreError(f"no stored documentation called {slug!r}")
-            tech_id = row[0]
+            vid = self._version_id(cx, tech, version)
+            row = cx.execute(
+                "select ordinal, title, url, content from page "
+                " where version_id = %s and ordinal = %s", (vid, ordinal)).fetchone()
+        if row is None:
+            raise StoreError(f"{tech} has no page {ordinal}")
+        return {"ordinal": row[0], "title": row[1], "url": row[2], "content": row[3]}
 
+    def read(self, tech: str, section: str | None = None,
+             version: str | None = None) -> tuple[str, str, int]:
+        self.migrate()
+        with self._connect() as cx:
+            vid = self._version_id(cx, tech, version)
             if not section:
-                rows = cx.execute(
-                    "select title, url, content from page where technology_id = %s "
-                    "order by ordinal", (tech_id,)).fetchall()
+                rows = cx.execute("select title, url, content from page where version_id = %s "
+                                  "order by ordinal", (vid,)).fetchall()
                 how = "all"
             else:
-                # Title match first — a page named for the topic is what was
-                # asked for. Only then rank the full text.
                 rows = cx.execute(
                     "select title, url, content from page "
-                    " where technology_id = %s and title ilike %s order by ordinal",
-                    (tech_id, f"%{section}%")).fetchall()
+                    " where version_id = %s and title ilike %s order by ordinal",
+                    (vid, f"%{section}%")).fetchall()
                 how = "title"
                 if not rows:
                     rows = cx.execute("""
-                        select title, url, content
-                          from page
-                         where technology_id = %s
+                        select title, url, content from page
+                         where version_id = %s
                            and search @@ websearch_to_tsquery('english', %s)
                          order by ts_rank(search, websearch_to_tsquery('english', %s)) desc
                          limit 40
-                    """, (tech_id, section, section)).fetchall()
+                    """, (vid, section, section)).fetchall()
                     how = "content"
                 if not rows:
-                    raise StoreError(f"nothing in {slug} matches {section!r}")
-
-        text = "\n\n".join(
-            f"## {t}\n\nSource: <{u}>\n\n{c}".rstrip() for t, u, c in rows
-        )
+                    raise StoreError(f"nothing in {tech} matches {section!r}")
+        text = "\n\n".join(f"## {t}\n\nSource: <{u}>\n\n{c}".rstrip() for t, u, c in rows)
         return text, how, len(rows)
+
+    def titles(self, tech: str, version: str | None = None) -> list[str]:
+        try:
+            return [p["title"] for p in self.pages(tech, version)][:2000]
+        except StoreError:
+            return []
+
+    def search(self, query: str, tech: str | None = None, version: str | None = None,
+               limit: int = 30) -> list[dict]:
+        """Ranked search across the whole store, with a highlighted snippet
+        showing why each page matched."""
+        self.migrate()
+        narrow, scope = [], []
+        if tech:
+            narrow.append("and t.name = %s")
+            scope.append(tech)
+        if version:
+            narrow.append("and v.version = %s")
+            scope.append(version)
+        clause = " ".join(narrow)
+        params = [query, query, query] + scope + [limit]
+
+        with self._connect() as cx:
+            rows = cx.execute(f"""
+                select t.name, v.version, p.ordinal, p.title, p.url,
+                       -- One short fragment: the index is for choosing a page,
+                       -- not for reading it. Long snippets push the next hit
+                       -- off the screen.
+                       ts_headline('english', p.content,
+                                   websearch_to_tsquery('english', %s),
+                                   'MaxFragments=1, MinWords=6, MaxWords=18,
+                                    StartSel=«, StopSel=»'),
+                       ts_rank(p.search, websearch_to_tsquery('english', %s)) as rank
+                  from page p
+                  join doc_version v on v.id = p.version_id
+                  join technology t on t.id = v.technology_id
+                 where p.search @@ websearch_to_tsquery('english', %s) {clause}
+                 order by rank desc
+                 limit %s
+            """, params).fetchall()
+
+        return [{
+            "technology": r[0], "version": r[1], "ordinal": r[2],
+            "title": r[3], "url": r[4], "snippet": r[5],
+        } for r in rows]
 
 
 # ─────────────────────────────────────────────────────────────

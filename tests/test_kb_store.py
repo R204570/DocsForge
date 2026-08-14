@@ -2,7 +2,7 @@
 Offline tests for the knowledge-base storage layer.
 
 The file backend is tested everywhere. The Postgres backend is tested only when
-DOCSFORGE_DB points at a reachable database, so the suite still passes on a
+DOCSFORGE_TEST_DB points at a reachable database, so the suite still passes on a
 machine with no Postgres — but when one is available, both backends are held to
 exactly the same behaviour.
 """
@@ -15,7 +15,10 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import docsforge as df
-from kb_store import FileStore, PostgresStore, StoreError, build_store, parse_page, split_pages
+from kb_store import (
+    FileStore, PostgresStore, StoreError, build_store, parse_page, split_pages,
+    version_from_url,
+)
 
 PAGES = [
     ("Error Handling", "https://x.dev/docs/errors", "fail fast and recover"),
@@ -71,6 +74,28 @@ def test_round_trip_through_a_combined_file_keeps_every_page():
         assert before in after
 
 
+# ── naming the version ───────────────────────────────────
+@pytest.mark.parametrize("url,expected", [
+    ("https://www.effect.website/docs/v3/getting-started/", "v3"),
+    ("https://pydantic.dev/docs/validation/2.11/get-started/", "2.11"),
+    ("https://docs.python.org/3.12/library/json.html", "3.12"),
+    ("https://x.dev/docs/latest/intro", "latest"),
+])
+def test_version_is_read_out_of_the_url(url, expected):
+    assert version_from_url(url) == expected
+
+
+def test_an_unversioned_site_is_labelled_with_the_harvest_date():
+    # A site that publishes one version at a time has no version to read, and
+    # the date is the only honest thing to call the snapshot.
+    label = version_from_url("https://hono.dev/docs/")
+    assert len(label) == 10 and label.count("-") == 2
+
+
+def test_a_version_looking_segment_does_not_match_an_ordinary_word():
+    assert version_from_url("https://x.dev/docs/guide/install") != "guide"
+
+
 # ── backend selection ────────────────────────────────────
 def test_files_are_used_when_no_database_is_configured(tmp_path):
     assert build_store(root=tmp_path, dsn="").kind == "files"
@@ -90,18 +115,23 @@ def store(request, tmp_path):
         yield FileStore(tmp_path)
         return
     pg = _pg_or_skip()
+    _cleanup_pg()
     yield pg
     _cleanup_pg()
 
 
-def _save(store, name="pytest-demo", complete=True):
-    return store.save(name, "https://x.dev/docs/", "crawl", PAGES, complete=complete)
+def _save(store, name="pytest-demo", version="v1", complete=True, pages=None):
+    return store.save(name, version, "https://x.dev/docs/", "crawl",
+                      pages if pages is not None else PAGES, complete=complete)
 
 
 def test_save_then_list(store):
     entry = _save(store)
     assert entry["pages"] == 3
-    assert "pytest-demo" in [e["name"] for e in store.entries()]
+    techs, total = store.technologies()
+    assert total == 1
+    assert techs[0]["name"] == "pytest-demo"
+    assert techs[0]["versions"] == 1
 
 
 def test_entry_reports_completeness(store):
@@ -143,25 +173,154 @@ def test_unmatched_section_is_refused(store):
         store.read("pytest-demo", "quantum tunnelling")
 
 
-def test_re_saving_replaces_rather_than_duplicates(store):
-    _save(store)
-    _save(store)
-    matching = [e for e in store.entries() if e["name"] == "pytest-demo"]
-    assert len(matching) == 1, "a re-harvest must replace the old copy"
-    assert matching[0]["pages"] == 3
+# ── version tracking ─────────────────────────────────────
+def test_two_versions_of_one_technology_live_side_by_side(store):
+    _save(store, version="v2", pages=PAGES[:1])
+    _save(store, version="v3", pages=PAGES)
+
+    techs, total = store.technologies()
+    assert total == 1, "two versions are still one technology"
+    assert techs[0]["versions"] == 2
+    assert techs[0]["pages"] == 4
+
+    labels = {v["version"] for v in store.versions("pytest-demo")}
+    assert labels == {"v2", "v3"}
+
+
+def test_each_version_keeps_its_own_pages(store):
+    _save(store, version="v2", pages=[("Old Way", "https://x.dev/old", "deprecated")])
+    _save(store, version="v3", pages=PAGES)
+
+    v2, _, _ = store.read("pytest-demo", version="v2")
+    assert "deprecated" in v2
+    assert "fail fast" not in v2, "v3 content must not leak into a v2 read"
+
+    v3, _, _ = store.read("pytest-demo", version="v3")
+    assert "fail fast" in v3
+
+
+def test_re_harvesting_a_version_replaces_only_that_version(store):
+    _save(store, version="v2", pages=[("Old Way", "https://x.dev/old", "deprecated")])
+    _save(store, version="v3", pages=PAGES)
+    _save(store, version="v3", pages=PAGES[:2])   # crawl it again
+
+    assert len(store.versions("pytest-demo")) == 2
+    assert store.entry("pytest-demo", "v3")["pages"] == 2
+    assert store.entry("pytest-demo", "v2")["pages"] == 1
+
+
+def test_reading_without_a_version_gets_the_newest(store):
+    _save(store, version="old", pages=[("Old Way", "https://x.dev/old", "deprecated")])
+    _save(store, version="new", pages=PAGES)
+    assert store.entry("pytest-demo")["version"] == "new"
+
+
+def test_an_unknown_version_is_refused(store):
+    _save(store, version="v3")
+    assert store.entry("pytest-demo", "v9") is None
+    with pytest.raises(StoreError, match="v9"):
+        store.read("pytest-demo", version="v9")
+
+
+def test_pages_are_listed_in_order_and_readable_one_at_a_time(store):
+    _save(store, version="v3")
+    listing = store.pages("pytest-demo", "v3")
+    assert [p["ordinal"] for p in listing] == [1, 2, 3]
+    assert [p["title"] for p in listing] == [t for t, _, _ in PAGES]
+
+    page = store.page("pytest-demo", "v3", 2)
+    assert page["title"] == "Layers"
+    assert page["url"] == "https://x.dev/docs/layers"
+    assert "wiring services" in page["content"]
+
+
+def test_asking_for_a_page_that_does_not_exist_is_refused(store):
+    _save(store, version="v3")
+    with pytest.raises(StoreError, match="page 99"):
+        store.page("pytest-demo", "v3", 99)
+
+
+# ── paging the box ───────────────────────────────────────
+def test_technologies_are_paged(store):
+    for i in range(5):
+        _save(store, name=f"pytest-t{i}", pages=PAGES[:1])
+
+    first, total = store.technologies(offset=0, limit=2)
+    assert total == 5, "the total counts everything, not just this page"
+    assert [t["name"] for t in first] == ["pytest-t0", "pytest-t1"]
+
+    last, _ = store.technologies(offset=4, limit=2)
+    assert [t["name"] for t in last] == ["pytest-t4"]
+
+    everything, _ = store.technologies()
+    assert len(everything) == 5, "no limit means the whole box"
+
+
+def test_technologies_can_be_filtered_by_name(store):
+    _save(store, name="pytest-effect", pages=PAGES[:1])
+    _save(store, name="pytest-zod", pages=PAGES[:1])
+
+    hits, total = store.technologies(query="zod")
+    assert total == 1 and hits[0]["name"] == "pytest-zod"
+
+
+def test_search_finds_pages_and_says_where_they_live(store):
+    _save(store, name="pytest-demo", version="v3")
+    hits = store.search("npm")
+    assert hits, "the page mentioning npm should be found"
+    assert hits[0]["technology"] == "pytest-demo"
+    assert hits[0]["version"] == "v3"
+    assert hits[0]["ordinal"] == 2
+
+
+def test_search_can_be_scoped_to_one_version(store):
+    _save(store, version="v2", pages=[("Old", "https://x.dev/old", "npm install old")])
+    _save(store, version="v3", pages=PAGES)
+
+    scoped = store.search("npm", tech="pytest-demo", version="v2")
+    assert scoped and all(h["version"] == "v2" for h in scoped)
+
+
+def test_deleting_one_version_leaves_the_others(store):
+    _save(store, version="v2", pages=PAGES[:1])
+    _save(store, version="v3", pages=PAGES)
+
+    store.delete("pytest-demo", "v2")
+    remaining = store.versions("pytest-demo")
+    assert [v["version"] for v in remaining] == ["v3"]
+
+    store.delete("pytest-demo")
+    assert store.technologies()[1] == 0
 
 
 # ── postgres specifics ───────────────────────────────────
 def test_postgres_ranks_content_matches():
     store = _pg_or_skip()
     try:
-        store.save("pytest-rank", "https://x.dev/docs/", "crawl", [
+        store.save("pytest-rank", "v1", "https://x.dev/docs/", "crawl", [
             ("Unrelated", "https://x.dev/1", "nothing to see here"),
             ("Also Unrelated", "https://x.dev/2", "retry retry retry backoff retry"),
         ], complete=True)
         body, how, count = store.read("pytest-rank", "retry backoff")
         assert how == "content" and count == 1
         assert "retry retry retry" in body
+    finally:
+        _cleanup_pg()
+
+
+def test_postgres_search_marks_the_matching_words():
+    store = _pg_or_skip()
+    try:
+        store.save("pytest-mark", "v1", "https://x.dev/docs/", "crawl", [
+            ("Retrying", "https://x.dev/1",
+             "use a schedule to retry the effect with exponential backoff"),
+        ], complete=True)
+        hits = store.search("exponential backoff", tech="pytest-mark")
+        assert hits
+        # The snippet marks matches with guillemets rather than markup, so the
+        # page's own angle brackets can never become HTML in the browser.
+        assert "«" in hits[0]["snippet"] and "»" in hits[0]["snippet"]
+        assert "<" not in hits[0]["snippet"]
     finally:
         _cleanup_pg()
 

@@ -95,3 +95,132 @@ def test_history_is_capped():
 def test_history_truncates_giant_messages():
     msgs = [app.ChatMessage(role="user", content="x" * (MAX_CONTENT + 5000))]
     assert len(app._clean_history(msgs)[0]["content"]) == MAX_CONTENT
+
+
+# ── DocsStore: the /library API ──────────────────────────
+@pytest.fixture
+def box(tmp_path, monkeypatch):
+    """A file-backed store holding more technologies than fit on one page."""
+    from kb_store import FileStore
+
+    store = FileStore(tmp_path)
+    forge_tools.reset_store(store)
+
+    for i in range(app.PER_PAGE + 3):
+        store.save(f"lib{i:02d}", "v1", f"https://x.dev/{i}/docs/", "crawl",
+                   [("Only Page", f"https://x.dev/{i}/docs/a", "some text")],
+                   complete=True)
+    store.save("effect", "v2", "https://effect.dev/docs/v2/", "crawl",
+               [("Old Way", "https://effect.dev/docs/v2/a", "the deprecated way")],
+               complete=True)
+    store.save("effect", "v3", "https://effect.dev/docs/v3/", "crawl",
+               [("Error Handling", "https://effect.dev/docs/v3/a", "fail fast"),
+                ("Layers", "https://effect.dev/docs/v3/b", "wiring with npm")],
+               complete=False)
+    yield store
+    forge_tools.reset_store(None)
+
+
+def test_library_page_is_served():
+    from fastapi.responses import FileResponse
+
+    assert isinstance(app.library(), FileResponse)
+
+
+def test_library_index_pages_the_box(box):
+    first = app.library_index(page=1)
+    assert first["total"] == app.PER_PAGE + 4
+    assert len(first["technologies"]) == app.PER_PAGE
+    assert first["pages"] == 2
+    assert first["backend"]["kind"] == "files"
+
+    second = app.library_index(page=2)
+    assert len(second["technologies"]) == 4
+    assert not {t["name"] for t in first["technologies"]} & \
+               {t["name"] for t in second["technologies"]}
+
+
+def test_library_index_clamps_a_page_past_the_end(box):
+    # A stale bookmark must not return an empty screen with no explanation.
+    assert app.library_index(page=99)["page"] == 2
+
+
+def test_library_index_filters_by_name(box):
+    found = app.library_index(q="effect")
+    assert found["total"] == 1
+    assert found["technologies"][0]["name"] == "effect"
+    assert found["technologies"][0]["versions"] == 2
+
+
+def test_library_lists_every_version_newest_first(box):
+    versions = app.library_versions("effect")["versions"]
+    assert {v["version"] for v in versions} == {"v2", "v3"}
+    assert versions[0]["version"] == "v3"
+
+
+def test_library_reports_a_partial_harvest(box):
+    v3 = next(v for v in app.library_versions("effect")["versions"]
+              if v["version"] == "v3")
+    assert v3["complete"] is False
+
+
+def test_library_pages_are_scoped_to_their_version(box):
+    v2 = app.library_pages("effect", "v2")
+    assert [p["title"] for p in v2["pages"]] == ["Old Way"]
+
+    v3 = app.library_pages("effect", "v3")
+    assert [p["title"] for p in v3["pages"]] == ["Error Handling", "Layers"]
+
+
+def test_library_page_comes_back_rendered(box):
+    page = app.library_page("effect", "v3", 1)
+    assert page["title"] == "Error Handling"
+    assert "fail fast" in page["content"]
+    assert "<p>" in page["html"], "the reader renders server-side HTML"
+
+
+def test_the_reader_does_not_print_the_title_twice():
+    # Extracted pages usually open with their own title, and the reader already
+    # prints it above the document.
+    stripped = app._without_repeated_title("# Error Handling\n\nbody", "Error Handling")
+    assert stripped.strip() == "body"
+
+
+def test_a_heading_that_is_not_the_title_is_left_alone():
+    kept = app._without_repeated_title("# Something Else\n\nbody", "Error Handling")
+    assert kept.startswith("# Something Else")
+
+
+def test_the_site_name_in_a_stored_title_does_not_defeat_the_match():
+    # Titles come from <title>, which carries the site name; the document's own
+    # heading does not.
+    stripped = app._without_repeated_title("# Index\n\nbody", "Index | Pydantic Docs")
+    assert stripped.strip() == "body"
+
+
+def test_library_search_finds_a_page_and_names_its_version(box):
+    hits = app.library_search(q="npm")["hits"]
+    assert hits and hits[0]["technology"] == "effect"
+    assert hits[0]["version"] == "v3"
+
+
+def test_library_search_can_be_scoped_to_one_version(box):
+    scoped = app.library_search(q="way", tech="effect", version="v2")["hits"]
+    assert scoped and all(h["version"] == "v2" for h in scoped)
+
+
+def test_library_search_with_no_query_returns_nothing(box):
+    assert app.library_search(q="   ")["hits"] == []
+
+
+@pytest.mark.parametrize("call", [
+    lambda: app.library_versions("nosuchthing"),
+    lambda: app.library_pages("effect", "v9"),
+    lambda: app.library_page("effect", "v3", 99),
+])
+def test_library_says_what_is_missing_rather_than_crashing(box, call):
+    import json
+
+    response = call()
+    assert response.status_code == 404
+    assert json.loads(response.body)["detail"]

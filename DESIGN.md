@@ -141,10 +141,59 @@ On the inverted selected rail card the frame's border and stroke flip to paper.
 9px (Silkscreen chip) → 25px (intro lede), with the card title at 21px as the
 focal element. An embedded panel rules out a display hero, but not a hierarchy.
 
+## DocsStore — the second surface
+
+`/library` (`static/library.html`, `library.js`, `store.css`). Same world, same
+`style.css`; `store.css` adds only what the box needs that the stack did not
+have. Reached from **Go > DocsStore**, `Ctrl+L`.
+
+**The card box, not a data table.** Technologies are dividers, versions are the
+cards behind a divider, pages are the lines on a card. The rail keeps its
+position and grammar from the stack, so the two surfaces read as one window.
+
+| Level | Where | Carries |
+|---|---|---|
+| technology | the rail, 12 per page | spine, version count, page count, latest label, size |
+| version | the stage, one row each | label, pages, size, harvest date, strategy, source URL |
+| page | the reader's index | ordinal, title, and the matched snippet while searching |
+
+- **Divider spine** — an authored 1-bit glyph: a card with a tab, plus one
+  edge behind it per extra version, capped at three. The tab is load-bearing.
+  Drawn without it, a single-version divider is a bare rectangle beside a
+  label, which reads as an empty checkbox and invites a click that does nothing.
+- **Pager** — `◀ page 1 of 2 · 18 ▶` under the rail. It stays put at one page
+  rather than hiding: its disabled state is the answer to "is there more?".
+  `.btn:disabled` stencils a `<span>`, so `.btn.pg:disabled .icon` repeats the
+  dither for the arrows.
+- **Version tabs** — once inside a version the others stay one click away: the
+  same list, folded up. Selected inverts, as everything selected does here.
+- **Reader** — index beside document at ≥1000px, index as a strip above it
+  below that. Search inside a version marks matches with `<mark>`, which
+  inverts, and inverts back inside a selected or hovered row.
+- **Hollow cards** — the empty and error states stretch to the stage and centre
+  their content instead of hugging. A squat bar across the top of an empty
+  stage reads as a failed load; a card with a document in it still hugs.
+- **Backend chip** — the menu bar's right-hand corner names where the box is
+  stored, dashed square for files, solid for Postgres. Not decoration: Postgres
+  ranks search and the file store cannot, and reading unranked results while
+  believing they are ranked is worse than knowing.
+
+Snippets arrive marked with `«` `»` rather than markup, and the client escapes
+first and promotes the guillemets second, so a page full of angle brackets
+cannot smuggle HTML into the index.
+
+Every view is addressable: `#/effect/v3/41`, `hashchange` drives the render.
+
 ## Verified
 
 - Both themes probed by computed style, not by eye: ink/paper, card, chip,
   status and the filled primary button all invert. Contrast is 21:1 each way.
 - Desktop 1280 and mobile 420 captured in one round; no horizontal overflow at
   either, no console errors.
-- `detect.mjs` clean over all three static files.
+- `detect.mjs` clean over all static files.
+- DocsStore captured at 1280 / 900 / 420 in light and dark
+  (`tests/shoot_store.py`), over the real store: 18 technologies across two
+  pages, pydantic's two versions, and Effect v3's 703-page index under search.
+  No overflow, no console errors at any width.
+- Contrast measured on the built page, both themes: body 21:1 / 19:1,
+  search snippets the same, the one placeholder in the design 6.2:1 / 7.6:1.

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Iterator
 
@@ -38,6 +39,7 @@ load_dotenv(find_dotenv(usecwd=True))
 import forge_tools  # noqa: E402  (after load_dotenv so tool config sees .env)
 import providers  # noqa: E402
 from docsforge import enable_utf8_console  # noqa: E402
+from kb_store import StoreError  # noqa: E402
 from providers import MAX_CONTENT, MAX_HISTORY, ProviderError  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -182,6 +184,113 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 @app.get("/")
 def index():
     return FileResponse(os.path.join(STATIC, "index.html"))
+
+
+@app.get("/library")
+def library():
+    """DocsStore — everything harvested so far, by technology and version."""
+    return FileResponse(os.path.join(STATIC, "library.html"))
+
+
+# ── DocsStore API ────────────────────────────────────────────
+# The store grows without limit, so the technology list is paged rather than
+# returned whole. Everything below reports which backend answered, because a
+# Postgres store and a file store have visibly different capabilities.
+PER_PAGE = 12
+
+
+def _store():
+    return forge_tools.store()
+
+
+def _store_error(e: Exception, status: int = 404):
+    return JSONResponse({"detail": str(e)}, status_code=status)
+
+
+@app.get("/api/library")
+def library_index(page: int = 1, q: str = ""):
+    backend = _store()
+    page = max(1, int(page))
+    try:
+        techs, total = backend.technologies(
+            offset=(page - 1) * PER_PAGE, limit=PER_PAGE, query=q.strip())
+    except StoreError as e:
+        return _store_error(e, 503)
+    pages = max(1, -(-total // PER_PAGE))
+    return {
+        "technologies": techs,
+        "page": min(page, pages),
+        "pages": pages,
+        "total": total,
+        "per_page": PER_PAGE,
+        "query": q,
+        "backend": {"kind": backend.kind, "location": backend.location},
+    }
+
+
+@app.get("/api/library/{tech}")
+def library_versions(tech: str):
+    try:
+        return {"technology": tech, "versions": _store().versions(tech)}
+    except StoreError as e:
+        return _store_error(e)
+
+
+@app.get("/api/library/{tech}/{version}")
+def library_pages(tech: str, version: str):
+    backend = _store()
+    try:
+        entry = backend.entry(tech, version)
+        if entry is None:
+            return _store_error(StoreError(f"{tech} has no version {version!r}"))
+        return {"technology": tech, "version": version,
+                "meta": entry, "pages": backend.pages(tech, version)}
+    except StoreError as e:
+        return _store_error(e)
+
+
+# Most extracted pages open with their own title as an H1. The reader already
+# prints the title above the document, so rendering both says it twice.
+_OPENING_HEADING = re.compile(r"\A\s*#{1,2}\s+(?P<title>[^\n]+?)\s*\n+")
+
+# A stored title usually comes from <title>, which carries the site name:
+# "Index | Pydantic Docs" over a document whose own heading is just "Index".
+_SITE_SUFFIX = re.compile(r"\s*(?:\||—|–|·|\s-\s).*\Z")
+
+
+def _without_repeated_title(content: str, title: str) -> str:
+    match = _OPENING_HEADING.match(content or "")
+    if not match:
+        return content
+    heading = match.group("title").strip().lower()
+    stored = (title or "").strip().lower()
+    if heading in (stored, _SITE_SUFFIX.sub("", stored)):
+        return content[match.end():]
+    return content
+
+
+@app.get("/api/library/{tech}/{version}/page/{ordinal}")
+def library_page(tech: str, version: str, ordinal: int):
+    try:
+        page = _store().page(tech, version, ordinal)
+    except StoreError as e:
+        return _store_error(e)
+    body = _without_repeated_title(page["content"], page["title"])
+    return {**page, "html": render_markdown(body)}
+
+
+@app.get("/api/library-search")
+def library_search(q: str, tech: str = "", version: str = "", limit: int = 30):
+    q = q.strip()
+    if not q:
+        return {"query": "", "hits": []}
+    try:
+        hits = _store().search(q, tech or None, version or None,
+                               max(1, min(int(limit), 100)))
+    except StoreError as e:
+        return _store_error(e, 503)
+    return {"query": q, "technology": tech, "version": version,
+            "hits": hits, "ranked": _store().kind == "postgres"}
 
 
 @app.get("/api/config")

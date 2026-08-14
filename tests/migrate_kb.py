@@ -31,37 +31,43 @@ def main() -> int:
     dest = PostgresStore(DSN)
     dest.migrate()
 
-    entries = src.entries()
-    if not entries:
+    technologies, total = src.technologies()
+    if not total:
         print(f"nothing stored in {src.location}")
         return 1
 
     print(f"from {src.location}")
     print(f"  to {dest.kind}://{dest.location}\n")
 
-    for meta in entries:
-        path = Path(meta["file"])
-        if not path.exists():
-            print(f"  {meta['name']}: file missing ({path}) — skipped")
-            continue
+    # Every version of every technology: a migration that kept only the newest
+    # would silently throw away the older docs someone deliberately harvested.
+    for tech in technologies:
+        for meta in src.versions(tech["name"]):
+            label = f"{meta['technology']} {meta['version']}"
+            path = Path(meta["file"])
+            if not path.exists():
+                print(f"  {label}: file missing ({path}) — skipped")
+                continue
 
-        _, blocks = split_pages(path.read_text(encoding="utf-8"))
-        pages = [parse_page(b) for b in blocks]
-        if not pages:
-            print(f"  {meta['name']}: no pages parsed — skipped")
-            continue
+            _, blocks = split_pages(path.read_text(encoding="utf-8"))
+            pages = [parse_page(b) for b in blocks]
+            if not pages:
+                print(f"  {label}: no pages parsed — skipped")
+                continue
 
-        saved = dest.save(
-            meta["name"], meta["source"], meta.get("strategy", "migrated"),
-            pages, complete=meta.get("complete", True),
-        )
-        print(f"  {meta['name']}: {saved['pages']} pages, {saved['characters']:,} chars")
+            saved = dest.save(
+                meta["technology"], meta["version"], meta["source"],
+                meta.get("strategy", "migrated"), pages,
+                complete=meta.get("complete", True),
+            )
+            print(f"  {label}: {saved['pages']} pages, {saved['characters']:,} chars")
 
     print("\nnow in the database:")
-    for entry in dest.entries():
+    stored, _ = dest.technologies()
+    for entry in stored:
         flag = "" if entry["complete"] else "  [INCOMPLETE]"
-        print(f"  {entry['name']}: {entry['pages']} pages, "
-              f"{entry['characters']:,} chars{flag}")
+        print(f"  {entry['name']}: {entry['versions']} version(s), "
+              f"{entry['pages']} pages, {entry['characters']:,} chars{flag}")
     return 0
 
 
