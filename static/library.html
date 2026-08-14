@@ -28,21 +28,43 @@
   <symbol id="i-open" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-8 8"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12"/></symbol>
 </svg>
 
-<nav class="rail" aria-label="Sections">
-  <a class="mark" href="/" aria-label="DocsForge"><svg class="icon"><use href="#i-forge"/></svg></a>
-  <a class="rail-btn" href="/" title="New chat" aria-label="New chat">
-    <svg class="icon"><use href="#i-new"/></svg>
-  </a>
-  <a class="rail-btn" href="/library" aria-current="page" title="DocsStore" aria-label="DocsStore">
-    <svg class="icon"><use href="#i-store"/></svg>
-  </a>
+<div class="side-scrim" id="side-scrim" aria-hidden="true"></div>
+
+<aside class="side-nav" id="side-nav" data-open="false" aria-label="Sidebar">
+  <div class="side-top">
+    <button class="rail-btn" type="button" id="side-toggle"
+            aria-expanded="false" aria-label="Open sidebar" title="Open sidebar">
+      <svg class="icon"><use href="#i-panel"/></svg>
+    </button>
+    <a class="side-mark" href="/">DocsForge</a>
+  </div>
+
+  <nav class="side-links" aria-label="Sections">
+    <button class="rail-btn" type="button" id="new-chat" title="New chat">
+      <svg class="icon"><use href="#i-new"/></svg><span class="lbl">New chat</span>
+    </button>
+    <a class="rail-btn" href="/library" aria-current="page" title="DocsStore">
+      <svg class="icon"><use href="#i-store"/></svg><span class="lbl">DocsStore</span>
+    </a>
+  </nav>
+
+  <div class="side-body">
+    <p class="side-head">Chats</p>
+    <div class="chat-list" id="chat-list"></div>
+  </div>
+
   <span class="rail-spacer"></span>
-  <a class="rail-btn" href="/docs" title="How this works" aria-label="Docs">
-    <svg class="icon"><use href="#i-docs"/></svg>
-  </a>
-</nav>
+
+  <div class="side-foot">
+    <a class="rail-btn" href="/docs" title="How this works">
+      <svg class="icon"><use href="#i-docs"/></svg><span class="lbl">How it works</span>
+    </a>
+  </div>
+</aside>
 
 <main class="main">
   <header class="topbar">
@@ -98,6 +120,7 @@
   </div>
 </main>
 
+<script src="/static/sidebar.js"></script>
 <script src="/static/library.js"></script>
 </body>
 </html>

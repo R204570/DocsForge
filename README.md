@@ -155,6 +155,10 @@ Three surfaces, one window: the chat at `/`, **DocsStore** at `/library`, and
 everything that would otherwise need explaining at `/docs`. Charcoal on black
 with a single accent; nothing on the home screen but the input.
 
+The sidebar opens with the panel button or `Ctrl`+`B`, and holds your past
+conversations. They live in your browser — forty most recent, Markdown only,
+nothing uploaded — so **New chat** no longer throws work away.
+
 Every tool call the model makes is listed above the answer it produced — what
 was fetched, what kind of source it was, and how much came back — so an answer
 built from a page that was actually read does not look like one that was not.

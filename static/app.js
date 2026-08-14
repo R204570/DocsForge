@@ -20,6 +20,7 @@ const titleEl = $("#thread-title");
 const pickerEl = $("#picker");
 
 const state = {
+  chatId: null,
   turns: [],
   busy: false,
   tools: [],
@@ -27,6 +28,9 @@ const state = {
   provider: null,
   abort: null,
 };
+
+const newId = () =>
+  Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // ── helpers ──────────────────────────────────────────────
 function el(tag, cls, text) {
@@ -213,6 +217,7 @@ function actionsFor(t) {
     }
     t.editing = !t.editing;
     render();
+    persist();
   });
 
   acts.append(copy, save, edit);
@@ -225,6 +230,7 @@ function actionsFor(t) {
       t.authored = null;
       t.editing = false;
       render();
+      persist();
     });
     acts.append(undo);
   }
@@ -566,6 +572,7 @@ async function ask(question) {
     setFoot("");
     render();
     scrollDown();
+    persist();
   }
 }
 
@@ -587,11 +594,75 @@ function submit() {
   ask(text);
 }
 
+// ── conversations ────────────────────────────────────────
+/* Only the Markdown is stored; the rendered HTML is rebuilt from it on the
+   way back in. Sidebar owns the storage — this just hands it the current
+   conversation whenever it changes. */
+function persist() {
+  if (!state.turns.length) return;
+  Sidebar.save({
+    id: state.chatId,
+    title: state.turns[state.turns.length - 1].title,
+    turns: state.turns.map((t) => ({
+      question: t.question,
+      markdown: t.markdown,
+      authored: t.authored,
+      title: t.title,
+      steps: t.steps,
+      notices: t.notices,
+      provider: t.provider,
+      model: t.model,
+      status: t.status,
+      error: t.error,
+      time: t.time,
+    })),
+  });
+  Sidebar.setActive(state.chatId);
+}
+
+async function restore(chat) {
+  state.chatId = chat.id;
+  state.turns = chat.turns.map((t, i) => ({ ...t, id: i + 1, editing: false, html: "" }));
+  render();
+
+  // Re-render each answer through the server, so a restored conversation
+  // reads exactly like a live one rather than as a wall of raw Markdown.
+  await Promise.all(state.turns.map(async (t) => {
+    if (t.status !== "done" || t.authored != null || !t.markdown) return;
+    try {
+      const res = await fetch("/api/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: t.markdown }),
+      });
+      t.html = stripLeadingHeading((await res.json()).html, t.title);
+    } catch {
+      t.authored = t.markdown;   // the text is still worth having
+    }
+  }));
+
+  render();
+  scrollDown(true);
+  Sidebar.setActive(state.chatId);
+}
+
 function newChat() {
   if (state.busy) return;
+  persist();
+  state.chatId = newId();
   state.turns = [];
+  history.replaceState(null, "", "/");
   render();
+  Sidebar.setActive(state.chatId);
   inputEl.focus();
+}
+
+function openChat(id) {
+  if (state.busy) return;
+  if (id === state.chatId) return;
+  persist();
+  const chat = Sidebar.read().find((c) => c.id === id);
+  if (chat) restore(chat);
 }
 
 inputEl.addEventListener("input", () => {
@@ -611,8 +682,6 @@ formEl.addEventListener("submit", (e) => {
   submit();
 });
 
-$("#new-chat").addEventListener("click", newChat);
-
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closePicker();
@@ -630,10 +699,33 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ── boot ─────────────────────────────────────────────────
+Sidebar.onNewChat = newChat;
+Sidebar.onOpenChat = openChat;
+
+// Deleting the conversation you are looking at should leave you somewhere
+// sensible rather than on a transcript that no longer exists anywhere.
+document.addEventListener("chats:changed", (e) => {
+  if (e.detail && e.detail.id === state.chatId) {
+    state.chatId = newId();
+    state.turns = [];
+    render();
+    Sidebar.setActive(state.chatId);
+  }
+});
+
+// Leaving mid-conversation should not lose it.
+window.addEventListener("beforeunload", persist);
+
+const wanted = new URLSearchParams(location.search).get("chat");
+const saved = wanted && Sidebar.read().find((c) => c.id === wanted);
+
+state.chatId = saved ? saved.id : newId();
 render();
 setBusy(false);
 setFoot("");
-inputEl.focus();
+Sidebar.setActive(state.chatId);
+if (saved) restore(saved);
+else inputEl.focus();
 
 fetch("/api/config")
   .then((r) => r.json())
