@@ -1,407 +1,534 @@
-/* ═════════════════════════════════════════════════════════
-   DocsStore (/library) — the same world, second surface.
+/* ─────────────────────────────────────────────────────────
+   DocsStore (/library). Loads after style.css and inherits the
+   palette, the rail, the top bar and the .md rules. Only the
+   three-level browser lives here.
+   ───────────────────────────────────────────────────────── */
 
-   Loads after style.css and inherits all of it: the tokens, the
-   dither, the two bitmap faces, .card / .chip / .btn / .index-card.
-   Only what the box needs that the stack did not have lives here.
-
-   The dither rule from style.css still binds: --stipple as a
-   background-image on anything containing text, masks only on
-   boxes with no words in them.
-   ═════════════════════════════════════════════════════════ */
-
-.sr {
-  position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.store {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
 }
 
-/* Where the box is stored. A status word, not a control: the menu bar's
-   right-hand corner is where a Mac has always reported state. A folder of
-   files and a Postgres table answer differently enough — one ranks search,
-   one does not — that hiding which one you are reading would be a lie. */
-.menu-title.backend {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0;
+/* A status word, not a control. */
+.pill.flat {
   cursor: default;
-  max-width: 44ch;
+  font-family: var(--mono);
+  font-size: 12px;
+  max-width: 38ch;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.menu-title.backend::before {
+.pill.flat::before {
   content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border: var(--rule) solid currentColor;
-  vertical-align: 0;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
 }
-.menu-title.backend.files::before { border-style: dashed; }
+.pill.flat.files::before { background: var(--text-3); }
 
-/* ── finding a technology ─────────────────────────────── */
-.find { flex: 0 0 auto; margin: 0 10px 9px; }
+/* ── the technology list ──────────────────────────────── */
+.side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line-soft);
+}
 
+.find { flex: 0 0 auto; padding: 14px 14px 10px; }
 .find-field {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px 3px;
+  gap: 8px;
+  padding: 0 12px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-3);
+  transition: border-color 140ms ease;
 }
-.find-field::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: var(--rule) solid var(--ink);
-  filter: url(#rough-soft);
-  pointer-events: none;
-}
-.find-field:focus-within::before { border-style: dashed; }
-.find-field .icon { flex: 0 0 auto; width: 13px; height: 13px; }
-
+.find-field:focus-within { border-color: var(--accent-line); }
 .find-field input {
   flex: 1 1 auto;
   min-width: 0;
-  font-family: var(--body);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--ink);
-  background: transparent;
   border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
   outline: none;
-  padding: 2px 0;
 }
+.find-field input::placeholder { color: var(--text-3); }
 .find-field input::-webkit-search-cancel-button { -webkit-appearance: none; }
-/* Ink at 62% on paper clears 4.5:1 either way round; this is the one place
-   a placeholder sits, and it has to stay readable in both themes. */
-.find-field input::placeholder { color: var(--ink); opacity: 0.62; }
 
-/* ── a divider standing in the box ────────────────────── */
-/* How many crawls of this technology the box holds, drawn as the card edges
-   behind the divider. The number is printed beside it either way; the spine
-   is what you actually read at a glance. */
-.spine {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 26px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
+.index {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.index::-webkit-scrollbar { width: 10px; }
+.index::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--bg);
+  border-radius: 999px;
 }
 
-.index-card .v {
+.index-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 11px;
+  margin-bottom: 3px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.index-card:hover { background: var(--surface); }
+.index-card[aria-current="true"] {
+  background: var(--accent-dim);
+  border-color: var(--accent-line);
+}
+
+/* How many crawls of this technology the store holds, drawn as the card
+   edges standing behind a divider. The tab is load-bearing: a plain
+   rectangle at one version reads as an empty checkbox and invites a click
+   that does nothing. */
+.spine {
+  width: 20px;
+  height: 24px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.index-card[aria-current="true"] .spine { stroke: var(--accent); }
+
+.index-text { flex: 1 1 auto; min-width: 0; }
+.index-card .t {
   display: block;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.35;
-  margin-top: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.index-card .m {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.index-card .m .num { margin-left: auto; }
+.index-card .v {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.index-card[aria-current="true"] .v { color: var(--accent); }
 
 /* An incomplete harvest is the one fact that changes how you should treat
-   what you read, so it is printed, not filed in a tooltip. */
+   what you read, so it is printed rather than filed in a tooltip. */
 .warn {
-  font-family: var(--label);
-  font-weight: 700;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border: 1px solid currentColor;
-  padding: 1px 4px 0;
+  display: inline-block;
+  margin-top: 5px;
+  padding: 1px 7px;
+  border: 1px solid rgba(255, 154, 154, 0.4);
+  border-radius: 999px;
+  background: rgba(255, 154, 154, 0.09);
+  color: var(--danger);
+  font-size: 11px;
   white-space: nowrap;
 }
 
+.index-empty {
+  padding: 34px 14px;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.index-empty p { margin: 0 0 5px; }
+.index-empty .dim { font-size: 12.5px; color: var(--text-3); }
+.empty-art {
+  display: block;
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 14px;
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* ── the pager ────────────────────────────────────────── */
-/* The box grows every time anyone harvests, so it is read a page at a time.
-   The stepper stays put when there is only one page — its disabled state is
-   the honest answer to "is there more?". */
+/* It stays put at one page rather than hiding: the disabled arrows are the
+   answer to "is there more?". */
 .pager {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 9px;
-  border-top: var(--rule) solid var(--ink);
-  padding: 9px 10px;
+  gap: 6px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line-soft);
 }
 .pager .pg-count {
   flex: 1 1 auto;
   text-align: center;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
+  color: var(--text-3);
 }
-.btn.pg { padding: 3px 9px 2px; }
-.btn.pg .icon { width: 13px; height: 13px; }
-/* .btn:disabled stencils its <span>; these carry an <svg> instead. */
-.btn.pg:disabled .icon {
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 2px 2px;
-  mask-size: 2px 2px;
-}
+.pager .ghost { width: 30px; padding: 0; justify-content: center; }
+.pager .ghost:disabled { color: var(--line); cursor: not-allowed; background: none; }
 
-/* ── the opened divider ───────────────────────────────── */
-/* Wider than a chat card: this one holds an index beside a document, and the
-   reading measure lives inside the right-hand pane instead of on the card. */
-.card.open { max-width: 1120px; width: 100%; }
-.card.open .card-head { gap: 10px; }
+/* ── the stage ────────────────────────────────────────── */
+.stage { min-width: 0; min-height: 0; display: flex; }
 
-/* A card holding a document hugs it, the way the stack's cards do. A card
-   holding nothing has nothing to hug, and a squat bar across the top of an
-   empty stage reads as a failed load rather than an invitation. */
-.card.hollow { align-self: stretch; }
-.card.hollow .card-field { display: grid; place-items: center; }
-
-.crumb {
+.card {
+  flex: 1 1 auto;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
-.crumb button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  padding: 0 2px;
-  cursor: default;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.crumb button:hover { background: var(--ink); color: var(--paper); text-decoration: none; }
-.crumb .here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* ── the version list: every crawl of one technology ──── */
-.versions { list-style: none; margin: 0; padding: 0; }
-.versions li { margin-bottom: 11px; }
-
-.version {
-  position: relative;
+.card-head {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 13px;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  padding: 11px 13px;
-  cursor: default;
+  gap: 12px;
+  padding: 16px 22px 14px;
 }
-.version:hover, .version:active { background: var(--ink); color: var(--paper); }
+.card-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-field {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 22px 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.card-field::-webkit-scrollbar,
+.toc::-webkit-scrollbar,
+.page-view::-webkit-scrollbar { width: 10px; }
+.card-field::-webkit-scrollbar-thumb,
+.toc::-webkit-scrollbar-thumb,
+.page-view::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--bg);
+  border-radius: 999px;
+}
+
+.card.hollow .card-field { display: grid; place-items: center; }
+
+.card-meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px 16px;
+  padding: 0 22px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.crumb { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.crumb button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.crumb button:hover { text-decoration: underline; }
+.crumb .sep { color: var(--line); }
+.crumb .here { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── every crawled version of one technology ──────────── */
+.versions { list-style: none; margin: 0; padding: 0; max-width: 820px; }
+.versions li { margin-bottom: 10px; }
+
+.version {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.version:hover { background: var(--surface-2); border-color: var(--accent-line); }
 
 .version .tag {
   flex: 0 0 auto;
-  font-family: var(--display);
-  font-size: 19px;
-  line-height: 1.1;
   min-width: 4.5ch;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--accent);
 }
 .version .facts {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 3px 13px;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
+  gap: 3px 14px;
+  font-size: 12.5px;
+  color: var(--text-2);
 }
 .version .facts .src {
   flex: 1 1 100%;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.version .go { flex: 0 0 auto; width: 15px; height: 15px; }
+.version .go { color: var(--text-3); }
+.version:hover .go { color: var(--accent); }
 
 /* ── the version tab strip ────────────────────────────── */
 /* Inside a version, the others stay one click away: the same list, folded up. */
 .tabs {
   flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 6px;
   overflow-x: auto;
-  border-bottom: var(--rule) solid var(--ink);
-  padding: 7px 11px;
+  padding: 0 22px 14px;
 }
-.tabs .chip { margin: 0 3px 0 0; align-self: center; }
+.tabs .chip {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
 .tab {
   flex: 0 0 auto;
-  font-family: var(--display);
-  font-size: 12.5px;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  padding: 3px 11px 2px;
-  cursor: default;
+  padding: 4px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.tab:hover { background: var(--ink); color: var(--paper); }
-.tab[aria-current="true"] { background: var(--ink); color: var(--paper); }
+.tab:hover { background: var(--surface); color: var(--text); }
+.tab[aria-current="true"] {
+  background: var(--accent-dim);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
 
 /* ── reading a version: index beside document ─────────── */
 .reader {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(190px, 244px) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 280px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
+  border-top: 1px solid var(--line-soft);
 }
 
 .contents {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: var(--rule) solid var(--ink);
+  border-right: 1px solid var(--line-soft);
 }
-.contents .find { margin: 9px 9px 8px; }
+.contents .find { padding: 12px 12px 8px; }
 
 .toc {
   flex: 1 1 auto;
   overflow-y: auto;
-  list-style: none;
-  margin: 0;
-  padding: 0 0 8px;
   min-height: 0;
+  margin: 0;
+  padding: 0 8px 10px;
+  list-style: none;
   scrollbar-width: thin;
-  scrollbar-color: var(--ink) var(--paper);
+  scrollbar-color: var(--line) transparent;
 }
-
 .toc button {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  text-align: left;
-  font: inherit;
-  font-family: var(--body);
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--ink);
-  background: none;
+  padding: 7px 10px;
+  margin-bottom: 1px;
   border: 0;
-  border-bottom: 1px dotted var(--ink);
-  padding: 6px 10px;
-  cursor: default;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
 }
-.toc button:hover { background: var(--ink); color: var(--paper); }
-.toc button[aria-current="true"] { background: var(--ink); color: var(--paper); }
+.toc button:hover { background: var(--surface); color: var(--text); }
+.toc button[aria-current="true"] { background: var(--accent-dim); color: var(--accent); }
 .toc .n {
   flex: 0 0 auto;
-  font-family: var(--mono);
-  font-size: 10px;
   min-width: 3ch;
   text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
 }
+.toc button[aria-current="true"] .n { color: var(--accent); }
 .toc .nm { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+/* One short fragment per hit: the index is for choosing a page, not for
+   reading it. */
 .toc .snip {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.45;
   margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-3);
   overflow-wrap: anywhere;
 }
-/* Highlight inverts, because that is what selection does in this world. */
-.toc mark { background: var(--ink); color: var(--paper); }
-.toc button:hover mark,
-.toc button[aria-current="true"] mark { background: var(--paper); color: var(--ink); }
+.toc mark {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 0 2px;
+}
 .toc .none {
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.5;
   padding: 12px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
 }
 
 .page-view {
   overflow-y: auto;
   min-height: 0;
-  padding: 16px 18px 24px;
+  padding: 22px 28px 40px;
   scrollbar-width: thin;
-  scrollbar-color: var(--ink) var(--paper);
+  scrollbar-color: var(--line) transparent;
 }
-.page-view::-webkit-scrollbar,
-.toc::-webkit-scrollbar { width: 14px; }
-.page-view::-webkit-scrollbar-track,
-.toc::-webkit-scrollbar-track {
-  background-color: var(--paper);
-  border-left: var(--rule) solid var(--ink);
-}
-.page-view::-webkit-scrollbar-thumb,
-.toc::-webkit-scrollbar-thumb {
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-}
-.page-view::-webkit-scrollbar-thumb:hover,
-.toc::-webkit-scrollbar-thumb:hover { background: var(--ink); }
+.page-view .md { max-width: 74ch; }
 
 .page-head {
-  border-bottom: 1px dotted var(--ink);
-  padding-bottom: 9px;
-  margin-bottom: 15px;
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line-soft);
 }
 .page-head h2 {
-  font-family: var(--display);
-  font-size: 19px;
-  line-height: 1.25;
-  margin: 0 0 5px;
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .page-head .src {
+  margin: 0;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
-.page-head .src a { color: inherit; }
+.page-head .src a { color: var(--accent); text-decoration: none; }
+.page-head .src a:hover { text-decoration: underline; }
 
 .blank {
-  font-size: 12.5px;
-  line-height: 1.6;
-  padding: 30px 4px;
+  padding: 60px 10px;
   text-align: center;
+  font-size: 13.5px;
+  color: var(--text-2);
 }
-.blank .dim { font-size: 11.5px; }
+.blank p { margin: 0 0 5px; }
+.blank .dim { color: var(--text-3); font-size: 12.5px; }
 
-/* ── narrow: the box folds up ─────────────────────────── */
-@media (max-width: 1000px) {
-  /* Below this the index and the document cannot both hold a usable measure,
-     so the index becomes a strip above what you are reading. */
+/* ── narrow ───────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  /* Below this the index and the document cannot both hold a usable
+     measure, so the index becomes a strip above what you are reading. */
   .reader {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 30vh) minmax(0, 1fr);
   }
-  .contents { border-right: 0; border-bottom: var(--rule) solid var(--ink); }
-  .contents .find { margin: 8px 9px 6px; }
+  .contents { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .page-view { padding: 18px 20px 32px; }
 }
 
 @media (max-width: 860px) {
-  .pager { border-top: 0; padding: 0 10px 10px; }
-  .index-card .v { white-space: normal; }
-  .card.open { max-width: none; }
-  .reader { grid-template-rows: minmax(0, 26vh) minmax(0, 1fr); }
+  .store {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .side { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  /* The list becomes a horizontal shelf so the stage keeps the screen. */
+  .index {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 10px;
+  }
+  .index li { flex: 0 0 auto; display: flex; }
+  .index-card { width: 216px; margin-bottom: 0; border-color: var(--line-soft); }
+  .index-empty { width: 100%; padding: 18px 14px; }
+  .empty-art { display: none; }
+  .pager { border-top: 0; padding-top: 0; }
 }
 
-@media (max-width: 560px) {
-  .menu-title.backend { font-size: 9.5px; max-width: 16ch; padding: 0 6px; }
-  .menu-title.backend::before { display: none; }
-  .page-view { padding: 13px 13px 20px; }
-  .version { gap: 9px; padding: 9px 10px; }
+@media (max-width: 640px) {
+  .pill.flat { max-width: 14ch; }
+  .card-head, .card-meta, .tabs { padding-left: 14px; padding-right: 14px; }
+  .card-field { padding: 0 14px 22px; }
+  .page-view { padding: 16px 14px 28px; }
+  .version { gap: 11px; padding: 11px 12px; }
   .version .tag { font-size: 16px; }
-  .card.open .card-head { padding: 7px 9px 6px; }
 }

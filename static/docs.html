@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How DocsForge works</title>
+<meta name="description" content="What DocsForge reads, the tools it runs, how harvesting and versions work.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cf9fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z'/%3E%3Cpath d='M9 8h6M9 12h4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/page.css">
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-forge" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M9 8h6M9 12h4"/></symbol>
+  <symbol id="i-new" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><path d="M8 4h8v3H8z"/><path d="M3 12h18"/></symbol>
+  <symbol id="i-docs" viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v18H6.5A1.5 1.5 0 0 1 5 19.5z"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+</svg>
+
+<nav class="rail" aria-label="Sections">
+  <a class="mark" href="/" aria-label="DocsForge"><svg class="icon"><use href="#i-forge"/></svg></a>
+  <a class="rail-btn" href="/" title="New chat" aria-label="New chat">
+    <svg class="icon"><use href="#i-new"/></svg>
+  </a>
+  <a class="rail-btn" href="/library" title="DocsStore" aria-label="DocsStore">
+    <svg class="icon"><use href="#i-store"/></svg>
+  </a>
+  <span class="rail-spacer"></span>
+  <a class="rail-btn" href="/docs" aria-current="page" title="How this works" aria-label="Docs">
+    <svg class="icon"><use href="#i-docs"/></svg>
+  </a>
+</nav>
+
+<main class="main">
+  <header class="topbar">
+    <span class="title">How DocsForge works</span>
+    <span class="spacer"></span>
+    <a class="pill" href="/"><svg class="icon"><use href="#i-back"/></svg>Back to chat</a>
+  </header>
+
+  <div class="thread">
+    <div class="page">
+
+      <aside class="toc" aria-label="On this page">
+        <p class="toc-head">On this page</p>
+        <nav>
+          <a href="#what">What it is</a>
+          <a href="#reads">What it can read</a>
+          <a href="#whole">Learning a whole library</a>
+          <a href="#versions">Versions</a>
+          <a href="#store">DocsStore</a>
+          <a href="#tools">The tools</a>
+          <a href="#models">Models</a>
+          <a href="#storage">Where it all lives</a>
+          <a href="#keys">Keyboard</a>
+          <a href="#mcp">Using it from an editor</a>
+        </nav>
+      </aside>
+
+      <article class="md prose">
+        <h1 id="what">What it is</h1>
+        <p class="lede">DocsForge turns a documentation site into clean Markdown a
+        language model can actually read — so a model that was never trained on
+        your stack can still answer questions about it.</p>
+        <p>Give it a URL in the chat. It works out what kind of source that URL
+        is, extracts it, and answers from what it fetched rather than from
+        memory. Every answer can be copied, edited in place, or downloaded as a
+        <code>.md</code> file you keep.</p>
+
+        <h2 id="reads">What it can read</h2>
+        <div class="scroll-x">
+        <table>
+          <thead><tr><th>Source</th><th>What happens</th></tr></thead>
+          <tbody>
+            <tr><td><code>llms.txt</code></td><td>The LLM-native docs standard, passed straight through.</td></tr>
+            <tr><td><code>openapi</code></td><td>Swagger or OpenAPI, JSON or YAML, rendered as endpoint tables.</td></tr>
+            <tr><td><code>sitemap</code></td><td>Every page listed in a <code>sitemap.xml</code>, indexes included.</td></tr>
+            <tr><td><code>github</code></td><td>A repository's README plus everything under <code>docs/</code>.</td></tr>
+            <tr><td><code>html</code></td><td>A normal docs site, with nav, footers and chrome stripped out.</td></tr>
+            <tr><td><code>raw_text</code></td><td>Markdown or plain text, cleaned up.</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>You do not have to say which one it is. Detection is one cheap probe,
+        and the answer shows what it decided.</p>
+
+        <h2 id="whole">Learning a whole library</h2>
+        <p>Fetching one page answers a question about that page. Learning a
+        whole library is a different job, and it has its own tool:
+        <strong>harvest</strong>. Ask for "the whole documentation" of something
+        and it starts from any page and finds the rest, best strategy first:</p>
+        <ol>
+          <li><code>llms.txt</code> or <code>llms-full.txt</code> — the site already published itself for machines.</li>
+          <li><code>sitemap.xml</code>, filtered to the docs section. Complete, cheap, and it finds pages nothing links to.</li>
+          <li>A scoped crawl. Works anywhere, but only reaches what is linked.</li>
+        </ol>
+
+        <h3>It stays inside the documentation</h3>
+        <p>Docs share a domain with marketing, blogs and changelogs. Crawling by
+        host from an Effect docs page reached <code>/podcast</code> within four
+        pages, and that page then dominated what the model saw — so it
+        summarised a podcast feed instead of the library. Harvesting stays
+        inside the documentation root of the URL you gave it:
+        <code>/docs/v3/getting-started/introduction/</code> becomes
+        <code>/docs/v3/</code>.</p>
+
+        <h3>There is no page limit</h3>
+        <p>A harvest runs until the documentation section is exhausted. A page
+        count is only ever a guess at how big someone else's manual is; the
+        Effect v3 docs come to 703 pages and nothing knew that in advance. If
+        you do set a limit and it is hit, every later read says so:</p>
+        <pre><code>INCOMPLETE — stopped at the 200-page limit, 400+ pages still queued.</code></pre>
+        <p>That matters more than the limit itself. A third of a manual that
+        looks whole produces confident, wrong answers.</p>
+
+        <h2 id="versions">Versions</h2>
+        <p>A library's v2 and v3 docs contradict each other, and a model handed
+        both will quote the wrong one. So a harvest is filed under a version,
+        not just a name, and re-harvesting one version leaves the others
+        alone.</p>
+        <pre><code>pydantic
+  2.11   85 pages   1.2 MB
+  1.10   24 pages   198 KB</code></pre>
+        <p>The label comes from the URL — <code>/docs/v3/</code>,
+        <code>/docs/validation/2.11/</code> — and is then checked against what
+        came back. A site publishes one <code>llms.txt</code> for its current
+        release, so if that is what got served instead of the version you asked
+        for, the label falls back to the harvest date rather than claiming a
+        precision the content does not have. Sites that publish one version at a
+        time are always dated: the date says which snapshot this is.</p>
+
+        <h2 id="store">DocsStore</h2>
+        <p><a href="/library">DocsStore</a> is everything harvested so far,
+        three levels deep: a technology, every crawled version of it, and the
+        pages of the version you open. The list is paged because it grows every
+        time anyone harvests. Inside a version, search runs over that version
+        only and marks what matched.</p>
+        <p>Every view is addressable, so a link goes exactly where you meant:
+        <code>/library#/effect/v3/41</code>.</p>
+
+        <h2 id="tools">The tools</h2>
+        <p>These are what the model can call. The same six are exposed over MCP,
+        so an editor gets identical behaviour.</p>
+        <div class="scroll-x">
+        <table>
+          <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>fetch_docs</code></td><td>Extract one URL as Markdown. The everyday one.</td></tr>
+            <tr><td><code>harvest_docs</code></td><td>Learn a whole technology from one URL and store it.</td></tr>
+            <tr><td><code>read_knowledge_base</code></td><td>Read stored docs back, optionally only the pages matching a phrase.</td></tr>
+            <tr><td><code>list_knowledge_base</code></td><td>What has been harvested, and which versions of each.</td></tr>
+            <tr><td><code>save_docs</code></td><td>Write extracted docs to files on disk.</td></tr>
+            <tr><td><code>detect_source_type</code></td><td>Identify a URL without extracting it.</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>Every call a model makes is listed above the answer it produced, with
+        what it fetched and how much came back. An answer that quietly came from
+        nowhere looks different from one that did not.</p>
+
+        <h2 id="models">Models</h2>
+        <p>Six providers, chosen with the control at the top right. The choice
+        rides on the next message, so you can switch mid-conversation when one
+        runs out of quota.</p>
+        <div class="scroll-x">
+        <table>
+          <thead><tr><th>Provider</th><th>Needs</th></tr></thead>
+          <tbody>
+            <tr><td>Claude (API)</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+            <tr><td>Claude Code</td><td>the <code>claude</code> CLI installed and logged in</td></tr>
+            <tr><td>Ollama</td><td>Ollama running locally — no key, no quota</td></tr>
+            <tr><td>Groq</td><td><code>GROQ_API_KEY</code></td></tr>
+            <tr><td>OpenAI</td><td><code>OPENAI_API_KEY</code></td></tr>
+            <tr><td>Gemini</td><td><code>GEMINI_API_KEY</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>A greyed-out provider is missing its key, or — for the local ones —
+        is simply not running. The menu says which.</p>
+
+        <h2 id="storage">Where it all lives</h2>
+        <p>Two backends, chosen automatically.</p>
+        <div class="scroll-x">
+        <table>
+          <thead><tr><th></th><th>When</th><th>What you get</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Markdown files</strong></td><td>the default</td>
+                <td><code>knowledge_base/&lt;tech&gt;/&lt;version&gt;.md</code>. Zero setup, and the file is a deliverable you can hand to anyone.</td></tr>
+            <tr><td><strong>PostgreSQL</strong></td><td><code>DOCSFORGE_DB</code> is set and reachable</td>
+                <td>A row per page with a full-text index. Search is ranked and stays fast as the store grows.</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <pre><code>DOCSFORGE_DB=postgresql://postgres:password@127.0.0.1:5432/DocsForge</code></pre>
+        <p>The schema is created on first use. If the database is unreachable it
+        falls back to files rather than losing a harvest — losing ten minutes of
+        crawling to a database outage would be the worse failure. DocsStore
+        names which backend answered, because one ranks search and the other
+        cannot.</p>
+
+        <h2 id="keys">Keyboard</h2>
+        <div class="scroll-x">
+        <table>
+          <thead><tr><th>Key</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Enter</kbd></td><td>Send. <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line.</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Stop the answer being written.</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>New chat.</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Download the last answer as <code>.md</code>.</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Open DocsStore.</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h2 id="mcp">Using it from an editor</h2>
+        <p>The same six tools are served over MCP, so Claude Code or any MCP
+        client can use them directly:</p>
+        <pre><code>python mcp_server.py            # stdio
+python mcp_server.py --http     # HTTP</code></pre>
+        <p>The web chat and an MCP client run the same code path, so they behave
+        identically.</p>
+      </article>
+
+    </div>
+  </div>
+</main>
+
+</body>
+</html>

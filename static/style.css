@@ -1,52 +1,41 @@
 /* ─────────────────────────────────────────────────────────
-   DocsForge — HyperCard shoebox stack.
-   One bit: ink and paper. Every grey here is a dither pattern,
-   never an opacity and never a hex between the two.
+   DocsForge — charcoal, black, and one accent.
 
-   Two ways to lay dither down, and they are not interchangeable:
-     --d*       masks over --ink. Theme-independent, but they need
-                their own box, so they can only be used where a
-                pseudo-element is free to sit behind the content.
-     --stipple  a plain background-image, flipped per theme. Use
-                this on anything that has text in it: a positioned
-                pseudo paints AFTER inline content and would sit
-                on top of the words.
+   A plain chat surface: rail, transcript, composer. Nothing on
+   the home screen explains itself; the explanation lives at /docs.
+
+   The accent (#CF9FFF) is the only hue in the build. It marks
+   exactly three things: the control that sends, the thing that is
+   currently selected, and a link. Spending it anywhere else would
+   stop it meaning any of them.
    ───────────────────────────────────────────────────────── */
 
 :root {
-  --ink: #000000;
-  --paper: #ffffff;
+  --bg:         #0b0b0d;   /* the page */
+  --bg-soft:    #121215;   /* rail and top bar */
+  --surface:    #17171b;   /* composer, the user's own words */
+  --surface-2:  #1e1e23;   /* hover, code, quiet fills */
+  --line:       #2a2a31;
+  --line-soft:  #202027;
 
-  --stipple: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23000'/%3E%3Crect x='2' y='0' width='1' height='1' fill='%23000'/%3E%3Crect x='1' y='2' width='1' height='1' fill='%23000'/%3E%3Crect x='3' y='2' width='1' height='1' fill='%23000'/%3E%3C/svg%3E");
-  --stipple-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23000'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23000'/%3E%3C/svg%3E");
+  --text:       #ececee;
+  --text-2:     #a8a8b3;
+  --text-3:     #8a8a96;   /* placeholder and metadata; still clears 4.5:1 */
 
-  /* Dither levels. Used as MASKS over --ink so they invert with the theme.
-     4x4 cells, crisp edges, no anti-aliasing anywhere. */
-  --d12: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3C/svg%3E");
-  --d25: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='1' y='2' width='1' height='1'/%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3C/svg%3E");
-  --d50: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='1' y='1' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='0' y='2' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3Crect x='1' y='3' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3C/svg%3E");
-  --d75: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='4' height='1'/%3E%3Crect x='1' y='1' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='0' y='2' width='4' height='1'/%3E%3Crect x='0' y='3' width='1' height='1'/%3E%3Crect x='2' y='3' width='1' height='1'/%3E%3C/svg%3E");
+  --accent:     #cf9fff;
+  --accent-2:   #b77ff0;
+  --accent-ink: #170b24;   /* type that sits on the accent */
+  --accent-dim: rgba(207, 159, 255, 0.13);
+  --accent-line:rgba(207, 159, 255, 0.34);
 
-  /* Two bitmap faces, each at the size it was drawn for: DotGothic16 carries
-     Chicago's mixed-case display role, Silkscreen the small uppercase labels. */
-  --display: "DotGothic16", ui-monospace, monospace;
-  --label: "Silkscreen", "DotGothic16", ui-monospace, monospace;
-  --body: ui-sans-serif, "Segoe UI", Geneva, Verdana, system-ui, sans-serif;
-  --mono: "Monaco", "Consolas", "DejaVu Sans Mono", ui-monospace, monospace;
+  --danger:     #ff9a9a;
 
-  --rule: 2px;
-  --gap: 14px;
-}
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 
-/* The host may be dark. Invert rather than introduce a colour: inverting is
-   what this world does when something is selected, so it stays in grammar. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #ffffff;
-    --paper: #101010;
-    --stipple: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23fff'/%3E%3Crect x='2' y='0' width='1' height='1' fill='%23fff'/%3E%3Crect x='1' y='2' width='1' height='1' fill='%23fff'/%3E%3Crect x='3' y='2' width='1' height='1' fill='%23fff'/%3E%3C/svg%3E");
-    --stipple-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23fff'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23fff'/%3E%3C/svg%3E");
-  }
+  --measure: 768px;        /* the reading column */
+  --rail: 56px;
+  --radius: 14px;
 }
 
 * { box-sizing: border-box; }
@@ -54,891 +43,538 @@
 html, body { height: 100%; margin: 0; }
 
 body {
-  background-color: var(--paper);
-  font-family: var(--body);
-  color: var(--ink);
+  display: flex;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  /* DotGothic16 and Silkscreen ship one weight each. Synthesised bold smears
-     a pixel grid, so weight comes from size and inversion instead. */
-  font-synthesis: none;
+  overflow: hidden;
 }
 
-/* The desktop behind the window: the classic 50% checkerboard. */
-.desktop {
-  position: fixed;
-  inset: 0;
-  background-color: var(--ink);
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 4px 4px;
-  mask-size: 4px 4px;
-  z-index: 0;
-  pointer-events: none;
-}
-
-/* The window's dithered drop shadow. A sibling rather than .stack::after:
-   .stack is a stacking context, so its own negative-z pseudo would paint
-   on top of its paper background instead of behind it. */
-.stack-shadow {
+.sr {
   position: absolute;
-  inset: 19px 7px 7px 19px;
-  z-index: 0;
-  background-color: var(--ink);
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 4px 4px;
-  mask-size: 4px 4px;
-  pointer-events: none;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sprite { position: absolute; width: 0; height: 0; }
 
 .icon {
-  width: 1em;
-  height: 1em;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-  vertical-align: -0.12em;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-
-/* ── the stack window ─────────────────────────────────── */
-.stack {
-  position: absolute;
-  inset: 13px;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  overflow: hidden;
-}
-
-
-/* ── menu bar ─────────────────────────────────────────── */
-.menubar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  border-bottom: var(--rule) solid var(--ink);
-  background: var(--paper);
-  padding: 0 8px 0 9px;
-  min-height: 27px;
-}
-
-.mark {
-  display: flex;
-  align-items: center;
-  font-size: 15px;
-  padding-right: 7px;
-}
-
-.wordmark {
-  display: flex;
-  align-items: center;
-  font-family: var(--display);
-  font-size: 15px;
-  letter-spacing: 0.01em;
-  padding-right: 14px;
-}
-
-.menubar-spacer { flex: 1 1 auto; }
-
-/* The provider chip doubles as the menu title that switches provider. */
-.menu-title.model {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--display);
-  font-size: 11.5px;
-  padding: 0 9px;
-  white-space: nowrap;
-}
-.menu-title.model::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border: var(--rule) solid currentColor;
-  flex: 0 0 auto;
-}
-.menu-title.model::after {
-  content: "";
-  width: 0;
-  height: 0;
-  border-left: 3px solid transparent;
-  border-right: 3px solid transparent;
-  border-top: 4px solid currentColor;
-  flex: 0 0 auto;
-}
-
-/* Right-hand status menus drop from their right edge, not the left. */
-.menu-drop.right { left: auto; right: 0; }
-
-/* A disabled provider still has to say WHY it is disabled, so its hint
-   survives the rule that hides shortcut keys on disabled items. */
-.menu-drop.right button:disabled .key { visibility: visible; }
-.menu-drop.right::after { inset: 5px -5px -5px 5px; }
-
-/* The raised layer lives on .menu, not .menu-drop: if the dropdown itself
-   made a stacking context, its negative-z shadow would paint over its own
-   paper and under the labels, which is how the menu became illegible. */
-.menu { position: relative; display: flex; }
-.menu[data-open="true"] { z-index: 40; }
-
-.menu-title {
-  font-family: var(--display);
-  font-size: 13px;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  padding: 0 9px;
-  cursor: default;
-  white-space: nowrap;
-}
-.menu-title:hover,
-.menu[data-open="true"] .menu-title {
-  background: var(--ink);
-  color: var(--paper);
-}
-
-.menu-drop {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  min-width: 190px;
-  margin: 0;
-  padding: 3px 0;
-  list-style: none;
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-}
-.menu-drop.wide { min-width: 268px; }
-.menu[data-open="true"] .menu-drop { display: block; }
-
-/* Dithered shadow under an open menu. */
-.menu-drop::after {
-  content: "";
-  position: absolute;
-  inset: 5px -5px -5px 5px;
-  background-color: var(--ink);
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 4px 4px;
-  mask-size: 4px 4px;
-  z-index: -1;
-}
-
-.menu-drop li { display: block; }
-.menu-drop li.sep {
-  height: 0;
-  margin: 3px 0;
-  border-top: 1px dotted var(--ink);
-}
-.menu-drop li.empty span,
-.menu-drop button {
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
-  align-items: baseline;
-  width: 100%;
-  font-family: var(--display);
-  font-size: 12.5px;
-  text-align: left;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  padding: 4px 12px;
-  cursor: default;
-}
-.menu-drop li.empty span { opacity: 1; }
-.menu-drop button:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
-.menu-drop button:disabled { color: var(--ink); }
-/* Disabled menu items are stencilled out with dither, as they were. */
-.menu-drop button:disabled > span:first-child {
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 2px 2px;
-  mask-size: 2px 2px;
-}
-.menu-drop .key { font-size: 11px; }
-.menu-drop button:disabled .key { visibility: hidden; }
-
-/* ── body split ───────────────────────────────────────── */
-.body {
-  flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  align-content: stretch;
-  min-height: 0;
-}
-
-/* ── shoebox (the card index) ─────────────────────────── */
-.shoebox {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: var(--rule) solid var(--ink);
-  background: var(--paper);
-}
-
-.chip {
-  display: inline-block;
-  align-self: flex-start;
-  font-family: var(--label);
-  font-weight: 700;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--paper);
-  background: var(--ink);
-  padding: 3px 8px 2px;
-  margin: 10px 0 8px 10px;
-}
-
-.index {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  margin: 0;
-  padding: 0 10px 10px;
-  list-style: none;
-  min-height: 0;
-}
-
-.index-empty {
-  font-size: 12.5px;
-  line-height: 1.55;
-  padding: 26px 8px 6px;
-  text-align: center;
-}
-.index-empty p { margin: 0 0 4px; }
-.index-empty .dim { font-size: 11.5px; }
-
-.shoebox-art {
-  display: block;
-  width: 108px;
-  height: 83px;
-  margin: 0 auto 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.5;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-  color: var(--ink);
-}
-
-.index-card {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  padding: 7px 9px;
-  margin-bottom: 9px;
-  cursor: default;
-}
-
-/* Selected card takes the stipple, exactly as the stack spec has it. As a
-   background, not an overlay — an overlay would print it over the title. */
-/* Selection inverts. The board stipples a large content card, but any dither
-   under 12.5px type muddies it, and "pressed inverts to solid black" is the
-   same world's own rule — so the rail takes the rule that stays legible. */
-.index-card[aria-current="true"] {
-  background: var(--ink);
-  color: var(--paper);
-}
-
-.index-text { flex: 1 1 auto; min-width: 0; }
-
-.index-card .t {
-  display: block;
-  font-family: var(--display);
-  font-size: 12.5px;
-  line-height: 1.35;
-  margin-bottom: 3px;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.index-card .m {
-  display: flex;
-  gap: 7px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.3;
-}
-
-.index-card .m .num { margin-left: auto; }
-
-.index-card.painting .t::after {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 11px;
-  margin-left: 3px;
-  background: var(--ink);
-  vertical-align: -1px;
-  animation: blink 0.9s steps(2, jump-none) infinite;
-}
-
-@keyframes blink { 50% { opacity: 0; } }
-
-/* ── the Ask field ────────────────────────────────────── */
-.ask {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  border-top: var(--rule) solid var(--ink);
-  padding-bottom: 10px;
-}
-.ask .chip { margin-bottom: 7px; }
-
-.ask-field {
-  position: relative;
-  margin: 0 10px;
-}
-.ask-field::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: var(--rule) solid var(--ink);
-  filter: url(#rough-soft);
-  pointer-events: none;
-}
-.ask-field:focus-within::before {
-  border-style: dashed;
-}
-
-#input {
-  display: block;
-  width: 100%;
-  font-family: var(--body);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ink);
-  background: transparent;
-  border: 0;
-  outline: none;
-  resize: none;
-  max-height: 132px;
-  padding: 8px 9px;
-}
-
-.ask-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin: 9px 10px 0;
-}
-
-.status {
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.4;
-  min-height: 15px;
-  margin: 9px 10px 0;
-}
-
-/* ── buttons ──────────────────────────────────────────── */
-.btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--display);
-  font-size: 12.5px;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  border-radius: 9px;
-  padding: 4px 13px 3px;
-  cursor: default;
-  white-space: nowrap;
-}
-.btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
-.btn:active:not(:disabled),
-.btn[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-
-.btn.primary { background: var(--ink); color: var(--paper); }
-.btn.primary:hover:not(:disabled),
-.btn.primary:active:not(:disabled) { background: var(--paper); color: var(--ink); }
-
-.btn:disabled {
-  color: var(--ink);
-  background: var(--paper);
-}
-.btn:disabled > span {
-  display: inline-block;
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 2px 2px;
-  mask-size: 2px 2px;
-}
-
-/* Painted objects wear a hand border; system controls stay crisp. */
-.painted { border-color: transparent !important; }
-.painted::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: var(--rule) solid var(--ink);
-  border-radius: inherit;
-  filter: url(#rough);
-  pointer-events: none;
-}
-.btn.painted::before { filter: url(#rough-soft); }
+.icon.sm { width: 16px; height: 16px; }
 
 :focus-visible {
-  outline: 2px dotted var(--ink);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* ── stage + card ─────────────────────────────────────── */
-.stage {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
-  padding: 14px 20px 14px 14px;
-  display: flex;
-  justify-content: center;
-}
-
-.card {
-  position: relative;
-  flex: 1 1 auto;
-  /* A document card, not a full-bleed pane: cap the reading object itself so
-     the 72ch prose measure sits inside it without a field of dead paper. */
-  max-width: 780px;
+/* ── the rail ─────────────────────────────────────────── */
+.rail {
+  flex: 0 0 var(--rail);
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  /* Hug the content and cap at the stage: a four-line answer should be a
-     four-line card, not a field of blank paper with a foot at the bottom. */
-  align-self: flex-start;
-  max-height: 100%;
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  /* Two outlined rectangles behind the card: the rest of the shoebox. */
-  box-shadow:
-    5px 5px 0 0 var(--paper), 5px 5px 0 2px var(--ink),
-    10px 10px 0 0 var(--paper), 10px 10px 0 2px var(--ink);
-}
-
-.card-head {
-  flex: 0 0 auto;
-  display: flex;
   align-items: center;
-  gap: 12px;
-  border-bottom: var(--rule) solid var(--ink);
-  padding: 8px 11px 7px;
+  gap: 4px;
+  padding: 10px 0;
+  background: var(--bg-soft);
+  border-right: 1px solid var(--line-soft);
 }
 
-.card-title {
-  flex: 1 1 auto;
-  font-family: var(--display);
-  font-size: 21px;
-  line-height: 1.25;
-  letter-spacing: 0.005em;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The framed source glyph: what the detector decided this card came from. */
-.frame {
-  flex: 0 0 auto;
+.mark {
   display: grid;
   place-items: center;
   width: 34px;
   height: 34px;
-  border: var(--rule) solid var(--ink);
-  background-image: var(--stipple-light);
-  background-size: 4px 4px;
+  margin-bottom: 8px;
+  color: var(--accent);
 }
-.frame svg {
-  width: 21px;
-  height: 21px;
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1.6;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
+.mark .icon { width: 22px; height: 22px; }
+
+.rail-btn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
 }
-.frame.sm { width: 26px; height: 26px; }
-.frame.sm svg { width: 17px; height: 17px; }
+.rail-btn:hover { background: var(--surface-2); color: var(--text); }
+.rail-btn[aria-current="page"] { background: var(--accent-dim); color: var(--accent); }
+.rail-spacer { flex: 1 1 auto; }
 
-.index-card[aria-current="true"] .frame { border-color: var(--paper); }
-.index-card[aria-current="true"] .frame svg { stroke: var(--paper); }
-
-.boxes { display: flex; gap: 4px; flex: 0 0 auto; }
-.boxes i {
-  width: 9px;
-  height: 9px;
-  border: var(--rule) solid var(--ink);
-  display: block;
+/* ── main column ──────────────────────────────────────── */
+.main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
-.card-meta {
+.topbar {
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px 14px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  border-bottom: 1px dotted var(--ink);
-  padding: 6px 11px 5px;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line-soft);
 }
-
-/* ── sources: what the fetch actually did ─────────────── */
-.sources {
-  flex: 0 0 auto;
-  list-style: none;
-  margin: 0;
-  padding: 8px 11px;
-  border-bottom: 1px dotted var(--ink);
-}
-.sources li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.sources .ico { flex: 0 0 auto; font-size: 12px; align-self: center; }
-.sources .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sources .sz { margin-left: auto; white-space: nowrap; }
-
-/* Barber-pole progress while a tool is out, drawn from the dither. */
-.sources li.running .bar {
-  flex: 0 0 44px;
-  height: 8px;
-  border: 1px solid var(--ink);
-  position: relative;
+.topbar .title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
   overflow: hidden;
-  align-self: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.sources li.running .bar::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-color: var(--ink);
-  -webkit-mask-image: var(--d50);
-  mask-image: var(--d50);
-  -webkit-mask-size: 4px 4px;
-  mask-size: 4px 4px;
-  animation: crawl 0.6s steps(4) infinite;
-}
-@keyframes crawl { to { -webkit-mask-position: 8px 0; mask-position: 8px 0; } }
+.topbar .spacer { flex: 1 1 auto; }
 
-/* ── the scrolling field ──────────────────────────────── */
-.card-field {
+/* ── the model picker ─────────────────────────────────── */
+.picker { position: relative; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.pill:hover { background: var(--surface-2); color: var(--text); }
+.pill[aria-expanded="true"] { border-color: var(--accent-line); color: var(--text); }
+.pill .icon { width: 14px; height: 14px; }
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  display: none;
+  min-width: 268px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+}
+.picker[data-open="true"] .menu { display: block; }
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.menu-item:disabled { color: var(--text-3); cursor: not-allowed; }
+.menu-item .nm { flex: 1 1 auto; min-width: 0; }
+.menu-item .sub {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-item .tick { color: var(--accent); }
+.menu-note {
+  padding: 8px 10px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ── the transcript ───────────────────────────────────── */
+.thread {
   flex: 1 1 auto;
   overflow-y: auto;
-  overflow-x: hidden;
   min-height: 0;
-  padding: 16px 18px 22px;
   scrollbar-width: thin;
-  scrollbar-color: var(--ink) var(--paper);
+  scrollbar-color: var(--line) transparent;
+}
+.thread::-webkit-scrollbar { width: 10px; }
+.thread::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--bg);
+  border-radius: 999px;
 }
 
-.card-field::-webkit-scrollbar { width: 14px; }
-.card-field::-webkit-scrollbar-track {
-  background-color: var(--paper);
-  border-left: var(--rule) solid var(--ink);
+.thread-inner {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 28px 20px 40px;
 }
-.card-field::-webkit-scrollbar-thumb {
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-}
-.card-field::-webkit-scrollbar-thumb:hover { background: var(--ink); }
 
-/* raw markdown, streaming or being authored */
-.raw-view {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+/* One authored moment: a turn arrives from just below, once. */
+.turn { margin-bottom: 30px; animation: rise 240ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn { animation: none; }
+  .spin, .caret { animation: none; }
+}
+
+.ask {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+.ask .bubble {
+  max-width: 76%;
+  padding: 10px 16px;
+  border-radius: 20px;
+  background: var(--surface);
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.reply { overflow-wrap: anywhere; }
+
+/* Raw markdown while it streams; rendered once the turn is done. The swap
+   reads as the answer settling rather than as the page reloading. */
+.streaming, .plain {
   margin: 0;
-  max-width: 82ch;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
 }
-.raw-view.streaming::after {
-  content: "";
+.caret {
   display: inline-block;
-  width: 7px;
-  height: 13px;
-  background: var(--ink);
-  vertical-align: -2px;
-  animation: blink 0.9s steps(2, jump-none) infinite;
+  width: 8px;
+  height: 16px;
+  margin-left: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  vertical-align: -3px;
+  animation: blink 1s steps(2, jump-none) infinite;
 }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── what the answer was built from ───────────────────── */
+.work {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.step .nm { color: var(--text); }
+.step .arg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.step .sz { flex: 0 0 auto; font-family: var(--mono); font-size: 12px; color: var(--text-3); }
+.step.ok .mk { color: var(--accent); }
+.step.bad .mk { color: var(--danger); }
+
+.spin {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.notice {
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 10px;
+  background: var(--accent-dim);
+  font-size: 13px;
+}
+
+.failed {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 154, 154, 0.34);
+  border-radius: var(--radius);
+  background: rgba(255, 154, 154, 0.07);
+  font-size: 14px;
+}
+.failed strong { display: block; margin-bottom: 3px; color: var(--danger); }
+
+/* ── what you can do with an answer ───────────────────── */
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+}
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 13px;
+  /* Without this these collapse to one letter per line the moment the row
+     runs out of width. */
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ghost:hover { background: var(--surface-2); color: var(--text); }
+.ghost[aria-pressed="true"] { background: var(--accent-dim); color: var(--accent); }
+.acts .stamp { margin-left: auto; font-size: 12px; color: var(--text-3); }
 
 textarea.author {
   display: block;
   width: 100%;
-  min-height: 100%;
+  min-height: 320px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
   font-family: var(--mono);
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--ink);
-  background: transparent;
-  border: 0;
-  outline: none;
-  resize: none;
-  padding: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+}
+textarea.author:focus { outline: none; border-color: var(--accent); }
+
+/* ── the empty screen ─────────────────────────────────── */
+/* The base page says what this is and gets out of the way. Everything that
+   would need a paragraph to explain lives at /docs instead. */
+.blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 58vh;
+  text-align: center;
+}
+.blank .glyph { color: var(--accent); margin-bottom: 18px; }
+.blank .glyph .icon { width: 34px; height: 34px; }
+.blank h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.blank p { margin: 0 0 26px; color: var(--text-2); font-size: 14px; }
+
+.starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.starter {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.starter:hover {
+  background: var(--surface);
+  border-color: var(--accent-line);
+  color: var(--text);
 }
 
-/* ── card foot ────────────────────────────────────────── */
-.card-foot {
-  flex: 0 0 auto;
+/* ── the composer ─────────────────────────────────────── */
+.composer { flex: 0 0 auto; padding: 0 20px 16px; }
+.composer-inner { max-width: var(--measure); margin: 0 auto; }
+
+.field {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  border-top: var(--rule) solid var(--ink);
-  padding: 9px 11px;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 7px 7px 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: var(--surface);
+  transition: border-color 140ms ease;
 }
-.card-foot .spacer { flex: 1 1 auto; }
-.card-foot .note {
-  font-family: var(--mono);
-  font-size: 10.5px;
+.field:focus-within { border-color: var(--accent-line); }
+
+#input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 184px;
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
 }
+#input::placeholder { color: var(--text-3); }
+
+.round {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.round:hover:not(:disabled) { background: var(--line); color: var(--text); }
+
+.round.send { background: var(--accent); color: var(--accent-ink); }
+.round.send:hover:not(:disabled) { background: var(--accent-2); }
+.round.send:disabled {
+  background: var(--surface-2);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.foot {
+  margin: 9px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+  min-height: 17px;
+}
+.foot a { color: var(--text-3); }
 
 /* ── rendered markdown ────────────────────────────────── */
-/* Prose keeps a reading measure; tables and code get the whole card, because
-   an endpoint table squeezed into 72ch is worse than a long line. */
-.md {
-  font-size: 13.5px;
-  line-height: 1.62;
-}
-.md > p,
-.md > ul,
-.md > ol,
-.md > blockquote,
-.md > h1,
-.md > h2,
-.md > h3,
-.md > h4 {
-  max-width: 72ch;
-}
+.md { font-size: 15px; line-height: 1.7; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 
 .md h1, .md h2, .md h3, .md h4 {
-  font-family: var(--display);
-  font-weight: 400;
-  line-height: 1.25;
-  margin: 26px 0 9px;
+  margin: 1.6em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
-.md h1 { font-size: 21px; }
-.md h2 {
-  font-size: 17.5px;
-  border-bottom: var(--rule) solid var(--ink);
-  padding-bottom: 5px;
-}
-.md h3 { font-size: 15px; }
-.md h4 { font-size: 13px; }
+.md h1 { font-size: 22px; }
+.md h2 { font-size: 19px; }
+.md h3 { font-size: 16px; }
+.md h4 { font-size: 15px; color: var(--text-2); }
 
-.md p { margin: 0 0 12px; }
-.md ul, .md ol { margin: 0 0 12px; padding-left: 22px; }
-.md li { margin: 3px 0; }
-.md li::marker { font-family: var(--mono); }
+.md p { margin: 0 0 1em; }
+.md ul, .md ol { margin: 0 0 1em; padding-left: 1.35em; }
+.md li { margin: 0.3em 0; }
+.md li::marker { color: var(--text-3); }
 
-.md a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-.md a:hover { background: var(--ink); color: var(--paper); text-decoration: none; }
+.md a { color: var(--accent); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
 
-.md hr {
-  border: 0;
-  border-top: 1px dotted var(--ink);
-  margin: 22px 0;
-}
+.md hr { height: 1px; margin: 1.8em 0; border: 0; background: var(--line); }
 
 .md blockquote {
-  margin: 0 0 12px;
-  padding: 2px 0 2px 13px;
-  border-left: var(--rule) solid var(--ink);
+  margin: 0 0 1em;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--accent-line);
+  color: var(--text-2);
 }
 
 .md code {
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: var(--surface-2);
   font-family: var(--mono);
-  font-size: 12px;
-  border: 1px solid var(--ink);
-  padding: 0 4px;
+  font-size: 0.87em;
 }
-
 .md pre {
-  border: var(--rule) solid var(--ink);
-  padding: 11px 13px;
+  margin: 0 0 1em;
+  padding: 14px 16px;
   overflow-x: auto;
-  margin: 0 0 12px;
-  max-width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface);
 }
-.md pre code {
-  border: 0;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1.55;
-}
+.md pre code { padding: 0; background: none; font-size: 13px; line-height: 1.65; }
 
-.md table {
-  border-collapse: collapse;
-  margin: 0 0 12px;
-  font-size: 12.5px;
-  display: block;
-  overflow-x: auto;
-  max-width: 100%;
-}
+/* A table is data. It gets the width it needs and scrolls rather than
+   wrapping every cell into a column of single words. */
+.md .scroll-x { margin: 0 0 1em; overflow-x: auto; }
+.md table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .md th, .md td {
-  border: 1px solid var(--ink);
-  padding: 5px 9px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
   text-align: left;
   vertical-align: top;
 }
-/* Header row takes the stipple rather than a grey fill. */
-.md th {
-  font-family: var(--display);
-  font-size: 12px;
-  background-image: var(--stipple-light);
-  background-size: 4px 4px;
-}
-.md img { max-width: 100%; height: auto; }
+.md th { background: var(--surface); font-weight: 600; }
 
-/* ── intro card ───────────────────────────────────────── */
-.intro-body .lede {
-  font-family: var(--display);
-  font-size: 25px;
-  line-height: 1.4;
-  margin-bottom: 16px;
-}
-.md table.kinds { display: table; width: 100%; }
-.md .kinds td { vertical-align: baseline; }
-.md .kinds td:first-child {
-  width: 1%;
-  white-space: nowrap;
-  font-family: var(--mono);
-}
-.md .kinds code { border: 0; padding: 0; }
+.md img { max-width: 100%; }
 
-.starters { list-style: none; padding: 0; margin: 0; }
-.starters li { margin: 0 0 8px; }
-.starter {
-  position: relative;
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-family: var(--display);
-  font-size: 13px;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--rule) solid var(--ink);
-  padding: 8px 12px 7px;
-  cursor: default;
-}
-.starter .arrow {
-  float: right;
-  width: 15px;
-  height: 15px;
-  margin-top: 1px;
-}
-.starter:hover { background: var(--ink); color: var(--paper); }
-
-/* ── error card ───────────────────────────────────────── */
-.err {
-  border: var(--rule) solid var(--ink);
-  padding: 12px 14px;
-  font-size: 13px;
-  line-height: 1.55;
-  max-width: 70ch;
-}
-.err .chip { margin: 0 0 9px; }
-.err p { margin: 0 0 8px; }
-.err p:last-child { margin: 0; }
-
-/* ── the dissolve ─────────────────────────────────────────
-   HyperCard's visual effect, built from this world's own four
-   dither levels rather than a fade. One authored moment. */
-.stage.dissolving .card {
-  animation: dissolve 260ms steps(1, end);
-}
-@keyframes dissolve {
-  0% {
-    -webkit-mask-image: var(--d12); mask-image: var(--d12);
-    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
-  }
-  25% {
-    -webkit-mask-image: var(--d25); mask-image: var(--d25);
-    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
-  }
-  50% {
-    -webkit-mask-image: var(--d50); mask-image: var(--d50);
-    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
-  }
-  75% {
-    -webkit-mask-image: var(--d75); mask-image: var(--d75);
-    -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
-  }
-  100% { -webkit-mask-image: none; mask-image: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stage.dissolving .card { animation: none; }
-  .index-card.painting .t::after,
-  .raw-view.streaming::after { animation: none; }
-  .sources li.running .bar::after { animation: none; }
-}
-
-/* ── narrow: the panel is docked ──────────────────────── */
-@media (max-width: 860px) {
-  /* Content-sized shoebox, and the stage takes everything else. Without the
-     explicit rows, grid stretches both auto rows and leaves a dead gap. */
-  .body {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
-  .shoebox {
-    border-right: 0;
-    border-bottom: var(--rule) solid var(--ink);
-  }
-  .index {
-    display: flex;
-    gap: 9px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 11px;
-  }
-  .index li { flex: 0 0 auto; display: flex; }
-  .index-card { width: 196px; margin-bottom: 0; }
-  .index-card .t { -webkit-line-clamp: 2; }
-  .index-empty { width: auto; }
-
-  .stage { padding: 12px 16px 12px 12px; }
-  .card { box-shadow: 5px 5px 0 0 var(--paper), 5px 5px 0 2px var(--ink); }
-}
-
-@media (max-width: 560px) {
-  .stack { inset: 0; border-width: 0; }
-  .stack-shadow, .desktop { display: none; }
-  .menubar { overflow-x: auto; }
-  .wordmark { padding-right: 8px; }
-  /* The provider switcher stays reachable on a narrow panel — it is how you
-     recover when a provider hits its quota. Only its label shrinks. */
-  .menu-title.model { font-size: 10.5px; padding: 0 6px; }
-  .menu-title.model::before { display: none; }
-  .card-field { padding: 13px 13px 18px; }
-  .stage { padding: 10px 12px 10px 10px; }
+/* ── narrow ───────────────────────────────────────────── */
+@media (max-width: 640px) {
+  :root { --rail: 48px; }
+  .thread-inner { padding: 20px 14px 28px; }
+  .composer { padding: 0 12px 12px; }
+  .ask .bubble { max-width: 88%; }
+  .topbar { padding: 0 10px; }
+  .blank { min-height: 52vh; }
+  .blank h1 { font-size: 22px; }
+  .starters { flex-direction: column; align-items: stretch; }
+  .starter { text-align: left; }
+  /* Which model wrote it and when is worth keeping, but not at the cost of
+     squeezing the controls; it takes its own line instead. */
+  .acts .stamp { flex: 1 0 100%; margin: 2px 0 0 9px; }
 }

@@ -5,203 +5,85 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DocsForge</title>
 <meta name="description" content="Fetch any documentation into Markdown a language model can read.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%23fff'/%3E%3Cpath fill='%23000' d='M2 3h9v1H2zM2 4h1v7H2zM10 4h1v7h-1zM2 11h9v1H2z'/%3E%3Cpath fill='%23000' d='M5 5h8v1H5zM12 6h1v7h-1zM5 12h8v1H5zM4 6h1v6H4z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/fonts/fonts.css">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cf9fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z'/%3E%3Cpath d='M9 8h6M9 12h4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="desktop" aria-hidden="true"></div>
-<div class="stack-shadow" aria-hidden="true"></div>
 <!--
-  THESIS: The docs you fetch are cards in a stack you can paint, not messages in a
-  chat log. Refuses the centred conversation column every AI panel ships.
-  OWN-WORLD: One-bit ink on paper, no colour anywhere. Four dither levels carry every
-  fill, shadow and selected state. Painted objects wear rough hand borders; system
-  controls stay crisp. DotGothic16 sets Chicago's voice and Silkscreen the small
-  uppercase labels, both self-hosted. Pressed inverts to solid black.
-  STORY: A developer blocked because the model does not know their library pastes a URL,
-  watches the fetch paint a new card, edits the Markdown in place, leaves with the .md.
-  FIRST VIEWPORT: Menu bar across the top; shoebox index down the left with the Ask field
-  beneath it; the current card fills the right, its scrolling field holding the document,
-  Back / Edit / Copy / Download along its foot.
-  FORM: HyperCard shoebox stack; challenger, user-pinned over assigned candidate 7; seed f7c15ffe.
-  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+  A plain chat surface. Charcoal through black with one accent, #CF9FFF, spent
+  only on the send control, the current selection, and links. The home screen
+  explains nothing: every instruction lives at /docs.
 -->
 
 <svg class="sprite" aria-hidden="true" focusable="false">
-  <defs>
-    <!-- Rough edge: displaces borders only, never the text that sits above them. -->
-    <filter id="rough" x="-6%" y="-14%" width="112%" height="128%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.026" numOctaves="3" seed="7" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="rough-soft" x="-6%" y="-14%" width="112%" height="128%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="3" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.2" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <pattern id="stip" width="4" height="4" patternUnits="userSpaceOnUse">
-      <rect x="0" y="0" width="1" height="1" fill="currentColor"/>
-      <rect x="2" y="2" width="1" height="1" fill="currentColor"/>
-    </pattern>
-  </defs>
-
-  <symbol id="i-stack" viewBox="0 0 16 16"><path d="M1.5 3.5h9v7h-9zM4.5 6.5h9v7h-9z"/></symbol>
-  <symbol id="i-card" viewBox="0 0 16 16"><path d="M2.5 2.5h11v11h-11z"/><path d="M4.5 5.5h7M4.5 8.5h7M4.5 11.5h4"/></symbol>
-  <symbol id="i-brush" viewBox="0 0 16 16"><path d="M10.5 2.5h3v3l-6 6h-3v-3z"/><path d="M2.5 11.5l2 2"/></symbol>
-  <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 2v8M4.5 7.5L8 11l3.5-3.5M2.5 13.5h11"/></symbol>
-  <symbol id="i-copy" viewBox="0 0 16 16"><path d="M2.5 2.5h8v8h-8z"/><path d="M5.5 5.5h8v8h-8z"/></symbol>
-  <symbol id="i-back" viewBox="0 0 16 16"><path d="M13.5 8h-9"/><path d="M7.5 4.5L4 8l3.5 3.5"/></symbol>
-  <symbol id="i-tick" viewBox="0 0 16 16"><path d="M3 8.5L6.5 12L13 4.5"/></symbol>
-  <symbol id="i-bang" viewBox="0 0 16 16"><path d="M8 3v6M8 11.5v1.5"/></symbol>
-  <symbol id="i-globe" viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z"/><path d="M1.5 8h13M8 1.5c-4 4.5-4 8.5 0 13c4-4.5 4-8.5 0-13z"/></symbol>
-  <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10"/><path d="M9 4.5L12.5 8L9 11.5"/></symbol>
-
-  <!-- Source kinds: what the detector decided this card was forged from. -->
-  <symbol id="k-openapi" viewBox="0 0 24 24"><path d="M9 4.5H7.5a2 2 0 0 0-2 2v3l-2 2.5 2 2.5v3a2 2 0 0 0 2 2H9"/><path d="M15 4.5h1.5a2 2 0 0 1 2 2v3l2 2.5-2 2.5v3a2 2 0 0 1-2 2H15"/></symbol>
-  <symbol id="k-github" viewBox="0 0 24 24"><path d="M7 4.5v11"/><path d="M7 19.5v-1"/><path d="M17 8.5v3a3 3 0 0 1-3 3H9"/><path d="M7 4.5a2 2 0 1 0 0-.01zM17 8.5a2 2 0 1 0 0-.01zM7 19.5a2 2 0 1 0 0-.01z"/></symbol>
-  <symbol id="k-sitemap" viewBox="0 0 24 24"><path d="M12 3.5v4M12 11.5v2M5 20.5v-5h14v5"/><path d="M12 13.5v7"/><path d="M9.5 3.5h5v4h-5zM3 20.5h4M10 20.5h4M17 20.5h4"/></symbol>
-  <symbol id="k-html" viewBox="0 0 24 24"><path d="M3.5 5.5h17v13h-17z"/><path d="M3.5 9.5h17"/><path d="M6 7.5h.01M8.5 7.5h.01"/><path d="M6.5 12.5h7M6.5 15.5h11"/></symbol>
-  <symbol id="k-llms" viewBox="0 0 24 24"><path d="M5.5 3.5h9l5 5v12h-14z"/><path d="M14.5 3.5v5h5"/><path d="M8 13.5h8M8 16.5h5"/></symbol>
-  <symbol id="k-raw" viewBox="0 0 24 24"><path d="M5.5 3.5h13v17h-13z"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/></symbol>
-
-  <!-- The shoebox itself, for the empty stack. Stippled like the board. -->
-  <symbol id="i-shoebox" viewBox="0 0 120 92">
-    <rect x="15" y="57" width="90" height="24" fill="url(#stip)" stroke="none"/>
-    <path d="M28 47V19h13v28M45 47V13h13v34M62 47V17h13v30M79 47V23h13v24"/>
-    <path d="M14.5 46.5h91v35h-91z"/>
-    <path d="M14.5 56.5h91"/>
-  </symbol>
+  <symbol id="i-forge" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M9 8h6M9 12h4"/></symbol>
+  <symbol id="i-new" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><path d="M8 4h8v3H8z"/><path d="M3 12h18"/></symbol>
+  <symbol id="i-docs" viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v18H6.5A1.5 1.5 0 0 1 5 19.5z"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-tick" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+  <symbol id="i-bang" viewBox="0 0 24 24"><path d="M12 7v6M12 16.5v.5"/><path d="M12 3l9 17H3z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M14.5 5.5l4 4"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M4 9h11a5 5 0 0 1 0 10h-3"/><path d="M8 5L4 9l4 4"/></symbol>
 </svg>
 
-<div class="stack" id="stack">
+<nav class="rail" aria-label="Sections">
+  <span class="mark" aria-hidden="true"><svg class="icon"><use href="#i-forge"/></svg></span>
 
-  <div class="menubar" role="menubar">
-    <span class="mark" aria-hidden="true"><svg class="icon"><use href="#i-stack"/></svg></span>
-    <span class="wordmark">DocsForge</span>
+  <button class="rail-btn" type="button" id="new-chat" title="New chat (Ctrl+N)" aria-label="New chat">
+    <svg class="icon"><use href="#i-new"/></svg>
+  </button>
+  <a class="rail-btn" href="/library" title="DocsStore — everything harvested" aria-label="DocsStore">
+    <svg class="icon"><use href="#i-store"/></svg>
+  </a>
 
-    <div class="menu" data-menu="file">
-      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">File</button>
-      <ul class="menu-drop" role="menu">
-        <li><button type="button" data-act="new"><span>New Stack</span><span class="key" data-key="N"></span></button></li>
-        <li class="sep"></li>
-        <li><button type="button" data-act="download"><span>Download .md</span><span class="key" data-key="S"></span></button></li>
-        <li><button type="button" data-act="download-all"><span>Download Whole Stack</span></button></li>
-      </ul>
+  <span class="rail-spacer"></span>
+
+  <a class="rail-btn" href="/docs" title="How this works" aria-label="Docs">
+    <svg class="icon"><use href="#i-docs"/></svg>
+  </a>
+</nav>
+
+<main class="main">
+  <header class="topbar">
+    <span class="title" id="thread-title">New chat</span>
+    <span class="spacer"></span>
+
+    <!-- Which model answers. Switching is how you keep working when one
+         provider runs out of quota, so it stays one click away. -->
+    <div class="picker" id="picker" data-open="false">
+      <button class="pill" type="button" id="model-chip"
+              aria-haspopup="menu" aria-expanded="false">
+        <span id="model-name">connecting…</span>
+        <svg class="icon"><use href="#i-chev"/></svg>
+      </button>
+      <div class="menu" role="menu" id="model-menu"></div>
     </div>
+  </header>
 
-    <div class="menu" data-menu="edit">
-      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Edit</button>
-      <ul class="menu-drop" role="menu">
-        <li><button type="button" data-act="copy"><span>Copy Card Text</span></button></li>
-        <li class="sep"></li>
-        <li><button type="button" data-act="author"><span>Edit This Card</span><span class="key" data-key="E"></span></button></li>
-        <li><button type="button" data-act="revert"><span>Revert Edits</span></button></li>
-      </ul>
-    </div>
-
-    <div class="menu" data-menu="card">
-      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Card</button>
-      <ul class="menu-drop" role="menu">
-        <li><button type="button" data-act="first"><span>First Card</span></button></li>
-        <li><button type="button" data-act="prev"><span>Prev Card</span><span class="key">Left</span></button></li>
-        <li><button type="button" data-act="next"><span>Next Card</span><span class="key">Right</span></button></li>
-        <li><button type="button" data-act="last"><span>Last Card</span></button></li>
-      </ul>
-    </div>
-
-    <div class="menu" data-menu="go">
-      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Go</button>
-      <ul class="menu-drop wide" role="menu" id="go-menu">
-        <li class="empty"><span>No cards yet</span></li>
-      </ul>
-    </div>
-
-    <div class="menu" data-menu="tools">
-      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Tools</button>
-      <ul class="menu-drop wide" role="menu" id="tools-menu">
-        <li class="empty"><span>Loading…</span></li>
-      </ul>
-    </div>
-
-    <span class="menubar-spacer"></span>
-
-    <!-- The active model, and the control that changes it. Right-hand status
-         menus are where a Mac menu bar has always put this. -->
-    <div class="menu" data-menu="provider">
-      <button class="menu-title model" type="button" id="model-chip"
-              role="menuitem" aria-haspopup="true" aria-expanded="false"
-              title="Switch model provider">connecting…</button>
-      <ul class="menu-drop wide right" role="menu" id="model-menu">
-        <li class="empty"><span>Loading…</span></li>
-      </ul>
-    </div>
+  <div class="thread" id="thread">
+    <div class="thread-inner" id="turns"></div>
   </div>
 
-  <div class="body">
-
-    <aside class="shoebox">
-      <div class="chip">Cards</div>
-      <ol class="index" id="index">
-        <li class="index-empty">
-          <svg class="shoebox-art" viewBox="0 0 120 92" aria-hidden="true"><use href="#i-shoebox"/></svg>
-          <p>The stack is empty.</p>
-          <p class="dim">Ask below and the first card gets painted here.</p>
-        </li>
-      </ol>
-
-      <form class="ask" id="ask-form">
-        <label class="chip" for="input">Ask</label>
-        <div class="ask-field">
-          <textarea id="input" rows="2" spellcheck="false"
-            aria-label="Ask about a documentation URL"></textarea>
-        </div>
-        <div class="ask-row">
-          <button class="btn primary painted" id="send" type="submit"><span>Ask</span></button>
-        </div>
-        <p class="status" id="status" role="status" aria-live="polite"></p>
-      </form>
-    </aside>
-
-    <main class="stage" id="stage">
-      <article class="card intro painted" id="intro-card">
-        <header class="card-head">
-          <h1 class="card-title">Home</h1>
-          <span class="boxes" aria-hidden="true"><i></i><i></i><i></i></span>
-        </header>
-        <div class="card-field">
-          <div class="md intro-body">
-            <p class="lede">Every document is a card. Ask for one and it gets painted into the stack.</p>
-            <p>Give it a URL. It works out what kind of source that URL is, extracts it, and hands you Markdown a language model can actually read — so the model stops guessing about a library it was never trained on.</p>
-
-            <h2>What it reads</h2>
-            <table class="kinds">
-              <tbody>
-                <tr><td><code>llms.txt</code></td><td>The LLM-native docs standard, passed straight through.</td></tr>
-                <tr><td><code>openapi</code></td><td>Swagger or OpenAPI, JSON or YAML, rendered as endpoint tables.</td></tr>
-                <tr><td><code>sitemap</code></td><td>Every page listed in a <code>sitemap.xml</code>, indexes included.</td></tr>
-                <tr><td><code>github</code></td><td>A repo's README plus everything under <code>docs/</code>.</td></tr>
-                <tr><td><code>html</code></td><td>A docs site, with nav, footers and chrome stripped out.</td></tr>
-                <tr><td><code>raw_text</code></td><td>Markdown or plain text, cleaned up.</td></tr>
-              </tbody>
-            </table>
-
-            <p>Cards are yours to edit before you keep them. <strong>Edit This Card</strong> turns the document back into a text field, and the download takes your version, not the model's.</p>
-
-            <p>The model in use is named at the top right — click it to switch. Providers with no API key in <code>.env</code> are greyed out, so when one runs out of quota you can move to another mid-stack.</p>
-
-            <h2>Try one</h2>
-            <ul class="starters">
-              <li><button type="button" class="starter" data-q="Fetch https://petstore3.swagger.io/api/v3/openapi.json and give me a table of the pet endpoints with their summaries."><svg class="icon arrow"><use href="#i-arrow"/></svg>An OpenAPI spec, as endpoint tables</button></li>
-              <li><button type="button" class="starter" data-q="Read the README at https://github.com/psf/requests and summarise what the library does and how to install it."><svg class="icon arrow"><use href="#i-arrow"/></svg>A GitHub repo's README</button></li>
-              <li><button type="button" class="starter" data-q="Fetch https://docs.python.org/3/library/json.html and list every function it documents with its signature."><svg class="icon arrow"><use href="#i-arrow"/></svg>A docs page, function by function</button></li>
-            </ul>
-          </div>
-        </div>
-      </article>
-    </main>
-
+  <div class="composer">
+    <form class="composer-inner" id="ask-form">
+      <div class="field">
+        <label class="sr" for="input">Ask about documentation</label>
+        <textarea id="input" rows="1" spellcheck="false"
+                  placeholder="Ask anything"></textarea>
+        <button class="round send" type="submit" id="send" aria-label="Send">
+          <svg class="icon"><use href="#i-up"/></svg>
+        </button>
+      </div>
+      <p class="foot" id="foot"></p>
+    </form>
   </div>
-</div>
+</main>
 
 <script src="/static/app.js"></script>
 </body>

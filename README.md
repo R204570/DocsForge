@@ -151,17 +151,22 @@ cp .env.example .env      # add a key for ONE provider — or none at all
 python app.py             # http://127.0.0.1:8000
 ```
 
-A single-page chat built as a HyperCard card stack: every answer is a card, the
-shoebox index runs down the left, and the current card holds the document. Each
-card carries **Edit This Card / Copy / Download .md**, so the Markdown is
-something you keep, not just something you read. Tool calls appear inline as
-they run, with the source type each card was forged from.
+Three surfaces, one window: the chat at `/`, **DocsStore** at `/library`, and
+everything that would otherwise need explaining at `/docs`. Charcoal on black
+with a single accent; nothing on the home screen but the input.
+
+Every tool call the model makes is listed above the answer it produced — what
+was fetched, what kind of source it was, and how much came back — so an answer
+built from a page that was actually read does not look like one that was not.
+Each answer carries **Copy / Download .md / Edit**, because the Markdown is
+something you keep, not just something you read. The send button becomes a stop
+button while an answer streams, and stopping keeps what already arrived.
 
 ### Providers
 
-Pick one from the **Model** menu; unconfigured ones are greyed out. The choice
-rides on each request, so when one provider hits its daily cap you switch and
-keep going — the stack can mix providers.
+Pick one from the model control at the top right; unconfigured ones are
+disabled and say why. The choice rides on each request, so when one provider
+hits its daily cap you switch and keep going mid-conversation.
 
 | Provider | Key | Default model | Notes |
 |---|---|---|---|
@@ -217,6 +222,7 @@ Everything is optional; see `.env.example` for the full list.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/` | The chat UI. |
+| `GET` | `/docs` | How it all works. (Swagger UI is disabled so this URL is the product's; the schema is still at `/openapi.json`.) |
 | `GET` | `/library` | DocsStore: everything harvested so far. |
 | `GET` | `/api/config` | Provider catalog, current default, tool list. |
 | `POST` | `/api/chat` | SSE stream: `token`, `tool`, `notice`, `done`, `error`. Takes an optional `provider`. |
