@@ -1,15 +1,15 @@
-/* DocsStore — the box of harvested documentation.
+/* DocsStore — everything DocsForge has harvested.
 
    Three levels, and the URL names all three, so any view can be linked,
    bookmarked and reloaded:
 
-     #/                        the box
-     #/effect                  a divider: every crawled version of it
+     #/                        the list
+     #/effect                  one technology: every crawled version of it
      #/effect/v3               a version: its index of pages
      #/effect/v3/17            one page, open
 
-   The box grows with every harvest, so the divider list is read a page at a
-   time from the server rather than loaded whole. */
+   The list grows with every harvest, so it is read a page at a time from
+   the server rather than loaded whole. */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -29,7 +29,7 @@ const state = {
   technologies: [],
   backend: null,
 
-  tech: null,        // the open divider
+  tech: null,        // the open technology
   versions: [],
   version: null,     // the open version
   meta: null,
@@ -78,9 +78,9 @@ async function api(path) {
   return data;
 }
 
-/** A divider standing in the box, with one card edge behind it per extra
-    version. The tab matters: a plain rectangle at one version reads as an
-    empty checkbox, which invites a click that does nothing. */
+/** How many crawls of this technology the store holds, drawn as stacked
+    card edges. The tab matters: a plain rectangle at one version reads as
+    an empty checkbox, which invites a click that does nothing. */
 function spine(count) {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
@@ -133,7 +133,7 @@ function go(tech, version, ordinal) {
   else location.hash = hash;
 }
 
-// ── the box: the paged divider list ──────────────────────
+// ── the paged technology list ────────────────────────────
 async function loadBox() {
   dividersEl.setAttribute("aria-busy", "true");
   try {
@@ -149,7 +149,7 @@ async function loadBox() {
     state.technologies = [];
     state.pages = 1;
     state.total = 0;
-    backendEl.textContent = "the box is unreachable";
+    backendEl.textContent = "store unreachable";
   }
   dividersEl.setAttribute("aria-busy", "false");
   renderBox();
@@ -171,19 +171,19 @@ function renderBox() {
   if (!state.technologies.length) {
     const empty = el("li", "index-empty");
     if (state.query) {
-      empty.append(el("p", null, `Nothing in the box matches “${state.query}”.`));
+      empty.append(el("p", null, `No technology matches “${state.query}”.`));
       empty.append(el("p", "dim", `${plural(state.total, "technology", "technologies")} stored.`));
     } else {
       const art = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      art.setAttribute("class", "shoebox-art");
-      art.setAttribute("viewBox", "0 0 120 92");
+      art.setAttribute("class", "empty-art");
+      art.setAttribute("viewBox", "0 0 24 24");
       art.setAttribute("aria-hidden", "true");
       const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      use.setAttribute("href", "#i-shoebox");
+      use.setAttribute("href", "#i-store");
       art.append(use);
       empty.append(art);
-      empty.append(el("p", null, "The box is empty."));
-      empty.append(el("p", "dim", "Harvest a technology in the chat and it gets filed here."));
+      empty.append(el("p", null, "Nothing harvested yet."));
+      empty.append(el("p", "dim", "Ask for a library's documentation in the chat and it lands here."));
     }
     dividersEl.append(empty);
     renderPager();
@@ -215,7 +215,7 @@ function renderBox() {
     dividersEl.append(li);
   });
 
-  // Arriving on a link straight to a technology should show which divider is
+  // Arriving on a link straight to a technology should show which row is
   // open, even when it sits below the fold of a full page of them.
   const current = $('#dividers [aria-current="true"]');
   if (current) current.scrollIntoView({ block: "nearest" });
@@ -233,7 +233,7 @@ function renderPager() {
     : "empty";
 }
 
-// ── opening a divider ────────────────────────────────────
+// ── opening a technology ─────────────────────────────────
 async function open() {
   const r = route();
 
@@ -241,6 +241,7 @@ async function open() {
     state.tech = state.version = state.ordinal = null;
     state.versions = [];
     renderBox();
+    renderActs();
     return renderEmptyStage();
   }
 
@@ -252,12 +253,13 @@ async function open() {
     try {
       state.versions = (await api(`/api/library/${encodeURIComponent(r.tech)}`)).versions;
     } catch (e) {
-      return renderError(`Nothing in the box is filed under “${r.tech}”.`, e.message);
+      return renderError(`Nothing is stored under “${r.tech}”.`, e.message);
     }
   }
 
   if (!r.version) {
     state.version = state.ordinal = null;
+    renderActs();
     return renderVersions();
   }
 
@@ -288,24 +290,18 @@ async function open() {
 }
 
 // ── the stage: three states ──────────────────────────────
-/** Paint a card onto the stage. `hollow` is for cards with nothing in them:
-    they stretch to the stage instead of hugging content that isn't there. */
+/** Paint a panel onto the stage. `hollow` is for panels with nothing in them:
+    they centre what little they have instead of hugging content that isn't
+    there. */
 function card(title, { hollow = false } = {}, ...rest) {
-  const art = el("article", hollow ? "card open painted hollow" : "card open painted");
+  const art = el("article", hollow ? "card hollow" : "card");
 
   const head = el("header", "card-head");
   head.append(Object.assign(el("h1", "card-title"), { textContent: title }));
-  const boxes = el("span", "boxes");
-  boxes.setAttribute("aria-hidden", "true");
-  boxes.append(el("i"), el("i"), el("i"));
-  head.append(boxes);
   art.append(head);
   art.append(...rest);
 
-  stageEl.classList.remove("dissolving");
-  void stageEl.offsetWidth;          // restart the dissolve
   stageEl.replaceChildren(art);
-  stageEl.classList.add("dissolving");
   return art;
 }
 
@@ -315,20 +311,20 @@ function renderEmptyStage() {
   const blank = el("div", "index-empty");
 
   const art = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  art.setAttribute("class", "shoebox-art");
-  art.setAttribute("viewBox", "0 0 120 92");
+  art.setAttribute("class", "empty-art");
+  art.setAttribute("viewBox", "0 0 24 24");
   art.setAttribute("aria-hidden", "true");
   const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", "#i-shoebox");
+  use.setAttribute("href", "#i-store");
   art.append(use);
 
   blank.append(art);
-  blank.append(el("p", null, "Pick a technology from the box."));
+  blank.append(el("p", null, "Pick a technology."));
   blank.append(el("p", "dim",
-    "Each divider holds every version of that documentation that has been crawled."));
+    "Each one holds every version of its documentation that has been crawled."));
   md.append(blank);
   field.append(md);
-  card("The box", { hollow: true }, field);
+  card("DocsStore", { hollow: true }, field);
 }
 
 function renderError(message, detail) {
@@ -336,16 +332,16 @@ function renderError(message, detail) {
   const md = el("div", "md");
   md.append(el("p", null, message));
   if (detail) md.append(Object.assign(el("p", "dim"), { textContent: detail }));
-  const back = el("button", "btn painted");
+  const back = el("button", "pill");
   back.type = "button";
-  back.append(icon("i-back"), el("span", null, "Back to the box"));
+  back.append(icon("i-back"), el("span", null, "Back to the list"));
   back.addEventListener("click", () => go(null));
   md.append(back);
   field.append(md);
-  card("Not in the box", { hollow: true }, field);
+  card("Not found", { hollow: true }, field);
 }
 
-/** The divider opened: every crawl of this technology, with its date. */
+/** One technology opened: every crawl of it, with its date. */
 function renderVersions() {
   const meta = el("div", "card-meta");
   meta.append(el("span", null, plural(state.versions.length, "version")));
@@ -400,7 +396,7 @@ function renderReader() {
   const meta = el("div", "card-meta");
   const crumb = el("nav", "crumb");
   crumb.setAttribute("aria-label", "Breadcrumb");
-  const box = el("button", null, "the box");
+  const box = el("button", null, "DocsStore");
   box.type = "button";
   box.addEventListener("click", () => go(null));
   crumb.append(box, el("span", "sep", "›"));
@@ -553,6 +549,7 @@ async function loadPage(ordinal) {
 }
 
 function renderPageView() {
+  renderActs();
   const view = $("#page-view");
   if (!view) return;
   view.replaceChildren();
@@ -583,74 +580,45 @@ function renderPageView() {
   // Sanitised server-side by the same nh3 pass the chat cards use.
   const md = el("div", "md");
   md.innerHTML = p.html;
+  // An API reference table can be far wider than the reader. Let it scroll
+  // inside its own box rather than push the whole page sideways.
+  $$("table", md).forEach((table) => {
+    const box = el("div", "scroll-x");
+    table.replaceWith(box);
+    box.append(table);
+  });
   view.append(md);
   view.scrollTop = 0;
 }
 
-// ── menus ────────────────────────────────────────────────
-function closeMenus() {
-  $$(".menu").forEach((m) => {
-    m.dataset.open = "false";
-    $(".menu-title", m).setAttribute("aria-expanded", "false");
-  });
-}
+// ── what you can do with what is open ─────────────────
+/* Buttons appear in the top bar as they become possible, rather than sitting
+   there greyed out: on this screen "nothing is open yet" is the common state,
+   and a row of dead controls is not information. */
+function renderActs() {
+  const acts = $("#page-acts");
+  if (!acts) return;
+  acts.replaceChildren();
 
-function refreshMenus() {
-  const hasPage = !!state.doc;
-  const hasVersion = !!state.version;
-  const set = (act, on) => {
-    const b = $(`[data-act="${act}"]`);
-    if (b) b.disabled = !on;
+  const add = (label, iconId, act, title) => {
+    const b = el("button", "ghost");
+    b.type = "button";
+    b.dataset.act = act;
+    b.title = title || label;
+    b.append(icon(iconId, "sm"), el("span", null, label));
+    b.addEventListener("click", () => runAction(act));
+    acts.append(b);
+    return b;
   };
-  set("download-page", hasPage);
-  set("copy-page", hasPage);
-  set("download-version", hasVersion);
-  set("source", hasPage && !!state.doc.url);
-  set("box", !!state.tech);
-  set("find-text", hasVersion);
-  set("clear-find", !!state.find || !!state.query);
-}
 
-function wireMenus() {
-  $$(".menu").forEach((menu) => {
-    const title = $(".menu-title", menu);
-    title.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const open_ = menu.dataset.open === "true";
-      closeMenus();
-      if (!open_) {
-        menu.dataset.open = "true";
-        title.setAttribute("aria-expanded", "true");
-        refreshMenus();
-      }
-    });
-    title.addEventListener("mouseenter", () => {
-      if ($$('.menu[data-open="true"]').length) {
-        closeMenus();
-        menu.dataset.open = "true";
-        title.setAttribute("aria-expanded", "true");
-        refreshMenus();
-      }
-    });
-  });
-
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest(".menu-drop button");
-    if (btn && !btn.disabled) {
-      closeMenus();
-      runAction(btn.dataset.act);
-      return;
-    }
-    if (!e.target.closest(".menu")) closeMenus();
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeMenus(); return; }
-    if (!(e.ctrlKey || e.metaKey)) return;
-    const k = e.key.toLowerCase();
-    if (k === "f" && state.version) { e.preventDefault(); runAction("find-text"); }
-    if (k === "s" && state.doc) { e.preventDefault(); runAction("download-page"); }
-  });
+  if (state.doc) {
+    add("Copy", "i-copy", "copy-page", "Copy this page as Markdown");
+    add("Download", "i-save", "download-page", "Download this page (Ctrl+S)");
+    if (state.doc.url) add("Source", "i-open", "source", "Open the original page");
+  } else if (state.version) {
+    add("Download version", "i-save", "download-version",
+        "Every page of this version as one Markdown file");
+  }
 }
 
 function download(name, text) {
@@ -714,8 +682,13 @@ async function runAction(act) {
 /** Every page of the open version, as the one Markdown file the harvest
     produced. Fetched page by page so the server never has to hold it all. */
 async function downloadVersion() {
+  // 700 pages is a real wait, so the button reports where it has got to
+  // instead of looking like nothing happened.
   const btn = $('[data-act="download-version"]');
+  const label = btn && $("span", btn);
+  const say = (t) => { if (label) label.textContent = t; };
   if (btn) btn.disabled = true;
+
   const parts = [
     `# ${state.tech} ${state.version} documentation`, "",
     `<!-- ${state.pageList.length} pages | from: ${(state.meta || {}).source || ""} ` +
@@ -723,6 +696,7 @@ async function downloadVersion() {
   ];
   state.pageList.forEach((p, i) => parts.push(`${i + 1}. ${p.title}`));
 
+  let done = 0;
   for (const p of state.pageList) {
     try {
       const full = await api(
@@ -733,8 +707,11 @@ async function downloadVersion() {
     } catch (e) {
       parts.push("", "---", "", `## ${p.title}`, "", `<!-- could not be read: ${e.message} -->`);
     }
+    done += 1;
+    if (done % 10 === 0) say(`${done} / ${state.pageList.length}`);
   }
   download(`${state.tech}-${state.version}.md`, parts.join("\n") + "\n");
+  say("Download version");
   if (btn) btn.disabled = false;
 }
 
@@ -760,12 +737,21 @@ pagerEl.addEventListener("click", (e) => {
 
 window.addEventListener("hashchange", open);
 
-(function labelShortcuts() {
-  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  $$(".menu-drop .key[data-key]").forEach((k) => {
-    k.textContent = (mac ? "⌘" : "Ctrl+") + k.dataset.key;
-  });
-})();
+document.addEventListener("keydown", (e) => {
+  const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (e.key === "Escape" && typing) { document.activeElement.blur(); return; }
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if (k === "f") {
+    e.preventDefault();
+    runAction(state.version ? "find-text" : "find-tech");
+  } else if (k === "s" && state.doc) {
+    e.preventDefault();
+    runAction("download-page");
+  } else if (k === "l") {
+    e.preventDefault();
+    location.href = "/";
+  }
+});
 
-wireMenus();
 loadBox().then(open);

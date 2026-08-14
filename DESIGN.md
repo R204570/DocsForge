@@ -2,198 +2,152 @@
 
 <!-- impeccable:design-schema 1 -->
 
-Recorded from the built panel (`static/`), not from intention. Where the build
+Recorded from the built pages (`static/`), not from intention. Where the build
 and this file disagree, the build is right and this file is stale.
 
 ## World
 
-**HyperCard shoebox stack.** Every answer is a card in a stack you can paint,
-not a message in a chat log. The user pinned this direction over the roll's
-assignment (seed `f7c15ffe`); the direction contract is the HTML comment that
-opens `static/index.html`.
+**A plain chat utility.** Rail, transcript, composer — the shape people already
+know, so nothing about the interface needs learning before the product can be
+used.
 
-The panel is embedded inside FlowIT, so it behaves as one window on a desktop:
-a bordered stack window inset 13px, with the classic 50% checkerboard showing
-around it. Below 560px the window goes full-bleed and the desktop is dropped.
+This replaced a HyperCard shoebox stack whose whole thesis was refusing the
+centred conversation column. The user pinned that direction and then, later,
+overrode it: charcoal and `#CF9FFF`, "simple normal", every instruction moved
+off the home screen. That is a deliberate change of direction, not drift. The
+old world is recoverable at `cd54899`.
 
 ## Colour
 
-One bit. `--ink` `#000000` on `--paper` `#ffffff`, inverted to `#ffffff` on
-`#101010` under `prefers-color-scheme: dark`. There is no third colour and no
-value between the two — every grey is a dither pattern.
+Charcoal through black, and one accent.
 
-## Dither
-
-Four levels, `--d12` `--d25` `--d50` `--d75`, as 4×4 `shape-rendering=crispEdges`
-SVGs. They exist in two forms and the distinction is load-bearing:
-
-| Token | Mechanism | Use on |
+| Token | Value | Used for |
 |---|---|---|
-| `--d12/25/50/75` | CSS **mask** over `--ink` | Elements with no text: the desktop, the window shadow, progress bars, the dissolve. Theme-independent. |
-| `--stipple`, `--stipple-light` | plain **background-image**, flipped per theme | Anything containing text: table headers. |
+| `--bg` | `#0b0b0d` | the page |
+| `--bg-soft` | `#121215` | rail, top bar |
+| `--surface` | `#17171b` | composer, the user's own words, tool rows |
+| `--surface-2` | `#1e1e23` | hover, inline code, quiet fills |
+| `--line` / `--line-soft` | `#2a2a31` / `#202027` | hairlines |
+| `--text` / `--text-2` / `--text-3` | `#ececee` / `#a8a8b3` / `#8a8a96` | primary / secondary / metadata |
+| `--accent` | `#cf9fff` | see below |
+| `--accent-ink` | `#170b24` | type that sits on the accent |
+| `--danger` | `#ff9a9a` | a failed tool call, a partial harvest |
 
-A positioned pseudo-element paints *after* inline content, so an overlay
-dither prints on top of the words. That bug shipped three times in this build
-(menu dropdown, selected rail card, table header) before being caught. Use
-`--stipple` on anything with text in it.
+The accent is the only hue in the build, and it marks exactly three things:
+**the control that sends**, **the thing currently selected**, and **a link**.
+Spending it anywhere else would stop it meaning any of them. There is no second
+colour and no gradient.
 
-Selection in the card rail **inverts** rather than stipples: any dither under
-12.5px type muddies it, and "pressed inverts to solid black" is the same
-world's rule.
+Dark is not a category default here: this sits beside an editor, for long
+sessions, and it is where the reference the user gave lives.
 
 ## Type
 
-Two self-hosted bitmap faces, in `static/fonts/`, each used at the size it was
-drawn for. Both ship **one weight only**, so `font-synthesis: none` is set on
-`body` — synthesised bold smears a pixel grid.
+System stacks, deliberately. `ui-sans-serif` for everything and
+`ui-monospace` for code, URLs, counts and timestamps. The previous build
+self-hosted two bitmap faces because it was making a statement; this one is
+asked to be ordinary, and a webfont that only makes a plain utility look
+dressed up is weight for nothing. The bitmap faces were deleted rather than
+left unreferenced — `git show cd54899:static/fonts/` has them.
 
-| Role | Face | Weight | Used for |
-|---|---|---|---|
-| Display | DotGothic16 | 400 | Wordmark, menu titles, card titles, `.md` headings, buttons, rail card titles |
-| Label | Silkscreen | 700 | Uppercase chips only (`CARDS`, `ASK`, `STOPPED`) |
-| Body | system stack | — | Running prose in the document |
-| Mono | Monaco / Consolas | — | Code, counts, URLs, metadata |
+Scale: 30px page title, 26px empty-screen wordmark, 22/19/16 headings, 15px
+body, 13px controls and metadata, 12px timestamps. Prose is capped at 70–74ch;
+tables and code blocks are not, because a table squeezed into a prose measure
+is worse than a long line — they scroll inside their own `.scroll-x` box so the
+page never scrolls sideways.
 
-Body and mono are deliberately system stacks: this is an Operate surface whose
-deliverable is long Markdown, and a bitmap face at reading size damages the
-thing the product exists to produce.
+## Layout
 
-Pixelify Sans was tried first and rejected: its `C` is a closed ring, so the
-menu read "Oard" and the chip read "OARDS".
+| Region | Behaviour |
+|---|---|
+| Rail | 56px, fixed. Mark, New chat, DocsStore, then Docs pinned to the bottom. |
+| Top bar | 52px. Conversation title left; model picker right on chat, actions and the storage chip right on DocsStore. |
+| Transcript | Scrolls; content centred on a 768px measure. |
+| Composer | Pinned below the transcript, same measure, never overlapping it. |
 
-Prose is capped at 72ch; tables and code blocks are not, because an endpoint
-table squeezed into a prose measure is worse than a long line.
-
-## Borders and depth
-
-- **Painted objects** (`.painted`) wear a hand border: a `2px` outline on a
-  pseudo-element run through an `feTurbulence` + `feDisplacementMap` filter, so
-  the edge wobbles and the text above it stays crisp. `#rough` for cards,
-  `#rough-soft` for buttons and the Ask field.
-- **System controls** stay crisp — that split is the world's, not an accident.
-- Depth is offset outlined rectangles, never blur. The card's `box-shadow`
-  draws two paper-and-ink rectangles behind it: the rest of the shoebox.
-- The window's shadow is a **sibling element**, not `.stack::after`, because
-  `.stack` carries a `z-index` and a stacking context would paint its own
-  negative-z pseudo over its background.
+Below 640px the rail narrows to 48px, starters stack, and the answer's
+provider/time stamp takes its own line rather than crushing the buttons beside
+it.
 
 ## Components
 
-- **Menu bar** — File / Edit / Card / Go / Tools. Active title inverts. Items
-  are enabled against real state; disabled labels are stencilled with dither.
-  Shortcuts print `Ctrl+` or `⌘` from the actual platform, and only where a
-  binding exists.
-- **Card** — head (title + three outlined window boxes), meta row, source list,
-  scrolling field, foot. It hugs its content and caps at the stage, so a
-  four-line answer is a four-line card. Max width 780px.
-- **Source list** — one row per tool call: a running barber-pole bar, then a
-  tick or a bang, the target, and the character count.
-- **Rail** — the shoebox index. Empty state carries a drawn, stippled shoebox.
-- **Ask field** — dashed border on focus, the way an active Mac field marched.
-- **Buttons** — crisp `2px` outline, `9px` radius, invert on hover and press.
-  Primary is filled and inverts to outline.
+- **Turn** — the user's words as a right-aligned bubble on `--surface`; the
+  answer as plain text at full column width, no bubble and no avatar. The
+  asymmetry is what makes the two readable apart at a glance.
+- **Work rows** — one row per tool call above the answer it produced: a spinner
+  while running, then a tick or a bang, the target, the source kind and the
+  character count. Shown rather than hidden, because an answer built from a
+  page that was actually fetched should not look like one that was not.
+- **Answer actions** — Copy, Download .md, Edit, and Revert once edited. Edit
+  swaps the rendered answer for a textarea; edited text is then shown as the
+  plain text it now is rather than guessed at as HTML.
+- **Model picker** — a pill in the top bar. Unavailable providers are disabled
+  and say *why* — "needs GROQ_API_KEY in .env" for a hosted one, "not running
+  locally" for Ollama or the CLI. Those are different problems with different
+  fixes.
+- **Send / Stop** — one circular control. Accent-filled, disabled until there
+  is something to send, and it becomes a stop square while an answer streams.
+  The stop is real: an `AbortController` cancels the request, and whatever
+  arrived is kept and labelled unfinished rather than thrown away.
+- **Empty screen** — mark, wordmark, one line, three starters. Nothing that
+  needs a paragraph lives here.
+- **Footer line** — the one thing worth knowing before trusting an answer, and
+  a link to `/docs` for everything else.
 
 ## Icons
 
-Authored 1-bit SVG `<symbol>`s in the sprite at the top of `index.html`, all at
-`1.5` stroke on a 16px grid. No emoji, no icon font. `#stip` is a `<pattern>`
-for stippled fills inside artwork.
+Authored 1-bit SVG `<symbol>`s inline at the top of each page, all on a 24px
+grid at 1.5 stroke, round caps and joins. No icon font, no emoji.
 
 ## Motion
 
-One authored moment: the card **dissolve**, stepped through the world's own
-four dither levels as a mask (`steps(1, end)`, 260ms) rather than a fade.
-Everything else that moves is state — the painting caret and the barber-pole.
-All of it is disabled under `prefers-reduced-motion`.
+One authored moment: a turn arrives from 8px below over 240ms on an
+exponential ease-out, **once** — a turn that has already been on screen is
+pinned with `animation: none` so a repaint does not replay it. Everything else
+that moves is state: the tool spinner and the streaming caret. All of it is off
+under `prefers-reduced-motion`.
 
-## Topology
+## /docs
 
-Cards are addressable. Each gets `#c<id>`, `history.pushState` on navigation,
-`popstate` to go back, and Back retraces the trail rather than stepping an
-index. HyperCard's rule that browse and author are two modes of one object is
-the signature interaction: **Edit This Card** turns the rendered document back
-into a text field, and the download takes the edited version.
+Everything that used to clutter the home screen: what it reads, harvesting,
+scope, versions, DocsStore, the tools, models, storage, keyboard, MCP. Sticky
+contents at 200px beside a 70ch column; below 860px the contents become a
+scrolling strip of pills above the prose.
 
-## Responsive
+FastAPI mounts Swagger UI at `/docs` by default and silently won the route the
+first time, so the app now sets `docs_url=None`. A test pins that.
 
-| Width | Layout |
-|---|---|
-| > 860px | Two columns: rail (210–260px) then stage. |
-| ≤ 860px | One column. Rail becomes a horizontal card strip; explicit `grid-template-rows: auto minmax(0,1fr)` — without it, grid's default `align-content: stretch` inflates the auto row and leaves a dead gap. |
-| ≤ 560px | Window full-bleed, no desktop, no border, model chip hidden. |
+## DocsStore
 
-## Source frame
+`/library`, same palette and chrome. Three levels: a technology, every crawled
+version of it, and the pages of the version you open.
 
-The board's framed picture region, carrying information rather than decoration:
-every card shows **what kind of source it was forged from**. A 34px stippled
-frame in the card head, 26px in the rail, plus the kind in words in the meta row.
+- The technology list is **paged**, twelve at a time, because it grows with
+  every harvest and has no natural ceiling. The stepper stays put at one page —
+  its disabled arrows are the answer to "is there more?".
+- The **spine** glyph shows how many versions are stored, drawn as stacked card
+  edges behind a tabbed card. The tab is load-bearing: without it, a
+  single-version row is a bare rectangle beside a label, which reads as an
+  empty checkbox and invites a click that does nothing.
+- Search inside a version marks matches with `<mark>` in the accent tint.
+  Snippets arrive marked with `«` `»` rather than markup, and the client
+  escapes first and promotes the guillemets second, so a page full of angle
+  brackets cannot smuggle HTML into the index.
+- Actions appear in the top bar as they become possible rather than sitting
+  greyed out: on this screen "nothing open yet" is the common state, and a row
+  of dead controls is not information.
+- The **storage chip** names which backend answered. Postgres ranks search and
+  a folder of files cannot, so hiding which one you are reading would be a lie.
 
-No second detector was written for this. Every document DocsForge produces
-already opens with `<!-- source: … | type: KIND | scraped: … -->`, so `app.py`
-reads the kind straight out of the tool result and sends it on the `tool` end
-event. Six glyphs (`#k-openapi`, `#k-github`, `#k-sitemap`, `#k-html`,
-`#k-llms`, `#k-raw`), authored in the same grammar as the rest.
-
-On the inverted selected rail card the frame's border and stroke flip to paper.
-
-## Type scale
-
-9px (Silkscreen chip) → 25px (intro lede), with the card title at 21px as the
-focal element. An embedded panel rules out a display hero, but not a hierarchy.
-
-## DocsStore — the second surface
-
-`/library` (`static/library.html`, `library.js`, `store.css`). Same world, same
-`style.css`; `store.css` adds only what the box needs that the stack did not
-have. Reached from **Go > DocsStore**, `Ctrl+L`.
-
-**The card box, not a data table.** Technologies are dividers, versions are the
-cards behind a divider, pages are the lines on a card. The rail keeps its
-position and grammar from the stack, so the two surfaces read as one window.
-
-| Level | Where | Carries |
-|---|---|---|
-| technology | the rail, 12 per page | spine, version count, page count, latest label, size |
-| version | the stage, one row each | label, pages, size, harvest date, strategy, source URL |
-| page | the reader's index | ordinal, title, and the matched snippet while searching |
-
-- **Divider spine** — an authored 1-bit glyph: a card with a tab, plus one
-  edge behind it per extra version, capped at three. The tab is load-bearing.
-  Drawn without it, a single-version divider is a bare rectangle beside a
-  label, which reads as an empty checkbox and invites a click that does nothing.
-- **Pager** — `◀ page 1 of 2 · 18 ▶` under the rail. It stays put at one page
-  rather than hiding: its disabled state is the answer to "is there more?".
-  `.btn:disabled` stencils a `<span>`, so `.btn.pg:disabled .icon` repeats the
-  dither for the arrows.
-- **Version tabs** — once inside a version the others stay one click away: the
-  same list, folded up. Selected inverts, as everything selected does here.
-- **Reader** — index beside document at ≥1000px, index as a strip above it
-  below that. Search inside a version marks matches with `<mark>`, which
-  inverts, and inverts back inside a selected or hovered row.
-- **Hollow cards** — the empty and error states stretch to the stage and centre
-  their content instead of hugging. A squat bar across the top of an empty
-  stage reads as a failed load; a card with a document in it still hugs.
-- **Backend chip** — the menu bar's right-hand corner names where the box is
-  stored, dashed square for files, solid for Postgres. Not decoration: Postgres
-  ranks search and the file store cannot, and reading unranked results while
-  believing they are ranked is worse than knowing.
-
-Snippets arrive marked with `«` `»` rather than markup, and the client escapes
-first and promotes the guillemets second, so a page full of angle brackets
-cannot smuggle HTML into the index.
-
-Every view is addressable: `#/effect/v3/41`, `hashchange` drives the render.
+Every view is addressable: `#/effect/v3/41`.
 
 ## Verified
 
-- Both themes probed by computed style, not by eye: ink/paper, card, chip,
-  status and the filled primary button all invert. Contrast is 21:1 each way.
-- Desktop 1280 and mobile 420 captured in one round; no horizontal overflow at
-  either, no console errors.
-- `detect.mjs` clean over all static files.
-- DocsStore captured at 1280 / 900 / 420 in light and dark
-  (`tests/shoot_store.py`), over the real store: 18 technologies across two
-  pages, pydantic's two versions, and Effect v3's 703-page index under search.
-  No overflow, no console errors at any width.
-- Contrast measured on the built page, both themes: body 21:1 / 19:1,
-  search snippets the same, the one placeholder in the design 6.2:1 / 7.6:1.
+- `detect.mjs` clean over every file in `static/`.
+- Captured at 1440 and 420 across the empty chat, the model picker, a finished
+  answer with tool rows, in-place editing, `/docs`, and DocsStore at all three
+  levels. No horizontal overflow and no console errors on any of them.
+- Contrast measured on the built pages with alpha properly composited, not read
+  off the palette. Every text pair clears 4.5:1; the lowest are the placeholder
+  at 5.24:1 and the send glyph on the accent at 4.87:1. Search highlight —
+  accent on a 13% accent tint over near-black — measures 7.72:1.

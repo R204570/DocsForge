@@ -177,13 +177,23 @@ def chat_stream(history: list[dict], provider_name: str | None) -> Iterator[str]
 # ─────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────
-app = FastAPI(title="DocsForge Chat", version="1.2.0")
+# FastAPI mounts Swagger UI at /docs by default, which silently shadows the
+# product's own documentation page. This app is not an API playground, so the
+# URL goes to the page users are sent to; the schema stays at /openapi.json.
+app = FastAPI(title="DocsForge Chat", version="1.3.0",
+              docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
 @app.get("/")
 def index():
     return FileResponse(os.path.join(STATIC, "index.html"))
+
+
+@app.get("/docs")
+def docs():
+    """Everything that would otherwise clutter the chat screen."""
+    return FileResponse(os.path.join(STATIC, "docs.html"))
 
 
 @app.get("/library")

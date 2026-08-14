@@ -127,6 +127,26 @@ def test_library_page_is_served():
     assert isinstance(app.library(), FileResponse)
 
 
+def test_docs_page_is_served_and_not_swagger():
+    # FastAPI mounts Swagger UI at /docs by default and silently wins the
+    # route, which is how the product's own docs page came back as an API
+    # playground the first time.
+    from fastapi.responses import FileResponse
+
+    assert app.app.docs_url is None
+    assert app.app.redoc_url is None
+
+    response = app.docs()
+    assert isinstance(response, FileResponse)
+    assert os.path.basename(response.path) == "docs.html"
+
+
+@pytest.mark.parametrize("route", ["/", "/docs", "/library"])
+def test_every_page_route_points_at_a_file_that_exists(route):
+    served = {"/": "index.html", "/docs": "docs.html", "/library": "library.html"}
+    assert os.path.isfile(os.path.join(app.STATIC, served[route]))
+
+
 def test_library_index_pages_the_box(box):
     first = app.library_index(page=1)
     assert first["total"] == app.PER_PAGE + 4
