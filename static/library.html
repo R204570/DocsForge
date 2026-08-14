@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocsStore — DocsForge</title>
+<meta name="description" content="Every documentation set DocsForge has harvested, by technology and version.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%23fff'/%3E%3Cpath fill='%23000' d='M1 5h14v1H1zM1 5h1v9H1zM14 5h1v9h-1zM1 13h14v1H1zM4 2h3v3H4z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/store.css">
+</head>
+<body class="store">
+<div class="desktop" aria-hidden="true"></div>
+<div class="stack-shadow" aria-hidden="true"></div>
+<!--
+  THESIS: The harvest is a card box, not a list of files. Technologies are dividers,
+  versions are the cards behind each divider, pages are the lines on a card. Refuses
+  the paginated data table every "browse your documents" screen ships.
+  OWN-WORLD: inherited from the stack — one-bit ink on paper, four dither levels,
+  painted objects wear rough hand borders, selection inverts to solid.
+  STORY: Someone asks the model about Effect v2 while the box holds v2 and v3; they open
+  the divider, see both crawls with their dates, and read the one they meant.
+  FIRST VIEWPORT: the box index down the left with its pager beneath; the opened divider
+  filling the right, every crawled version of that technology listed with its date.
+  FORM: HyperCard shoebox stack — the same world as index.html, second surface.
+-->
+
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="rough" x="-6%" y="-14%" width="112%" height="128%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.026" numOctaves="3" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-soft" x="-6%" y="-14%" width="112%" height="128%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="3" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.2" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <pattern id="stip" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="1" height="1" fill="currentColor"/>
+      <rect x="2" y="2" width="1" height="1" fill="currentColor"/>
+    </pattern>
+  </defs>
+
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M13.5 8h-9"/><path d="M7.5 4.5L4 8l3.5 3.5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10"/><path d="M9 4.5L12.5 8L9 11.5"/></symbol>
+  <symbol id="i-find" viewBox="0 0 16 16"><path d="M7 1.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11z"/><path d="M11 11l3.5 3.5"/></symbol>
+
+  <!-- A divider standing in the box: the tab is what you read to find it. -->
+  <symbol id="i-divider" viewBox="0 0 16 16"><path d="M2.5 4.5h11v9h-11z"/><path d="M4.5 2.5h5v2h-5z"/></symbol>
+
+  <!-- The box itself, for the empty state and the unopened stage. -->
+  <symbol id="i-shoebox" viewBox="0 0 120 92">
+    <rect x="15" y="57" width="90" height="24" fill="url(#stip)" stroke="none"/>
+    <path d="M28 47V19h13v28M45 47V13h13v34M62 47V17h13v30M79 47V23h13v24"/>
+    <path d="M14.5 46.5h91v35h-91z"/>
+    <path d="M14.5 56.5h91"/>
+  </symbol>
+</svg>
+
+<div class="stack" id="stack">
+
+  <div class="menubar" role="menubar">
+    <span class="mark" aria-hidden="true"><svg class="icon"><use href="#i-divider"/></svg></span>
+    <span class="wordmark">DocsStore</span>
+
+    <div class="menu" data-menu="file">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">File</button>
+      <ul class="menu-drop wide" role="menu">
+        <li><button type="button" data-act="download-page"><span>Download This Page</span><span class="key" data-key="S"></span></button></li>
+        <li><button type="button" data-act="download-version"><span>Download Whole Version</span></button></li>
+        <li class="sep"></li>
+        <li><button type="button" data-act="copy-page"><span>Copy Page Text</span></button></li>
+      </ul>
+    </div>
+
+    <div class="menu" data-menu="go">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Go</button>
+      <ul class="menu-drop wide" role="menu">
+        <li><button type="button" data-act="chat"><span>Ask DocsForge</span></button></li>
+        <li><button type="button" data-act="box"><span>Back to the Box</span></button></li>
+        <li class="sep"></li>
+        <li><button type="button" data-act="source"><span>Open Original Page</span></button></li>
+      </ul>
+    </div>
+
+    <div class="menu" data-menu="find">
+      <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Find</button>
+      <ul class="menu-drop wide" role="menu">
+        <li><button type="button" data-act="find-tech"><span>Find a Technology</span></button></li>
+        <li><button type="button" data-act="find-text"><span>Search Inside This Version</span><span class="key" data-key="F"></span></button></li>
+        <li class="sep"></li>
+        <li><button type="button" data-act="clear-find"><span>Clear Search</span></button></li>
+      </ul>
+    </div>
+
+    <span class="menubar-spacer"></span>
+
+    <!-- Where the box actually lives. Postgres and a folder of files behave
+         differently enough that hiding which one answered would be a lie. -->
+    <span class="menu-title backend" id="backend" title="Where the harvest is stored">reading the box…</span>
+  </div>
+
+  <div class="body">
+
+    <aside class="shoebox">
+      <div class="chip">Technologies</div>
+
+      <form class="find" id="find-form" role="search">
+        <label class="sr" for="find-tech">Find a technology</label>
+        <div class="find-field">
+          <svg class="icon" aria-hidden="true"><use href="#i-find"/></svg>
+          <input id="find-tech" type="search" spellcheck="false" autocomplete="off"
+                 placeholder="name…">
+        </div>
+      </form>
+
+      <ol class="index" id="dividers" aria-busy="true">
+        <li class="index-empty"><p class="dim">Opening the box…</p></li>
+      </ol>
+
+      <!-- The box grows every time someone harvests, so it is read a page at
+           a time rather than all at once. -->
+      <nav class="pager" id="pager" aria-label="Technology pages">
+        <button class="btn pg" type="button" data-page="prev" aria-label="Previous page">
+          <svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>
+        </button>
+        <span class="pg-count" id="pg-count">—</span>
+        <button class="btn pg" type="button" data-page="next" aria-label="Next page">
+          <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg>
+        </button>
+      </nav>
+    </aside>
+
+    <main class="stage" id="stage">
+      <article class="card open painted">
+        <header class="card-head">
+          <h1 class="card-title">The box</h1>
+          <span class="boxes" aria-hidden="true"><i></i><i></i><i></i></span>
+        </header>
+        <div class="card-field">
+          <div class="md">
+            <div class="index-empty">
+              <svg class="shoebox-art" viewBox="0 0 120 92" aria-hidden="true"><use href="#i-shoebox"/></svg>
+              <p>Pick a technology from the box.</p>
+              <p class="dim">Each divider holds every version of that documentation that has been crawled.</p>
+            </div>
+          </div>
+        </div>
+      </article>
+    </main>
+
+  </div>
+</div>
+
+<script src="/static/library.js"></script>
+</body>
+</html>

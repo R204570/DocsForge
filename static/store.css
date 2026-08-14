@@ -1,0 +1,407 @@
+/* ═════════════════════════════════════════════════════════
+   DocsStore (/library) — the same world, second surface.
+
+   Loads after style.css and inherits all of it: the tokens, the
+   dither, the two bitmap faces, .card / .chip / .btn / .index-card.
+   Only what the box needs that the stack did not have lives here.
+
+   The dither rule from style.css still binds: --stipple as a
+   background-image on anything containing text, masks only on
+   boxes with no words in them.
+   ═════════════════════════════════════════════════════════ */
+
+.sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Where the box is stored. A status word, not a control: the menu bar's
+   right-hand corner is where a Mac has always reported state. A folder of
+   files and a Postgres table answer differently enough — one ranks search,
+   one does not — that hiding which one you are reading would be a lie. */
+.menu-title.backend {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
+  cursor: default;
+  max-width: 44ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-title.backend::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border: var(--rule) solid currentColor;
+  vertical-align: 0;
+}
+.menu-title.backend.files::before { border-style: dashed; }
+
+/* ── finding a technology ─────────────────────────────── */
+.find { flex: 0 0 auto; margin: 0 10px 9px; }
+
+.find-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 3px;
+}
+.find-field::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: var(--rule) solid var(--ink);
+  filter: url(#rough-soft);
+  pointer-events: none;
+}
+.find-field:focus-within::before { border-style: dashed; }
+.find-field .icon { flex: 0 0 auto; width: 13px; height: 13px; }
+
+.find-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 2px 0;
+}
+.find-field input::-webkit-search-cancel-button { -webkit-appearance: none; }
+/* Ink at 62% on paper clears 4.5:1 either way round; this is the one place
+   a placeholder sits, and it has to stay readable in both themes. */
+.find-field input::placeholder { color: var(--ink); opacity: 0.62; }
+
+/* ── a divider standing in the box ────────────────────── */
+/* How many crawls of this technology the box holds, drawn as the card edges
+   behind the divider. The number is printed beside it either way; the spine
+   is what you actually read at a glance. */
+.spine {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.index-card .v {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An incomplete harvest is the one fact that changes how you should treat
+   what you read, so it is printed, not filed in a tooltip. */
+.warn {
+  font-family: var(--label);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  padding: 1px 4px 0;
+  white-space: nowrap;
+}
+
+/* ── the pager ────────────────────────────────────────── */
+/* The box grows every time anyone harvests, so it is read a page at a time.
+   The stepper stays put when there is only one page — its disabled state is
+   the honest answer to "is there more?". */
+.pager {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-top: var(--rule) solid var(--ink);
+  padding: 9px 10px;
+}
+.pager .pg-count {
+  flex: 1 1 auto;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.btn.pg { padding: 3px 9px 2px; }
+.btn.pg .icon { width: 13px; height: 13px; }
+/* .btn:disabled stencils its <span>; these carry an <svg> instead. */
+.btn.pg:disabled .icon {
+  -webkit-mask-image: var(--d50);
+  mask-image: var(--d50);
+  -webkit-mask-size: 2px 2px;
+  mask-size: 2px 2px;
+}
+
+/* ── the opened divider ───────────────────────────────── */
+/* Wider than a chat card: this one holds an index beside a document, and the
+   reading measure lives inside the right-hand pane instead of on the card. */
+.card.open { max-width: 1120px; width: 100%; }
+.card.open .card-head { gap: 10px; }
+
+/* A card holding a document hugs it, the way the stack's cards do. A card
+   holding nothing has nothing to hug, and a squat bar across the top of an
+   empty stage reads as a failed load rather than an invitation. */
+.card.hollow { align-self: stretch; }
+.card.hollow .card-field { display: grid; place-items: center; }
+
+.crumb {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  min-width: 0;
+}
+.crumb button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: default;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.crumb button:hover { background: var(--ink); color: var(--paper); text-decoration: none; }
+.crumb .here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── the version list: every crawl of one technology ──── */
+.versions { list-style: none; margin: 0; padding: 0; }
+.versions li { margin-bottom: 11px; }
+
+.version {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  padding: 11px 13px;
+  cursor: default;
+}
+.version:hover, .version:active { background: var(--ink); color: var(--paper); }
+
+.version .tag {
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 19px;
+  line-height: 1.1;
+  min-width: 4.5ch;
+}
+.version .facts {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 13px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.version .facts .src {
+  flex: 1 1 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.version .go { flex: 0 0 auto; width: 15px; height: 15px; }
+
+/* ── the version tab strip ────────────────────────────── */
+/* Inside a version, the others stay one click away: the same list, folded up. */
+.tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: var(--rule) solid var(--ink);
+  padding: 7px 11px;
+}
+.tabs .chip { margin: 0 3px 0 0; align-self: center; }
+.tab {
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+  padding: 3px 11px 2px;
+  cursor: default;
+}
+.tab:hover { background: var(--ink); color: var(--paper); }
+.tab[aria-current="true"] { background: var(--ink); color: var(--paper); }
+
+/* ── reading a version: index beside document ─────────── */
+.reader {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(190px, 244px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.contents {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--rule) solid var(--ink);
+}
+.contents .find { margin: 9px 9px 8px; }
+
+.toc {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) var(--paper);
+}
+
+.toc button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-family: var(--body);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--ink);
+  padding: 6px 10px;
+  cursor: default;
+}
+.toc button:hover { background: var(--ink); color: var(--paper); }
+.toc button[aria-current="true"] { background: var(--ink); color: var(--paper); }
+.toc .n {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  min-width: 3ch;
+  text-align: right;
+}
+.toc .nm { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.toc .snip {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+/* Highlight inverts, because that is what selection does in this world. */
+.toc mark { background: var(--ink); color: var(--paper); }
+.toc button:hover mark,
+.toc button[aria-current="true"] mark { background: var(--paper); color: var(--ink); }
+.toc .none {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 12px 10px;
+}
+
+.page-view {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px 18px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) var(--paper);
+}
+.page-view::-webkit-scrollbar,
+.toc::-webkit-scrollbar { width: 14px; }
+.page-view::-webkit-scrollbar-track,
+.toc::-webkit-scrollbar-track {
+  background-color: var(--paper);
+  border-left: var(--rule) solid var(--ink);
+}
+.page-view::-webkit-scrollbar-thumb,
+.toc::-webkit-scrollbar-thumb {
+  background: var(--paper);
+  border: var(--rule) solid var(--ink);
+}
+.page-view::-webkit-scrollbar-thumb:hover,
+.toc::-webkit-scrollbar-thumb:hover { background: var(--ink); }
+
+.page-head {
+  border-bottom: 1px dotted var(--ink);
+  padding-bottom: 9px;
+  margin-bottom: 15px;
+}
+.page-head h2 {
+  font-family: var(--display);
+  font-size: 19px;
+  line-height: 1.25;
+  margin: 0 0 5px;
+}
+.page-head .src {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+.page-head .src a { color: inherit; }
+
+.blank {
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 30px 4px;
+  text-align: center;
+}
+.blank .dim { font-size: 11.5px; }
+
+/* ── narrow: the box folds up ─────────────────────────── */
+@media (max-width: 1000px) {
+  /* Below this the index and the document cannot both hold a usable measure,
+     so the index becomes a strip above what you are reading. */
+  .reader {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 30vh) minmax(0, 1fr);
+  }
+  .contents { border-right: 0; border-bottom: var(--rule) solid var(--ink); }
+  .contents .find { margin: 8px 9px 6px; }
+}
+
+@media (max-width: 860px) {
+  .pager { border-top: 0; padding: 0 10px 10px; }
+  .index-card .v { white-space: normal; }
+  .card.open { max-width: none; }
+  .reader { grid-template-rows: minmax(0, 26vh) minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .menu-title.backend { font-size: 9.5px; max-width: 16ch; padding: 0 6px; }
+  .menu-title.backend::before { display: none; }
+  .page-view { padding: 13px 13px 20px; }
+  .version { gap: 9px; padding: 9px 10px; }
+  .version .tag { font-size: 16px; }
+  .card.open .card-head { padding: 7px 9px 6px; }
+}

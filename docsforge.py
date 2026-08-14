@@ -659,13 +659,29 @@ def docs_scope(url: str) -> str:
         if part.lower() in DOC_ROOTS:
             keep = parts[: i + 1]
             # Keep a version segment with it: /docs/v3/, not just /docs/.
-            if i + 1 < len(parts) and _VERSION.match(parts[i + 1]):
-                keep.append(parts[i + 1])
+            # It is not always the next segment — Pydantic files versions under
+            # /docs/validation/2.11/ — and stopping at /docs/ there crawls every
+            # version of the manual at once and calls the result one harvest.
+            for j in range(i + 1, min(i + 4, len(parts))):
+                if _VERSION.match(parts[j]):
+                    keep = parts[: j + 1]
+                    break
             return "/" + "/".join(keep) + "/"
 
     # No recognisable docs root: stay in the start page's own folder.
     folder = parts[:-1] if "." in parts[-1] or len(parts) > 1 else parts
     return "/" + "/".join(folder) + "/" if folder else "/"
+
+
+def _asks_for_a_version(url: str) -> bool:
+    """Does this URL name a particular version of the documentation?"""
+    return any(_VERSION.match(p) for p in urlparse(url).path.split("/") if p)
+
+
+def _probed_at_the_root(url: str, det: Detection) -> bool:
+    """True when a detection came from probing the origin rather than from the
+    URL the caller actually gave us."""
+    return det.url != url and urlparse(det.url).path.count("/") == 1
 
 
 def _normalize(url: str) -> str:
@@ -890,8 +906,16 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
     try:
         det = detect_source(url, fetcher)
         if det.kind in ("llms_txt", "openapi", "github", "raw_text"):
-            _log(opts, f"  harvesting via {det.kind}")
-            return HANDLERS[det.kind](det, fetcher, opts), det.kind
+            # A site publishes one llms.txt for its current release. When the
+            # caller asked for a specific version, handing them that file would
+            # answer a question they did not ask — quietly, and with the wrong
+            # version. Crawl the version they named instead.
+            if _asks_for_a_version(url) and _probed_at_the_root(url, det):
+                _log(opts, "  ignoring the site-wide llms.txt: "
+                           "the URL asks for one version of the docs")
+            else:
+                _log(opts, f"  harvesting via {det.kind}")
+                return HANDLERS[det.kind](det, fetcher, opts), det.kind
 
         prefix = docs_scope(url) if opts.scope in ("", "section", None) else (
             "/" if opts.scope == "host" else opts.scope)

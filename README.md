@@ -138,9 +138,9 @@ Or in an MCP client config file:
 | `detect_source_type` | `url` | Which strategy the URL would use — a cheap probe. |
 | `fetch_docs` | `url`, `crawl`, `max_pages`, `js`, `force` | The extracted Markdown. |
 | `save_docs` | `url`, `out_dir`, `crawl`, `max_pages`, `js`, `force`, `single_file` | Paths written to disk. |
-| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
-| `list_knowledge_base` | — | What has already been harvested. |
-| `read_knowledge_base` | `name`, `section` | Reads stored docs back, optionally only matching pages. |
+| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope`, `version` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
+| `list_knowledge_base` | — | What has already been harvested, and which versions of each. |
+| `read_knowledge_base` | `name`, `section`, `version` | Reads stored docs back, optionally only matching pages. Defaults to the newest version. |
 
 Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (60k default) with an explicit truncation marker.
 
@@ -217,11 +217,42 @@ Everything is optional; see `.env.example` for the full list.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/` | The chat UI. |
+| `GET` | `/library` | DocsStore: everything harvested so far. |
 | `GET` | `/api/config` | Provider catalog, current default, tool list. |
 | `POST` | `/api/chat` | SSE stream: `token`, `tool`, `notice`, `done`, `error`. Takes an optional `provider`. |
 | `POST` | `/api/render` | Markdown → sanitized HTML. |
+| `GET` | `/api/library` | One page of technologies. `?page=N&q=filter`. |
+| `GET` | `/api/library/{tech}` | Every stored version of one technology. |
+| `GET` | `/api/library/{tech}/{version}` | That version's page index. |
+| `GET` | `/api/library/{tech}/{version}/page/{n}` | One page, as Markdown and sanitized HTML. |
+| `GET` | `/api/library-search` | Ranked search. `?q=&tech=&version=&limit=`. |
 
 The server is stateless — the browser holds the conversation and posts it back each turn.
+
+## DocsStore
+
+`/library` is the box: every documentation set that has ever been harvested,
+three levels deep.
+
+```
+effect                  a divider in the box
+  v3, v2                every crawled version of it
+    703 pages           the pages of the version you opened
+```
+
+The technology list is **paged** (12 at a time) rather than loaded whole,
+because the box grows every time anyone harvests and there is no natural
+ceiling. Opening a divider lists every version with its page count, size,
+harvest date and strategy; opening a version puts its page index beside the
+page you are reading. The search box inside a version runs the ranked
+full-text search over that version only, and marks what matched.
+
+Every view is addressable, so a link goes exactly where you meant:
+`/library#/effect/v3/41`.
+
+The menu bar's right-hand corner names the backend that answered. That is not
+decoration: a Postgres box ranks search and a file box cannot, and reading
+unranked results while believing they are ranked is worse than knowing.
 
 ## Learning a whole technology
 
@@ -270,13 +301,40 @@ in `list_knowledge_base`, and again every time the content is read:
 That matters more than the limit itself: a third of a manual that looks whole
 produces confident, wrong answers.
 
+### Versions are kept apart
+
+A library's v2 and v3 docs contradict each other, and a model handed both will
+quote the wrong one. So a harvest is filed under a **version**, not just a
+name, and re-harvesting one version leaves the others alone:
+
+```
+pydantic
+  2.11   85 pages   1.2 MB   harvested 2026-08-14
+  1.10   24 pages   198 KB   harvested 2026-08-14
+```
+
+The label comes from the URL — `/docs/v3/`, `/docs/validation/2.11/` — and is
+then **checked against what came back**. A site publishes one `llms.txt` for
+its current release, so if the harvest served that instead of crawling the
+version you asked for, the label falls back to the harvest date rather than
+claiming a precision the content does not have. Sites that publish one version
+at a time are always dated: the date says which snapshot this is.
+
+`read_knowledge_base(name, version=...)` picks one; without it you get the most
+recently harvested.
+
+For the same reason the crawl scope follows the version down the path.
+Pydantic keeps versions at `/docs/validation/2.11/`, and stopping at `/docs/`
+there crawls every version of the manual at once and calls the result one
+harvest.
+
 ### Where harvested docs live
 
 Two backends, chosen automatically:
 
 | | When | What you get |
 |---|---|---|
-| **Markdown files** | the default | `knowledge_base/<name>.md`, one file per technology, plus `index.json`. Zero setup, and the file is a deliverable you can hand to anyone. |
+| **Markdown files** | the default | `knowledge_base/<tech>/<version>.md`, one file per version, plus `index.json`. Zero setup, and the file is a deliverable you can hand to anyone. |
 | **PostgreSQL** | `DOCSFORGE_DB` set and reachable | A row per page with a GIN-indexed `tsvector`. Section lookups are ranked and stay fast as the store grows, and several DocsForge instances can share one store. |
 
 ```bash
@@ -305,8 +363,7 @@ Already have a file store? `tests/migrate_kb.py` reads the combined Markdown
 back into Postgres, so a site that took ten minutes to crawl is not crawled
 again.
 
-To read one outside the app, `tests/preview_kb.py effect` renders it into a
-browsable HTML page with a contents sidebar.
+To read what is stored, open [DocsStore](#docsstore) at `/library`.
 
 ### Why the crawl is scoped
 

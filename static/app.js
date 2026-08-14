@@ -536,6 +536,7 @@ function runAction(act, arg) {
     case "next": return goTo(Math.min(state.cards.length - 1, state.current + 1));
     case "last": return goTo(state.cards.length - 1);
     case "goto": return goTo(Number(arg));
+    case "library": location.href = "/library"; return undefined;
     case "provider": return pickProvider(arg);
     default: return undefined;
   }
@@ -605,6 +606,19 @@ function refreshMenus() {
 
   const go = $("#go-menu");
   go.innerHTML = "";
+
+  // Everything harvested so far lives on its own surface; Go is where you
+  // leave this stack for it.
+  const store = el("li");
+  const storeBtn = el("button");
+  storeBtn.type = "button";
+  storeBtn.dataset.act = "library";
+  storeBtn.append(el("span", null, "DocsStore"));
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  storeBtn.append(el("span", "key", (mac ? "⌘" : "Ctrl+") + "L"));
+  store.append(storeBtn);
+  go.append(store, el("li", "sep"));
+
   if (!state.cards.length) {
     const li = el("li", "empty");
     li.append(el("span", null, "No cards yet"));
@@ -817,6 +831,7 @@ document.addEventListener("keydown", (e) => {
     if (key === "n") { e.preventDefault(); newStack(); }
     else if (key === "s") { e.preventDefault(); const c = currentCard(); if (c) downloadCard(c); }
     else if (key === "e") { e.preventDefault(); toggleAuthor(); }
+    else if (key === "l") { e.preventDefault(); runAction("library"); }
     return;
   }
   if (typing) return;
