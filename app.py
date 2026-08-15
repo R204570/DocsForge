@@ -256,7 +256,14 @@ def library_index(page: int = 1, q: str = ""):
         "total": total,
         "per_page": PER_PAGE,
         "query": q,
-        "backend": {"kind": backend.kind, "location": backend.location},
+        # `degraded` is why the store may look empty when it is not: the
+        # database is configured but unreachable, so this is the file store
+        # standing in for it.
+        "backend": {
+            "kind": backend.kind,
+            "location": backend.location,
+            "degraded": getattr(backend, "degraded", "") or "",
+        },
     }
 
 

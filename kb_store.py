@@ -104,6 +104,11 @@ class FileStore:
 
     kind = "files"
 
+    #: Set by build_store when this store is standing in for an unreachable
+    #: database: the reason, and the DSN worth retrying.
+    degraded = ""
+    wanted_dsn = ""
+
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
         self.index_path = self.root / "index.json"
@@ -117,7 +122,40 @@ class FileStore:
             data = json.loads(self.index_path.read_text(encoding="utf-8"))
         except (ValueError, OSError):
             return {}
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        return self._upgrade_v1(data)
+
+    def _upgrade_v1(self, index: dict) -> dict:
+        """Read an index written before versions existed.
+
+        v1 keyed entries by technology alone and stored `name`; v2 keys them by
+        technology and version. Postgres got a migration for this and the file
+        store did not, so an older knowledge_base crashed the whole store with
+        `KeyError: 'technology'` on the first read.
+
+        The Markdown stays where it is — the entry already records its path, so
+        only the index needs rewriting.
+        """
+        old = {k: v for k, v in index.items()
+               if isinstance(v, dict) and "technology" not in v and "name" in v}
+        if not old:
+            return index
+
+        upgraded = {k: v for k, v in index.items() if k not in old}
+        for entry in old.values():
+            tech = entry["name"]
+            version = version_from_url(entry.get("source", ""))
+            moved = dict(entry, technology=tech, version=version)
+            moved.pop("name", None)
+            moved.setdefault("saved", 0.0)
+            upgraded[self._key(tech, version)] = moved
+
+        try:
+            self._save(upgraded)
+        except OSError:
+            pass       # read-only checkout: still usable in memory
+        return upgraded
 
     def _save(self, index: dict) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -650,16 +688,29 @@ class PostgresStore:
 
 # ─────────────────────────────────────────────────────────────
 def build_store(root: Path | str | None = None, dsn: str | None = None) -> Store:
-    """Postgres when a DSN is configured and reachable, files otherwise."""
+    """Postgres when a DSN is configured and reachable, files otherwise.
+
+    A store that fell back carries `degraded` — the DSN it could not reach and
+    why. Falling back silently means everything you ever harvested appears to
+    have vanished, with the interface calmly reporting an empty store.
+    """
     dsn = dsn if dsn is not None else (
         os.environ.get("DOCSFORGE_DB") or os.environ.get("DATABASE_URL") or ""
     )
+    problem = ""
     if dsn:
         store = PostgresStore(dsn)
-        if store.available():
+        try:
+            store.migrate()
             return store
-        # A misconfigured database must not lose you a harvest: fall back to
-        # files and let the caller notice via store.kind.
+        except StoreError as e:
+            # A database that is down must not lose you a harvest: fall back to
+            # files, but say so, and let the caller try again later.
+            problem = str(e)
+
     here = Path(__file__).resolve().parent
-    return FileStore(Path(root) if root else Path(
+    files = FileStore(Path(root) if root else Path(
         os.environ.get("DOCSFORGE_KB_ROOT") or (here / "knowledge_base")))
+    files.degraded = problem
+    files.wanted_dsn = dsn if problem else ""
+    return files

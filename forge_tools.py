@@ -91,20 +91,41 @@ from kb_store import (  # noqa: E402
 )
 
 _STORE = None
+_RETRY_AT = 0.0
+
+#: How long to wait before testing an unreachable database again. Long enough
+#: not to stall every request on a dead socket, short enough that a database
+#: which was merely slow to start is picked up while you are still looking.
+RETRY_AFTER = 15.0
 
 
 def store():
-    """The active knowledge-base backend, built once."""
-    global _STORE
+    """The active knowledge-base backend.
+
+    A database that is down at startup must not downgrade the process for its
+    whole lifetime: on Windows the Postgres service routinely finishes starting
+    after the app does, and caching that first failed connection made every
+    harvest ever taken look like it had vanished. So a fallback is retried.
+    """
+    global _STORE, _RETRY_AT
     if _STORE is None:
         _STORE = build_store()
+        _RETRY_AT = time.time() + RETRY_AFTER
+        return _STORE
+
+    if getattr(_STORE, "wanted_dsn", "") and time.time() >= _RETRY_AT:
+        _RETRY_AT = time.time() + RETRY_AFTER
+        rebuilt = build_store()
+        if rebuilt.kind == "postgres":
+            _STORE = rebuilt
     return _STORE
 
 
 def reset_store(new=None):
     """Swap the backend — used by tests and by anything that changes config."""
-    global _STORE
+    global _STORE, _RETRY_AT
     _STORE = new
+    _RETRY_AT = 0.0
     return _STORE
 
 

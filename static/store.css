@@ -30,6 +30,10 @@
   background: var(--accent);
 }
 .pill.flat.files::before { background: var(--text-3); }
+/* Configured but unreachable: the one state where an empty store is a fault
+   rather than a fact. */
+.pill.flat.broken { border-color: rgba(255, 154, 154, 0.4); color: var(--danger); }
+.pill.flat.broken::before { background: var(--danger); }
 
 /* ── the technology list ──────────────────────────────── */
 .side {
