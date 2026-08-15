@@ -182,24 +182,46 @@ def chat_stream(history: list[dict], provider_name: str | None) -> Iterator[str]
 # URL goes to the page users are sent to; the schema stays at /openapi.json.
 app = FastAPI(title="DocsForge Chat", version="1.3.0",
               docs_url=None, redoc_url=None)
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+# Served with `Last-Modified` but no cache directive, a browser is free to
+# invent its own freshness lifetime and serve the file again without asking —
+# which is how you pull a new version of the UI and keep seeing the old one.
+# `no-cache` does not mean "do not store": it means "revalidate every time",
+# so an unchanged file still costs one 304 and a changed one is never missed.
+REVALIDATE = "no-cache"
+
+
+class FreshFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = REVALIDATE
+        return response
+
+
+app.mount("/static", FreshFiles(directory=STATIC), name="static")
+
+
+def page(name: str) -> FileResponse:
+    return FileResponse(os.path.join(STATIC, name),
+                        headers={"Cache-Control": REVALIDATE})
 
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(STATIC, "index.html"))
+    return page("index.html")
 
 
 @app.get("/docs")
 def docs():
     """Everything that would otherwise clutter the chat screen."""
-    return FileResponse(os.path.join(STATIC, "docs.html"))
+    return page("docs.html")
 
 
 @app.get("/library")
 def library():
     """DocsStore — everything harvested so far, by technology and version."""
-    return FileResponse(os.path.join(STATIC, "library.html"))
+    return page("library.html")
 
 
 # ── DocsStore API ────────────────────────────────────────────
