@@ -96,9 +96,67 @@ def test_a_version_looking_segment_does_not_match_an_ordinary_word():
     assert version_from_url("https://x.dev/docs/guide/install") != "guide"
 
 
+# ── reading a knowledge base written before versions existed ──
+V1_INDEX = {
+    "effect": {
+        "name": "effect",
+        "source": "https://www.effect.website/docs/v3/getting-started/introduction/",
+        "strategy": "crawl", "complete": True, "pages": 2, "characters": 120,
+        "harvested": "2026-08-13 22:10", "titles": ["Introduction", "Layers"],
+    },
+}
+
+
+def _write_v1(root, body="## Introduction\n\nSource: <https://x.dev/a>\n\nintro text\n"):
+    import json as _json
+
+    entry = dict(V1_INDEX["effect"])
+    md = root / "effect.md"
+    md.write_text(f"# effect documentation\n\n{body}", encoding="utf-8")
+    entry["file"] = str(md)
+    (root / "index.json").write_text(_json.dumps({"effect": entry}), encoding="utf-8")
+
+
+def test_a_pre_versioning_index_is_read_rather_than_crashing(tmp_path):
+    # v1 keyed entries by technology and stored `name`. Postgres got a
+    # migration for this and the file store did not, so an older
+    # knowledge_base raised KeyError: 'technology' on the very first read.
+    _write_v1(tmp_path)
+    store = FileStore(tmp_path)
+
+    techs, total = store.technologies()
+    assert total == 1
+    assert techs[0]["name"] == "effect"
+    assert techs[0]["versions"] == 1
+
+    # The version is recovered from the URL the harvest came from.
+    assert [v["version"] for v in store.versions("effect")] == ["v3"]
+
+
+def test_upgrading_an_old_index_keeps_the_markdown_where_it_is(tmp_path):
+    _write_v1(tmp_path)
+    store = FileStore(tmp_path)
+    body, how, _ = store.read("effect")
+    assert how == "all" and "intro text" in body
+    assert (tmp_path / "effect.md").exists(), "the old file must not be orphaned"
+
+
+def test_the_upgrade_is_written_back_once(tmp_path):
+    import json as _json
+
+    _write_v1(tmp_path)
+    FileStore(tmp_path).technologies()
+    on_disk = _json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    assert list(on_disk) == ["effect@v3"]
+    assert on_disk["effect@v3"]["technology"] == "effect"
+    assert "name" not in on_disk["effect@v3"]
+
+
 # ── backend selection ────────────────────────────────────
 def test_files_are_used_when_no_database_is_configured(tmp_path):
-    assert build_store(root=tmp_path, dsn="").kind == "files"
+    store = build_store(root=tmp_path, dsn="")
+    assert store.kind == "files"
+    assert not store.degraded, "no database was asked for, so nothing is degraded"
 
 
 def test_an_unreachable_database_falls_back_to_files(tmp_path):
@@ -106,6 +164,14 @@ def test_an_unreachable_database_falls_back_to_files(tmp_path):
     # quietly writing it to disk.
     store = build_store(root=tmp_path, dsn="postgresql://nobody@127.0.0.1:1/none")
     assert store.kind == "files"
+
+
+def test_a_fallback_says_it_is_a_fallback(tmp_path):
+    # Falling back silently means everything ever harvested appears to have
+    # vanished, with the interface calmly reporting an empty store.
+    store = build_store(root=tmp_path, dsn="postgresql://nobody@127.0.0.1:1/none")
+    assert store.degraded, "the fallback must carry a reason"
+    assert store.wanted_dsn, "and the DSN worth retrying"
 
 
 # ── behaviour both backends must share ───────────────────

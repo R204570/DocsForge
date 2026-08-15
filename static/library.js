@@ -158,6 +158,22 @@ async function loadBox() {
 function showBackend() {
   const b = state.backend;
   if (!b) return;
+
+  // A configured-but-unreachable database is the one case where an empty
+  // store does not mean "nothing harvested", so it says so instead of
+  // quietly showing you nothing.
+  if (b.degraded) {
+    backendEl.textContent = "database unreachable";
+    backendEl.classList.remove("files");
+    backendEl.classList.add("broken");
+    backendEl.title =
+      `${b.degraded}\n\nShowing Markdown files in ${b.location} instead. `
+      + `Anything harvested into the database is still there — start Postgres `
+      + `and reload.`;
+    return;
+  }
+
+  backendEl.classList.remove("broken");
   backendEl.textContent = b.kind === "postgres" ? b.location : "files · " + b.location;
   backendEl.classList.toggle("files", b.kind !== "postgres");
   backendEl.title = b.kind === "postgres"

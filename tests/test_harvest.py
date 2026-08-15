@@ -174,6 +174,53 @@ def test_version_label_falls_back_when_the_harvest_ignored_the_version():
     assert len(label) == 10, "an unverifiable version falls back to the harvest date"
 
 
+def test_a_fallback_store_is_retried_rather_than_cached_forever(kb, monkeypatch):
+    """A database that is slow to start must not downgrade the whole process.
+
+    On Windows the Postgres service routinely finishes starting after the app
+    does. Caching that first failed connection made every harvest ever taken
+    look like it had vanished, for as long as the server stayed up.
+    """
+    from kb_store import FileStore
+
+    down = FileStore(kb)
+    down.degraded = "connection refused"
+    down.wanted_dsn = "postgresql://nobody@127.0.0.1:1/none"
+
+    class Fake:
+        kind = "postgres"
+        location = "127.0.0.1:5432/DocsForge"
+
+    built = [down, Fake()]
+    monkeypatch.setattr(ft, "build_store", lambda *a, **k: built.pop(0))
+
+    ft.reset_store(None)
+    assert ft.store() is down, "first build fell back, as the database was down"
+
+    # Still inside the retry window: no second connection attempt.
+    assert ft.store() is down
+
+    monkeypatch.setattr(ft.time, "time", lambda: 10 ** 12)
+    assert ft.store().kind == "postgres", "once it comes up, the store recovers"
+
+
+def test_a_healthy_file_store_is_never_rebuilt(kb, monkeypatch):
+    # Only a fallback is retried. Somebody with no database configured must not
+    # pay for a rebuild on every single call.
+    calls = []
+
+    def build(*a, **k):
+        calls.append(1)
+        from kb_store import FileStore
+        return FileStore(kb)
+
+    monkeypatch.setattr(ft, "build_store", build)
+    ft.reset_store(None)
+    monkeypatch.setattr(ft.time, "time", lambda: 10 ** 12)
+    ft.store(); ft.store(); ft.store()
+    assert len(calls) == 1
+
+
 def test_names_are_slugged_consistently():
     assert ft._kb_slug("Effect v3!") == "effect-v3"
     assert ft._kb_slug("") == "untitled"
