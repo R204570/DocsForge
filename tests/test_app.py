@@ -147,6 +147,26 @@ def test_every_page_route_points_at_a_file_that_exists(route):
     assert os.path.isfile(os.path.join(app.STATIC, served[route]))
 
 
+@pytest.mark.parametrize("view", [app.index, app.docs, app.library])
+def test_pages_are_revalidated_rather_than_heuristically_cached(view):
+    # Served with Last-Modified but no cache directive, a browser invents its
+    # own freshness lifetime and reuses the file without asking — which is how
+    # you pull a new UI and keep seeing the old one.
+    assert view().headers["cache-control"] == "no-cache"
+
+
+def test_static_assets_are_revalidated_too():
+    from starlette.testclient import TestClient
+
+    with TestClient(app.app) as client:
+        for asset in ("/static/style.css", "/static/app.js"):
+            r = client.get(asset)
+            assert r.status_code == 200, asset
+            assert r.headers["cache-control"] == "no-cache", asset
+            # Revalidation still has to be cheap, so the validators must survive.
+            assert r.headers.get("etag")
+
+
 def test_library_index_pages_the_box(box):
     first = app.library_index(page=1)
     assert first["total"] == app.PER_PAGE + 4
