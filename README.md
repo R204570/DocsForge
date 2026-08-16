@@ -2,7 +2,7 @@
 
 **Universal software documentation → clean Markdown for LLMs.**
 
-## 🚀 In production — feedback and contributors welcome
+## 🚀 In production — feedback and contributors can support
 
 **Found a bug, a bad extraction, or something that could work better?**
 [Open an issue](https://github.com/R204570/DocsForge/issues) with as much detail
