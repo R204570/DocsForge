@@ -2,6 +2,27 @@
 
 **Universal software documentation → clean Markdown for LLMs.**
 
+## 🚀 In production — feedback and contributors welcome
+
+**Found a bug, a bad extraction, or something that could work better?**
+[Open an issue](https://github.com/R204570/DocsForge/issues) with as much detail
+as you can. Every report makes it more reliable.
+
+**Want to contribute?** Email **rajpatel9408019@gmail.com** with the subject
+**DocsForge Contribution Proposal**, and include:
+
+- Your **résumé/CV** and **GitHub** — this is what I read to get a picture of your work
+- Your experience with crawlers, MCP tools or AI agents
+- What you'd like to work on, and any ideas you already have
+
+Useful ground: crawling and scraping, documentation extraction, MCP tools, AI
+agents, backend and developer tooling. Bug fixes and documentation count as much
+as new crawling strategies.
+
+— **Raj Patel**, creator and maintainer
+
+---
+
 DocsForge points at any documentation source, figures out *what kind* of source it is, and extracts it into tidy, LLM-ready Markdown. Feed it a docs site, an OpenAPI spec, a GitHub repo, a sitemap, or a raw Markdown file — it detects the format and handles each one appropriately.
 
 It ships in three forms, all sharing one extraction engine:
@@ -10,7 +31,7 @@ It ships in three forms, all sharing one extraction engine:
 |---|---|---|
 | **CLI** | `docsforge.py` | One-shot scraping into `.md` files. |
 | **MCP server** | `mcp_server.py` | Give any MCP client (Claude Code, Claude Desktop, your agent) live docs-fetching tools. |
-| **Web chat** | `app.py` + `static/` | A chat UI backed by Groq that fetches docs and answers in rendered Markdown. |
+| **Web chat** | `app.py` + `static/` | A chat UI over any of six providers that fetches docs and answers in rendered Markdown, plus DocsStore for browsing what has been harvested. |
 
 ```
                    ┌─────────────────┐
@@ -22,7 +43,7 @@ It ships in three forms, all sharing one extraction engine:
                    └─────────────────┘
 ```
 
-`forge_tools.py` defines each tool exactly once. `mcp_server.py` exposes those definitions over MCP; `app.py` hands the same schemas to Groq for tool calling. An MCP client and the web chat therefore run identical code.
+`forge_tools.py` defines each tool exactly once. `mcp_server.py` generates the MCP surface from those definitions; `app.py` hands the same schemas to whichever provider is selected. An MCP client and the web chat therefore run identical code, and neither can drift from the other.
 
 ## Features
 
