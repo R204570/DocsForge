@@ -71,6 +71,7 @@
         <nav>
           <a href="#what">What it is</a>
           <a href="#reads">What it can read</a>
+          <a href="#byname">Learning by name</a>
           <a href="#whole">Learning a whole library</a>
           <a href="#versions">Versions</a>
           <a href="#chats">Your chats</a>
@@ -109,6 +110,48 @@
         </div>
         <p>You do not have to say which one it is. Detection is one cheap probe,
         and the answer shows what it decided.</p>
+
+        <h2 id="byname">Learning by name</h2>
+        <p>You do not need a documentation URL. Ask for a library by name and
+        DocsForge finds the docs itself:</p>
+        <pre><code>learn_technology(name="effect")
+learn_technology(name="pydantic", version="1.10")</code></pre>
+        <p>It asks the package registries — npm, PyPI, crates.io — where the
+        library says its documentation lives, probes the site for an
+        <code>llms.txt</code> or a docs root, and then <strong>checks the page
+        actually documents that package</strong> before harvesting a single
+        thing.</p>
+
+        <h3>Why the check matters</h3>
+        <p>A resolver that is merely usually right is just a slower guess. Names
+        collide across ecosystems: there is an npm package called
+        <code>fastapi</code> that has nothing to do with the Python framework,
+        and a Rust crate called <code>effect</code> that is not the TypeScript
+        one. Harvesting an unverified page stores the wrong project and answers
+        from it with complete confidence.</p>
+        <p>So if nothing can be confirmed, DocsForge says so and asks you for
+        the URL rather than picking something plausible. That is a good outcome,
+        not a failure.</p>
+        <p><code>find_docs(name=...)</code> shows what it would pick, and the
+        evidence for each candidate, without fetching the documentation.</p>
+
+        <h3>Reading a codebase</h3>
+        <p><code>scan_project(path=...)</code> reads
+        <code>package.json</code>, <code>pyproject.toml</code>,
+        <code>requirements.txt</code>, <code>Cargo.toml</code> and
+        <code>go.mod</code>, and reports every dependency, its version, and
+        whether it is already documented here.</p>
+        <p>The manifest is the only place the <em>correct version</em> can be
+        read from. A name alone cannot tell you that this project is pinned to
+        Pydantic 1.10 — and 1.10 and 2.11 disagree about the basics.</p>
+
+        <h3>Names do not have to match exactly</h3>
+        <p><code>Effect.ts</code>, <code>effect-ts</code> and
+        <code>effect</code> all reach the same stored documentation, and
+        <code>@scope/pkg</code> is filed under <code>pkg</code>. Everything is
+        stored under one canonical name, so the same library cannot end up
+        saved twice under two spellings. Anything genuinely ambiguous is refused
+        rather than guessed.</p>
 
         <h2 id="whole">Learning a whole library</h2>
         <p>Fetching one page answers a question about that page. Learning a
@@ -184,8 +227,12 @@
         <table>
           <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
           <tbody>
-            <tr><td><code>fetch_docs</code></td><td>Extract one URL as Markdown. The everyday one.</td></tr>
-            <tr><td><code>harvest_docs</code></td><td>Learn a whole technology from one URL and store it.</td></tr>
+            <tr><td><code>learn_technology</code></td><td><strong>Learn a library from its name alone.</strong> Resolves, verifies, harvests, stores.</td></tr>
+            <tr><td><code>find_docs</code></td><td>Show where a name would resolve to, and the evidence, without harvesting.</td></tr>
+            <tr><td><code>scan_project</code></td><td>A project's dependencies, their versions, and which are documented.</td></tr>
+            <tr><td><code>search_knowledge_base</code></td><td>Search every stored page at once, when you do not know the library's name.</td></tr>
+            <tr><td><code>fetch_docs</code></td><td>Extract one URL as Markdown.</td></tr>
+            <tr><td><code>harvest_docs</code></td><td>Learn a whole technology from a URL you already have.</td></tr>
             <tr><td><code>read_knowledge_base</code></td><td>Read stored docs back, optionally only the pages matching a phrase.</td></tr>
             <tr><td><code>list_knowledge_base</code></td><td>What has been harvested, and which versions of each.</td></tr>
             <tr><td><code>save_docs</code></td><td>Write extracted docs to files on disk.</td></tr>
