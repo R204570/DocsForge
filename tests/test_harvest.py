@@ -114,7 +114,11 @@ def _store(kb, name="effect", pages=PAGES, complete=True, version="v3"):
 
 
 def test_empty_knowledge_base_says_what_to_do(kb):
-    assert "harvest_docs" in ft.tool_list_knowledge_base()
+    # It used to point at harvest_docs, which needs a URL the caller does not
+    # have. An empty store should send a model to the tool it can actually use.
+    empty = ft.tool_list_knowledge_base()
+    assert "learn_technology" in empty
+    assert "do not need a URL" in empty
 
 
 def test_list_reports_what_is_stored(kb):

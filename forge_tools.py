@@ -274,8 +274,8 @@ def tool_list_knowledge_base() -> str:
         raise ForgeError(str(e)) from e
 
     if not techs:
-        return ("The knowledge base is empty. Harvest a technology first with "
-                "`harvest_docs(url=...)`.")
+        return ("Nothing is stored yet. Learn a technology with "
+                "`learn_technology(name=\"...\")` — you do not need a URL.")
 
     lines = [f"{len(techs)} technolog{'y' if len(techs) == 1 else 'ies'} "
              f"stored in {backend.kind} ({backend.location}):", ""]
