@@ -89,6 +89,7 @@ from kb_store import (  # noqa: E402
     StoreError, build_store, name_from_url as _name_from_url, parse_page,
     slugify as _kb_slug, split_pages, version_from_url as _version_from_url,
 )
+from resolver import normalise as _normalise, resolve as _resolve  # noqa: E402
 
 _STORE = None
 _RETRY_AT = 0.0
@@ -299,10 +300,43 @@ def tool_list_knowledge_base() -> str:
     return "\n".join(lines)
 
 
+def stored_name(name: str) -> str | None:
+    """Match a caller's spelling of a technology against what is stored.
+
+    A model reading `import { Effect } from "effect"` may ask for "Effect.ts";
+    the store has "effect". Requiring the exact slug makes the caller guess our
+    filing convention, which it has no way to know. Exact match wins, then a
+    normalised match, then a unique prefix — anything ambiguous is refused
+    rather than guessed.
+    """
+    backend = store()
+    try:
+        techs, _ = backend.technologies()
+    except StoreError:
+        return None
+    names = [t["name"] for t in techs]
+    if not names:
+        return None
+
+    if name in names:
+        return name
+
+    wanted = _normalise(name)
+    exact = [n for n in names if _normalise(n) == wanted]
+    if len(exact) == 1:
+        return exact[0]
+
+    if len(wanted) >= 3:
+        near = [n for n in names if _normalise(n).startswith(wanted)]
+        if len(near) == 1:
+            return near[0]
+    return None
+
+
 def tool_read_knowledge_base(name: str, section: str | None = None,
                              version: str | None = None) -> str:
     """Read stored documentation back, optionally only the matching sections."""
-    slug = _kb_slug(name)
+    slug = stored_name(name) or _kb_slug(name)
     backend = store()
     try:
         entry = backend.entry(slug, version)
@@ -350,6 +384,163 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
             "Say so if the answer depends on it.\n"
         )
     return _truncate(header + "\n" + body)
+
+
+# ─────────────────────────────────────────────────────────────
+# Answering by name instead of by URL
+# ─────────────────────────────────────────────────────────────
+def tool_find_docs(name: str, ecosystem: str | None = None) -> str:
+    """Work out where a technology documents itself. Fetches nothing else."""
+    found = _resolve(name, ecosystem=(ecosystem or "").strip())
+
+    lines = [f"Resolving **{name}**"
+             + (f" ({found.ecosystem})" if found.ecosystem else "") + ":", ""]
+    if not found.candidates:
+        lines.append(found.note or f"Nothing found for {name!r}.")
+        return "\n".join(lines)
+
+    for cand in found.candidates:
+        mark = {True: "verified", False: "unverified", None: "not checked"}[cand.verified]
+        lines.append(f"- {cand.url}")
+        lines.append(f"    {mark} · confidence {cand.confidence:.2f} · {cand.evidence}")
+        if cand.reason:
+            lines.append(f"    {cand.reason}")
+
+    lines.append("")
+    if found.best:
+        lines.append(
+            f"Best: {found.best.url} — harvest it with "
+            f"`learn_technology(name=\"{name}\")`, or "
+            f"`harvest_docs(url=\"{found.best.url}\", name=\"{_kb_slug(name)}\")`."
+        )
+    else:
+        lines.append(found.note)
+    return "\n".join(lines)
+
+
+def tool_learn_technology(name: str, version: str | None = None,
+                          ecosystem: str | None = None, max_pages: int = 0,
+                          js: bool = False) -> str:
+    """Learn a technology from its name alone: resolve, verify, harvest, store."""
+    # File under the canonical form, not the caller's spelling. Otherwise
+    # "Effect.ts" and "effect" become two copies of the same library, and the
+    # second harvest silently re-crawls a site already stored under the first.
+    slug = _kb_slug(_normalise(name) or name)
+
+    # Already known? Re-crawling a site to answer a question you can already
+    # answer is the most expensive way to be unhelpful.
+    known = stored_name(name)
+    if known:
+        backend = store()
+        entry = backend.entry(known, version)
+        if entry is not None:
+            return (
+                f"**{known}** {entry['version']} is already stored — "
+                f"{entry['pages']} pages, harvested {entry['harvested']}.\n\n"
+                f"Read it with `read_knowledge_base(name=\"{known}\", "
+                f"version=\"{entry['version']}\")`. Nothing was fetched."
+            )
+        try:
+            have = ", ".join(v["version"] for v in backend.versions(known))
+            note = (f"**{known}** is stored, but not version {version!r} "
+                    f"(have: {have}). Harvesting it now.\n\n")
+        except StoreError:
+            note = ""
+    else:
+        note = ""
+
+    found = _resolve(name, ecosystem=(ecosystem or "").strip())
+    if found.best is None:
+        listed = "\n".join(f"- {c.url} ({c.reason or 'unverified'})"
+                           for c in found.candidates)
+        raise ForgeError(
+            (found.note or f"Could not find documentation for {name!r}.")
+            + (f"\n\nCandidates considered:\n{listed}" if listed else "")
+            + "\n\nIf you know the URL, call harvest_docs with it directly."
+        )
+
+    harvested = tool_harvest_docs(url=found.best.url, name=slug,
+                                  max_pages=max_pages, js=js, version=version)
+    return (
+        f"{note}Resolved **{name}** to {found.best.url}\n"
+        f"({found.best.evidence}; {found.best.reason})\n\n{harvested}"
+    )
+
+
+def tool_search_knowledge_base(query: str, technology: str | None = None,
+                               version: str | None = None, limit: int = 20) -> str:
+    """Search the text of every stored page, across all technologies."""
+    backend = store()
+    tech = stored_name(technology) if technology else None
+    if technology and not tech:
+        raise ForgeError(f"Nothing stored under {technology!r}. "
+                         f"Call list_knowledge_base to see what is available.")
+    try:
+        hits = backend.search(query, tech, version, max(1, min(int(limit), 100)))
+    except StoreError as e:
+        raise ForgeError(str(e)) from e
+
+    if not hits:
+        where = f" in {tech}" if tech else ""
+        return (f"Nothing stored{where} matches {query!r}. "
+                f"The technology may not be harvested yet — try "
+                f"`learn_technology(name=...)`.")
+
+    ranked = "ranked" if backend.kind == "postgres" else "unranked (file store)"
+    lines = [f"{len(hits)} {ranked} match(es) for {query!r}:", ""]
+    for hit in hits:
+        snippet = hit["snippet"].replace("«", "**").replace("»", "**")
+        lines.append(f"- **{hit['technology']}** {hit['version']} · page "
+                     f"{hit['ordinal']}: {hit['title']}")
+        lines.append(f"    {' '.join(snippet.split())}")
+    lines += ["", "Read a whole page with "
+                  "`read_knowledge_base(name=..., version=..., section=<title>)`."]
+    return "\n".join(lines)
+
+
+def tool_scan_project(path: str | None = None, unknown_only: bool = False) -> str:
+    """List a project's dependencies and say which are already documented here."""
+    from pathlib import Path as _Path
+
+    import manifests
+
+    root = _Path(path or ".").expanduser().resolve()
+    if not root.is_dir():
+        raise ForgeError(f"Not a directory: {root}")
+
+    deps = manifests.read_project(root)
+    if not deps:
+        raise ForgeError(
+            f"No dependency manifests under {root}. Looked for: "
+            + ", ".join(sorted(manifests.MANIFESTS))
+        )
+
+    rows, missing = [], []
+    for dep in sorted(deps, key=lambda d: d.name.lower()):
+        known = stored_name(dep.name)
+        pinned = manifests.pinned_version(dep.version)
+        if not known:
+            missing.append(dep)
+        if unknown_only and known:
+            continue
+        rows.append(f"- `{dep.name}`{' ' + pinned if pinned else ''} "
+                    f"({dep.ecosystem}, {dep.manifest}) — "
+                    + (f"stored as **{known}**" if known else "not stored"))
+
+    shown = "not yet documented" if unknown_only else "declared"
+    lines = [f"{len(rows)} of {len(deps)} dependenc"
+             f"{'y' if len(deps) == 1 else 'ies'} {shown} in `{root}`:", ""] + rows
+
+    if missing:
+        first = missing[0]
+        want = manifests.doc_versions(first.version)
+        lines += ["", f"{len(missing)} not yet documented. Learn one with "
+                      f"`learn_technology(name=\"{first.name}\""
+                      + (f", version=\"{want[0]}\"" if want else "")
+                      + f", ecosystem=\"{first.ecosystem}\")`."]
+    else:
+        lines += ["", "Every dependency is already documented in the knowledge base."]
+    return "\n".join(lines)
 
 
 _URL = {"type": "string", "description": "Absolute http(s) URL of the documentation source."}
@@ -466,6 +657,97 @@ TOOLS: list[Tool] = [
             "required": ["url"],
         },
         tool_harvest_docs,
+    ),
+    Tool(
+        "learn_technology",
+        "Learn a technology from its NAME alone, with no URL. Use this the moment "
+        "you meet a library, framework or tool you do not already know well — from "
+        "an import, a config file, an error message, anything. It finds the official "
+        "documentation via the package registries, confirms the page really does "
+        "document that package, harvests the whole thing and stores it. "
+        "Prefer this over guessing a documentation URL yourself: a guessed URL comes "
+        "from the same training data that did not know the library, and a wrong guess "
+        "silently stores the wrong project. If it is already stored, it says so and "
+        "fetches nothing.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": "The package or technology name, as you saw it "
+                                        "written, e.g. \"effect\", \"pydantic\", "
+                                        "\"@tanstack/react-query\"."},
+                "version": {"type": "string",
+                            "description": "Which version's documentation you need, e.g. "
+                                           "\"1.10\". Take it from the project's lockfile "
+                                           "or manifest when you can — versions of the "
+                                           "same library contradict each other."},
+                "ecosystem": {"type": "string", "enum": ["npm", "pypi", "crates"],
+                              "description": "Which registry to trust. Omit to try all."},
+                "max_pages": {"type": "integer", "default": 0, "minimum": 0,
+                              "description": "0 (default) harvests the whole documentation."},
+                "js": _JS,
+            },
+            "required": ["name"],
+        },
+        tool_learn_technology,
+    ),
+    Tool(
+        "find_docs",
+        "Work out where a technology documents itself, WITHOUT harvesting anything. "
+        "Returns candidate URLs with evidence and whether each was confirmed to "
+        "actually document that package. Use it when you want to check what would "
+        "be harvested first, or when learn_technology could not resolve a name and "
+        "you want to see what it considered.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "The package or technology name."},
+                "ecosystem": {"type": "string", "enum": ["npm", "pypi", "crates"],
+                              "description": "Which registry to trust. Omit to try all."},
+            },
+            "required": ["name"],
+        },
+        tool_find_docs,
+    ),
+    Tool(
+        "search_knowledge_base",
+        "Search the full text of every stored page, across all technologies at once. "
+        "Use this when you have a symbol, error message or snippet but do not know "
+        "which library it belongs to — read_knowledge_base needs you to already know "
+        "the name, and this does not.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string",
+                          "description": "Words to search for, e.g. \"exponential backoff\"."},
+                "technology": {"type": "string",
+                               "description": "Optional: restrict to one stored technology."},
+                "version": {"type": "string",
+                            "description": "Optional: restrict to one version of it."},
+                "limit": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
+            },
+            "required": ["query"],
+        },
+        tool_search_knowledge_base,
+    ),
+    Tool(
+        "scan_project",
+        "Read a project's dependency manifests (package.json, pyproject.toml, "
+        "requirements.txt, Cargo.toml, go.mod) and list what it depends on, at which "
+        "versions, and which of those are already documented in the knowledge base. "
+        "This is the best way to find out what a codebase actually uses before "
+        "answering questions about it — and the manifest is the only place the "
+        "correct VERSION of each library can be read from.",
+        {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string",
+                         "description": "Project root. Defaults to the working directory."},
+                "unknown_only": {"type": "boolean", "default": False,
+                                 "description": "List only dependencies not yet stored."},
+            },
+        },
+        tool_scan_project,
     ),
     Tool(
         "list_knowledge_base",

@@ -139,6 +139,10 @@ Or in an MCP client config file:
 | `fetch_docs` | `url`, `crawl`, `max_pages`, `js`, `force` | The extracted Markdown. |
 | `save_docs` | `url`, `out_dir`, `crawl`, `max_pages`, `js`, `force`, `single_file` | Paths written to disk. |
 | `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope`, `version` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
+| `learn_technology` | `name`, `version`, `ecosystem`, `max_pages`, `js` | **Learns a library from its name alone — no URL.** Resolves, verifies, harvests, stores. |
+| `find_docs` | `name`, `ecosystem` | Where a name resolves to, with evidence. Harvests nothing. |
+| `scan_project` | `path`, `unknown_only` | A project's dependencies, versions, and which are documented. |
+| `search_knowledge_base` | `query`, `technology`, `version`, `limit` | Ranked search across every stored page at once. |
 | `list_knowledge_base` | — | What has already been harvested, and which versions of each. |
 | `read_knowledge_base` | `name`, `section`, `version` | Reads stored docs back, optionally only matching pages. Defaults to the newest version. |
 
@@ -263,6 +267,54 @@ Every view is addressable, so a link goes exactly where you meant:
 The menu bar's right-hand corner names the backend that answered. That is not
 decoration: a Postgres box ranks search and a file box cannot, and reading
 unranked results while believing they are ranked is worse than knowing.
+
+## Learning something by name
+
+The caller usually does not have a documentation URL — it is a model that has
+just met a library it does not know, so *where the docs live* is exactly the
+knowledge it is missing. It does not need one:
+
+```
+learn_technology(name="effect")
+learn_technology(name="pydantic", version="1.10")
+  -> resolved to https://docs.pydantic.dev (names 'pydantic' 214 times)
+  -> harvested 85 pages, stored as pydantic 1.10
+```
+
+It asks the package registries — npm, PyPI, crates.io, all keyless — where the
+library declares its documentation, probes the site for an `llms.txt` or a docs
+root, and then **confirms the page actually documents that package** before
+harvesting anything.
+
+### Verification is the point
+
+A resolver that is merely usually right is a slower guess. Names collide: the
+npm package `fastapi` is unrelated to the Python framework, and the `effect`
+crate is not the TypeScript library. Harvesting an unverified page stores the
+wrong project and then answers from it confidently.
+
+So a page must name the package repeatedly before it is trusted — one passing
+mention is noise. If nothing verifies, DocsForge reports that and asks for a
+URL instead of picking something plausible. `find_docs` shows the candidates
+and the evidence without fetching the documentation.
+
+### Reading the project
+
+`scan_project` reads `package.json`, `pyproject.toml`, `requirements.txt`,
+`Cargo.toml` and `go.mod`, and reports each dependency, its version, and
+whether it is documented here yet.
+
+The manifest is the only place the **correct version** can be read from. A bare
+name cannot tell you this project is pinned to Pydantic 1.10, and 1.10 and 2.11
+contradict each other — which is what the versioned store exists to prevent,
+and what a name-only lookup would defeat.
+
+### Names are matched, not memorised
+
+`Effect.ts`, `effect-ts` and `effect` all reach the same stored copy, and
+`@scope/pkg` files under `pkg`. Everything is stored under one canonical name,
+so a library cannot end up saved twice under two spellings. Genuinely ambiguous
+names are refused rather than guessed.
 
 ## Learning a whole technology
 
