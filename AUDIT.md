@@ -171,7 +171,10 @@ npm → `valibot.dev/llms.txt` → verified → harvested in 4s; a second call s
 
 ## 3. What does not work
 
-Ranked by how much damage each does.
+🔴 wrong answers delivered as correct · 🟠 real limitation, visible when it bites
+· F1–F8 concern resolution and run roughly in damage order. **F9 was found last
+and is the single highest-payoff fix on the list** — it is numbered last only
+because the numbers are referenced elsewhere and renumbering would break them.
 
 ### F1 — Verification confirms the *name*, not the *project* 🔴
 
