@@ -1,7 +1,15 @@
 # DocsForge — audit
 
-**Date:** 17 August 2026 · **Commit:** `8851f4f` · **Method:** every claim below was
-executed, not read off the source.
+**First run:** 17 August 2026 · **Re-verified:** 20 August 2026 against `5b320df`
+· **Method:** every claim below was executed, not read off the source.
+
+> **Re-verification note (20 August).** Every finding below was re-run. All of
+> them still reproduce, including the three wrong resolutions and their
+> `verified: true` flags. One diagnosis was **wrong and has been corrected**:
+> F9's cause is not that the harvester cannot tell an index from a full dump —
+> it can, and does. See F9 for what actually happens. Two tables have been
+> completed with measurements that were previously marked "not measured", and
+> the total recoverable figure is far larger than first reported.
 
 ---
 
@@ -14,8 +22,9 @@ genuinely relevant snippets). The weakness is not that DocsForge fails; it is
 that **it fails confidently, and labels the failures as checked.** Of eight
 technologies resolved live today, three landed on the wrong project and **all
 three were marked `verified`**. Separately, seven stored technologies contain a
-table of contents rather than documentation — including one holding 0.04% of
-what it claims — and every one is marked `complete`. The verification and
+table of contents rather than documentation — 0.81% of the text that was
+actually available, 19 million characters missing — and every one is marked
+`complete`. The verification and
 completeness signals that exist precisely to prevent silent wrong answers are
 the signals that are wrong. That is the finding this audit is really about.
 
@@ -295,40 +304,68 @@ The default run therefore tests the **fallback** store thoroughly and the
 the `tsvector` search, `ts_headline` snippets and the `COPY` bulk load — the
 parts most likely to break and least likely to break visibly.
 
-### F9 — An `llms.txt` **index** is stored as if it were the documentation 🔴
+### F9 — The resolver's success disables the extractor's correct behaviour 🔴
 
 Sixteen of eighteen technologies hold exactly one page. Some are legitimate —
 `zod` is a single 266 KB `llms.txt` that really is the whole thing. But the
-`llms.txt` convention has two shapes, and DocsForge treats them identically:
+`llms.txt` convention has two shapes:
 
 - a **full dump** — the documentation itself (zod, stripe, convex)
 - an **index** — a short link list that names a fuller file alongside it
 
-When the file is an index, DocsForge stores the index. Seven of the sixteen
-single-page technologies are indexes that explicitly name an `llms-full.txt`:
+Seven of the sixteen single-page technologies stored the index.
 
-| Technology | Stored | Names | Actual size of what was skipped |
+**The first version of this audit blamed the harvester for not telling the two
+apart. That was wrong.** `detect_source()` already prefers `llms-full.txt` — it
+probes for it *first*, at `docsforge.py:301`. Measured today, the same site
+resolves three different ways depending only on the URL it is handed:
+
+```
+detect_source("https://ai-sdk.dev/llms.txt")           -> https://ai-sdk.dev/llms.txt        (2 KB index)
+detect_source("https://ai-sdk.dev")                    -> https://ai-sdk.dev/llms-full.txt   (5.7 MB)
+detect_source("https://ai-sdk.dev/docs/introduction")  -> https://ai-sdk.dev/llms-full.txt   (5.7 MB)
+```
+
+Given the bare domain, DocsForge gets it right. It only fails when handed the
+`llms.txt` URL directly — because `docsforge.py:280` returns immediately on any
+URL ending in `llms.txt`, and the probe that would have found the full file sits
+*below* that early return and never executes.
+
+And handing over exactly that URL is what the resolver does. `DOC_PATHS` in
+`resolver.py:38` begins with `/llms.txt`, and a hit becomes a candidate at
+**0.95 — the highest confidence the resolver can assign.** So:
+
+> **The resolver finding an `llms.txt` is the very thing that stops the
+> extractor from looking for the full one.** Two components, each correct alone,
+> wrong in combination.
+
+Measured cost, every figure fetched today:
+
+| Technology | Stored | Full file available | Captured |
 |---|---|---|---|
-| `ai-sdk` | 2,216 chars | `ai-sdk.dev/llms-full.txt` | **5,736,951 chars** |
-| `hono` | 5,649 chars | `hono.dev/llms-full.txt` | **368,654 chars** |
-| `svelte` | 1,673 chars | `svelte.dev/llms-full.txt` | too large to fetch in 30s |
-| `prisma` | 7,086 chars | `prisma.io/docs/llms-full.txt` | not measured |
-| `nuxt` | 56,614 chars | `nuxt.com/llms-full.txt` | not measured |
-| `railway` | 70,612 chars | `docs.railway.com/llms-full.txt` | not measured |
+| `ai-sdk` | 2,216 | **5,756,477** | 0.04% |
+| `prisma` | 7,086 | **4,961,636** | 0.14% |
+| `nuxt` | 56,614 | **4,451,427** | 1.27% |
+| `railway` | 70,612 | **2,398,306** | 2.94% |
+| `svelte` | 1,673 | **1,181,307** | 0.14% |
+| `hono` | 5,649 | **369,248** | 1.53% |
+| `tanstack` | 11,592 | 11,595 | 99.97% — no real loss |
 
-**DocsForge captured 0.04% of the AI SDK documentation and recorded the copy as
-`complete: True`.** The stored file for `hono` reads, in full sentences, *"[Full
-Docs](https://hono.dev/llms-full.txt) Full documentation of Hono"* — the answer
-is named inside the file that was stored instead of it.
+**155,442 characters stored against 19,129,996 available: 0.81%.** The missing
+18.97 million characters are **more than twice the entire rest of the store**
+(8.42 M today). Fixing this one bug takes DocsForge from 8.4 M to roughly
+27.4 M characters — it more than triples the corpus without harvesting a single
+new technology.
 
-This is worse than a thin harvest, because nothing downstream can tell. The
-`complete` flag exists precisely to warn a model that a copy is partial, and it
-says `True`. A model answering Svelte questions from 1.6 KB of link list has no
-signal that it is working from a table of contents.
+Every one of these is marked `complete: True`. The stored file for `hono` reads,
+in full sentences, *"[Full Docs](https://hono.dev/llms-full.txt) Full
+documentation of Hono"* — the answer is named inside the file stored instead of
+it. A model answering Svelte questions from 1.6 KB of link list has no signal
+that it is reading a table of contents.
 
-**The fix is small:** when a harvested `llms.txt` names an `llms-full.txt` (or
-`llms-medium.txt`) on the same host, follow it. The convention is designed for
-exactly this.
+**The corrected fix** is not "follow the link". It is: do not let a URL that
+ends in `llms.txt` skip the sibling probe — and, underneath that, stop deciding
+completeness without counting anything. See §6.
 
 ---
 
@@ -348,6 +385,11 @@ Eight names, live, today. No cache.
 | `cloudflare workers` | unresolved | 1.6s | ⚠️ honest failure (F6) |
 
 **3 correct · 1 partial · 3 wrong · 1 honest failure.**
+
+**Re-run on 20 August: identical.** Same three wrong projects, same three
+`verified: true` flags, same reasons given. The only difference was `deno`,
+which returned `docs.deno.com` rather than `deno.com/docs` — the same answer —
+and took 24.5s instead of 10.7s.
 
 The three wrong answers all carried `verified: true`. A wrong answer that
 announces itself as verified is worse than no answer, because the caller has
@@ -403,9 +445,10 @@ flowchart TD
     style D fill:#2a2a4a,stroke:#7a7ac0,color:#fff
 ```
 
-0. **Follow `llms-full.txt`** (F9). Do this first: it is the smallest change on
-   the list and it recovers roughly 5.7 million characters of AI SDK
-   documentation, 369 thousand of Hono, and whatever Svelte's runs to — from
+0. **Stop the `llms.txt` short-circuit** (F9). Do this first. `detect_source()`
+   already prefers `llms-full.txt`; it is simply skipped when the URL already
+   ends in `llms.txt`. Probing the sibling before accepting an index recovers
+   **19.0 million characters** — more than twice the current store — from
    technologies DocsForge already believes it has stored completely. Nothing
    else here has that ratio of effort to payoff.
 1. **Invert the spine — probe the domain before asking a registry.** Every
