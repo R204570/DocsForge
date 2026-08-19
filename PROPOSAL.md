@@ -1,329 +1,419 @@
-# Proposal: make DocsForge answerable by name, not by URL
+# Proposal: a documentation hub any model can trust
 
-**Status:** phases 1–4 **shipped** (PR #15). Phase 5 open, and redirected — see §5.
-**Scope:** DocsForge as a **standalone MCP server**, open to any caller.
-**Measured results:** [AUDIT.md](AUDIT.md)
+**Date:** 20 August 2026 · **Against:** `5b320df` · **Evidence:** [AUDIT.md](AUDIT.md)
+**Status:** the harvest-and-store half is shipped and working. This proposal is
+about the half that decides *what* to harvest and *whether it finished*.
 
-> **Revision, 17 Aug 2026.** This document was first written with DocsForge
-> framed as a component inside FlowIT. That framing was wrong and has been
-> removed. DocsForge is a general-purpose MCP server whose one goal is to let
-> **any** AI model understand **any** technology it was not trained on, by
-> finding that technology's documentation on the internet, harvesting it, and
-> storing it in DocsStore. FlowIT is one future consumer among others; building
-> it standalone first is what keeps it uncorrupted by any single consumer's
-> assumptions. Everything below is written for a model that installed DocsForge
-> and knows nothing else about it.
+> **Supersedes the previous proposal.** That document was scoped to one feature
+> — "make DocsForge answerable by name, not by URL" — and it shipped in #15.
+> Then the audit measured what shipped, and the result changes the plan rather
+> than extending it. This is a rewrite, not a phase 6.
 
 ---
 
-## 1. The problem in one sentence
+## 1. What DocsForge has to be
 
-DocsForge is meant to be the thing a model calls **when it hits a technology it
-does not know** — but every ingestion tool it exposed required the caller to
-already supply the documentation URL, which is knowledge the calling model does
-not have and cannot reliably invent.
+One sentence: **any AI model — LLM, SLM, anything — that meets a technology it
+was never trained on can ask DocsForge by name and get that technology's real
+documentation.**
 
-### The tool surface as it was
+That is the whole product. The model hits an unfamiliar import, an unfamiliar
+CLI, an unfamiliar API, and instead of reconstructing something plausible from
+stale training data it reads the actual current documentation.
 
-| Tool | Takes | Callable knowing only a name? |
-|---|---|---|
-| `detect_source_type` | `url` | No |
-| `fetch_docs` | `url`, … | No |
-| `save_docs` | `url`, … | No |
-| `harvest_docs` | `url`, `name`, `version`, … | No |
-| `list_knowledge_base` | — | Yes |
-| `read_knowledge_base` | `name`, `section`, `version` | **Yes** |
+For that to be worth building, three things have to be true of every answer:
 
-Two of six were name-addressable, and both were read paths. Every path that
-*acquired* new documentation needed a URL. The system prompt encoded the same
-assumption — it told the model to *"call `harvest_docs` with any page of its
-docs"* — so the gap was baked in at the prompt level as well as the signature
-level.
-
-### What used to happen
-
-```mermaid
-flowchart TD
-    A["Model meets an unknown technology"] --> B{"Does the caller<br/>have a docs URL?"}
-    B -- "yes (the demos)" --> C["harvest_docs(url)"]
-    C --> OK["Works well"]
-
-    B -- "no (the real case)" --> D{"Already in DocsStore?"}
-    D -- yes --> E["read_knowledge_base(name)"]
-    E --> OK
-
-    D -- no --> F["No tool can take it further"]
-    F --> G["Model guesses a URL<br/>from its own memory"]
-    G --> H1["404 — dead end"]
-    G --> H2["Wrong site harvested,<br/>answered confidently"]
-
-    style F fill:#3a2230,stroke:#c05a7a,color:#fff
-    style G fill:#3a2230,stroke:#c05a7a,color:#fff
-    style H2 fill:#4a1f2b,stroke:#c05a7a,color:#fff
-```
-
-The bottom-left branch is the whole reason the product exists, and it was the
-branch that terminated in a guess.
-
-**The guess is worse than a failure.** A model inventing a docs URL is drawing
-on exactly the stale training data DocsForge exists to bypass, and it does not
-fail loudly — it can resolve to a real, wrong page and get harvested and
-summarised with full confidence. This build produced that failure once already,
-when a host-wide crawl from an Effect docs page swallowed `/podcast` and the
-model summarised a podcast feed as if it were the library.
-
-Hold on to that sentence. §4 is about the same failure returning in a new place.
-
----
-
-## 2. What shipped
-
-Four tools, two new modules, and one structural change. All merged in PR #15.
-
-| Tool | Signature | Status |
-|---|---|---|
-| `learn_technology` | `name`, `version?`, `ecosystem?`, `max_pages?`, `js?` | ✅ resolve → verify → harvest → store, one call |
-| `find_docs` | `name`, `ecosystem?` | ✅ resolve only, returns scored candidates with evidence |
-| `search_knowledge_base` | `query`, `technology?`, `version?`, `limit?` | ✅ ranked full-text across everything stored |
-| `scan_project` | `path?`, `unknown_only?` | ✅ dependencies with versions, and which are stored |
-
-- **`resolver.py`** (417 lines) — registries → convention probe → verification.
-- **`manifests.py`** (226 lines) — `package.json`, `pyproject.toml` (PEP 621 and
-  Poetry), `requirements.txt`, `Cargo.toml`, `go.mod`. No network, nothing
-  evaluated.
-- **Name normalisation** — `Effect.ts`, `effect-ts` and `effect` all resolve to
-  the same stored technology, and `learn_technology` files under the canonical
-  form so two spellings cannot become two copies.
-- **The MCP surface is now generated** from `forge_tools.TOOLS` rather than
-  restated by hand. It had already drifted: four tools existed in the library
-  and were absent over MCP, and `max_pages` was capped at 200 in the MCP copy
-  while the harvester treats `0` as unlimited — so no MCP client could request
-  a full harvest. Twelve tests hold the two together.
-
-The six original tools are unchanged. 306 tests, 284 passing, 22 skipped.
-
-**The headline claim now holds:** *"the AI needs a URL"* has become *"the AI
-needs a package name"* — and a package name is something it always has, because
-it is reading the import statement that confused it.
-
----
-
-## 3. How it operates now
-
-```mermaid
-flowchart TD
-    Q["learn_technology(name, version?)"] --> S{"In DocsStore<br/>at the right version?"}
-    S -- yes --> R["Return stored pages,<br/>fetch nothing"]
-
-    S -- no --> M{"Project manifest<br/>available?"}
-    M -- yes --> MV["Exact name +<br/>installed version"]
-    M -- no --> MN["Name only"]
-
-    MV --> RG["Registry lookup:<br/>npm, PyPI, crates.io"]
-    MN --> RG
-    RG --> CAND["Candidates, scored:<br/>documentation &gt; homepage &gt; repo"]
-
-    CAND --> PROBE["Probe for llms.txt,<br/>sitemap, a /docs root"]
-    PROBE --> V{"Verify: does the page<br/>actually document this?"}
-
-    V -- no --> NEXT{"Another candidate?"}
-    NEXT -- yes --> PROBE
-    NEXT -- no --> FAIL["Report unresolved,<br/>ask the caller for a URL"]
-
-    V -- yes --> SCOPE["docs_scope pins the<br/>documentation root"]
-    SCOPE --> H["Harvest, unlimited,<br/>store as name@version"]
-    H --> R
-
-    style R fill:#1f3a2b,stroke:#4a9a6a,color:#fff
-    style FAIL fill:#3a2f22,stroke:#c09a5a,color:#fff
-    style V fill:#2a2a4a,stroke:#7a7ac0,color:#fff
-```
-
-### A real run, measured
-
-Not an illustration — this is `learn_technology("valibot")` as it actually
-executed, start to finish, in four seconds:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant AI as Calling model
-    participant DF as DocsForge
-    participant REG as npm registry
-    participant SITE as valibot.dev
-    participant DB as DocsStore
-
-    AI->>DF: learn_technology("valibot")
-    DF->>DB: is it stored?
-    DB-->>DF: no
-    DF->>REG: GET /valibot
-    REG-->>DF: homepage valibot.dev
-    DF->>SITE: probe llms.txt, sitemap, /docs
-    SITE-->>DF: /llms.txt exists, not HTML
-    DF->>SITE: verify — is this "valibot"?
-    SITE-->>DF: named 684 times
-    DF->>SITE: harvest
-    SITE-->>DF: documentation
-    DF->>DB: save valibot
-    DF-->>AI: stored — read_knowledge_base("valibot")
-
-    Note over AI,DB: A second call spelled "Valibot"<br/>fetched nothing: same technology.
-```
-
-Everything from the probe rightwards is code that existed before this work and
-is well tested. The new part is the two hops that get there.
-
----
-
-## 4. What the audit found — and why phase 5 changed
-
-The resolver works. **It is also wrong about three technologies in eight, and it
-does not know it.** Live, today:
-
-| Name | Resolved to | Verdict |
-|---|---|---|
-| `fastapi` | `fastapi.tiangolo.com/` | ✅ |
-| `vitest` | `vitest.dev/llms.txt` | ✅ |
-| `deno` | `deno.com/docs` | ✅ |
-| `astro` | `astro.build` | ⚠️ marketing page; the real docs root was found, then rejected |
-| `htmx` | `docs.rs/htmx` | ❌ a Rust crate |
-| `kubernetes` | `github.com/kubernetes-client/python` | ❌ the client library, not the platform |
-| `terraform` | `github.com/sintaxi/terraform#readme` | ❌ an unrelated project |
-| `cloudflare workers` | unresolved | ⚠️ honest failure |
-
-**All three wrong answers were marked `verified: true`.**
-
-That is the whole finding. §1 argued that a resolver which is merely *usually*
-right recreates the guessing bug with extra steps, and that verification is what
-prevents it. Verification shipped — and it does not do that job. It counts how
-many times the name appears in the page, and a page about *any* project called
-`terraform` says "terraform" constantly. Mention-counting measures **topic, not
-identity**.
-
-There is a clear pattern in the failures: **every wrong answer came through a
-registry, and two of three landed on a code forge. Every correct answer came
-from the project's own domain.** Registries answer "what package is called
-this", which is not the question being asked. This proposal's §3 ordered the
-chain registries-first because registries are cheap and structured. That was the
-wrong instinct, and the data says so.
-
-### A second, unrelated finding worth more than all of the above
-
-Resolution is not the only place DocsForge overstates its confidence. Seven
-stored technologies contain an **`llms.txt` index** — a short list of links —
-rather than documentation, because the `llms.txt` convention has two shapes and
-the harvester treats them identically. Every one is recorded `complete: True`.
-
-```
-ai-sdk   stored 2,216 chars   ·   ai-sdk.dev/llms-full.txt holds 5,736,951
-hono     stored 5,649 chars   ·   hono.dev/llms-full.txt   holds   368,654
-svelte   stored 1,673 chars   ·   svelte.dev/llms-full.txt exists
-```
-
-The stored Hono file says, in plain English, *"[Full
-Docs](https://hono.dev/llms-full.txt) Full documentation of Hono."* The answer
-is named inside the file that was stored instead of it. Following that link is
-a few lines of code and recovers millions of characters of documentation from
-technologies DocsForge already thinks it has.
-
-Full detail — including the empty-page probe bug that cost the correct Astro
-answer, and the forge guard that lets `gist.github.com` through — is in
-[AUDIT.md](AUDIT.md).
-
----
-
-## 5. Remaining work, in order
-
-```mermaid
-flowchart TD
-    A["1. Domain probe first<br/>name.dev, name.io, docs.name.com"] --> B{"Verified on<br/>its own domain?"}
-    B -- yes --> WIN["Accept"]
-    B -- no --> C["2. Registry fallback,<br/>one ecosystem at a time"]
-    C --> D["3. Identity check:<br/>repo backlink, install line,<br/>host match"]
-    D -- passes --> WIN
-    D -- fails --> E["Unresolved —<br/>ask for a URL"]
-
-    style WIN fill:#1f3a2b,stroke:#4a9a6a,color:#fff
-    style E fill:#3a2f22,stroke:#c09a5a,color:#fff
-    style D fill:#2a2a4a,stroke:#7a7ac0,color:#fff
-```
-
-| # | Work | Cost | Why |
-|---|---|---|---|
-| 0 | **Follow `llms-full.txt`** when a harvested `llms.txt` names one | tiny | Seven stored technologies hold a table of contents, not documentation. `ai-sdk` stored 2,216 chars; the file it names holds **5,736,951**. All marked `complete` |
-| 1 | **Invert the spine** — probe the domain before asking a registry | small | Every correct answer came this way; every wrong one came through a registry |
-| 2 | **Replace mention-counting with identity checks** | medium | This is what makes resolution safe rather than usually-right |
-| 3 | **A live accuracy fixture** — known name → docs pairs, asserted against real resolution | small | Without it, 1 and 2 cannot be shown to have worked. The resolver's 23 tests all stub the fetcher, so every failure in §4 passes them |
-| 4 | **Fix `latest`** — newest version, not newest harvest | small | `read_knowledge_base("pydantic")` returns **1.10** today, because 1.10 was harvested after 2.11 |
-| 5 | **Content floor on probes; suffix-match the forge guard** | tiny | Both currently cost correct answers |
-| 6 | **Make `learn_technology` non-blocking** | medium | 703 pages is ~12 minutes; MCP clients time out first |
-| 7 | **Run the Postgres suite in CI** | small | All 22 skipped tests are Postgres — the production store is untested by default |
-| 8 | **Then** consider web search | needs a key | See below |
-
-**On web search.** It was phase 5 in the original plan, and it is the one item
-here that costs every user an API key — which matters more for a standalone
-server people install than it would for something embedded in one product. A
-server that works the moment it is installed gets used; one that needs
-configuration first often does not. It is also the wrong fix for §4: search
-would feed *more* candidates into a verifier that cannot tell two projects
-apart, which produces wrong answers from a larger pool rather than fewer wrong
-answers. Items 1–3 should land first, and then search can be judged on the
-problem it actually solves — the long tail of multi-word names like `cloudflare
-workers`, which no registry can reach.
-
-**Recommendation: keyless first.** Domain probe, plus a small curated index for
-the giants that have no package at all, plus registries as fallback. Revisit
-search once the verifier can be trusted.
-
----
-
-## 6. Failure modes
-
-| Situation | Behaviour |
+| | |
 |---|---|
-| The site publishes an `llms.txt` index, not a full dump | The index is stored as the documentation and marked complete. **AUDIT F9** |
-| Registry homepage is a marketing page | Probe + `docs_scope` look for the docs root — but see AUDIT F3: an empty redirect stub currently beats the real root |
-| Name exists in two ecosystems | Candidates from all registries are pooled and ranked by confidence. **This is AUDIT F2** — `htmx` loses to a Rust crate this way |
-| Two projects share a name | Verification passes both. **This is AUDIT F1**, the one that matters |
-| Nothing resolves | Reported as unresolved with the candidates that were tried — a loud failure, working as designed |
-| Docs are JS-rendered | Existing `js: true` path |
-| Harvest takes minutes | Still blocks. AUDIT F7 |
-| Private or internal package | No registry has it; pass the URL to `harvest_docs` directly |
+| **Right project** | `terraform` means HashiCorp Terraform, not someone's static-site tool |
+| **The whole thing** | not the table of contents, not the first 40 pages |
+| **Right version** | Pydantic 2.11, not 1.10, when 2.11 is what is installed |
+
+Today, measured, DocsForge fails all three — and reports success on all three.
+That last clause is the actual problem. A tool that says "I don't know" is
+usable. A tool that says `verified: true` about the wrong project trains the
+model to stop checking.
 
 ---
 
-## 7. Risks
+## 2. Why the current design cannot get there
 
-- **Wrong-library resolution** — no longer a risk, a measured defect. Three in
-  eight. Items 1–3 above are the response.
-- **Registry rate limits** — keyless but not unlimited. Resolutions and negative
-  results should be cached; they are not yet.
-- **Scope creep into a search engine** — still the right thing to resist, and
-  now for a second reason: search cannot fix a verifier that cannot distinguish
-  projects.
-- **Trust asymmetry** — a wrong answer stamped `verified` is worse than no
-  answer, because the caller has been given a reason to stop checking. This is
-  the risk that governs the ordering in §5.
+Not "has bugs". Cannot get there. The pipeline is:
+
+```mermaid
+flowchart LR
+    N["name"] --> R["registries<br/>npm · PyPI · crates"]
+    R --> P["pool candidates<br/>by confidence"]
+    P --> V["verify:<br/>count the name<br/>3+ mentions = true"]
+    V --> U["one URL"]
+    U --> S["one strategy"]
+    S --> ST["store<br/>complete: True"]
+
+    style V fill:#4a2020,stroke:#c06060,color:#fff
+    style ST fill:#4a2020,stroke:#c06060,color:#fff
+```
+
+Two stages that must exist are simply absent.
+
+**There is no identity stage.** Registries answer *"what package is named X?"*
+DocsForge is asking *"what is the technology X?"* Those are different
+questions, and the gap between them is exactly where `terraform`, `kubernetes`
+and `htmx` land on the wrong project. `verify()` does not close the gap: it
+counts how often the name appears, and a page about *any* project called
+terraform says "terraform" constantly. **Mention-counting measures topic, not
+identity** — and it is the only thing standing between a caller and a wrong
+answer.
+
+**There is no enumeration stage.** Nothing in the pipeline ever computes how
+many pages the documentation *has*. Without that number, "finished" and
+"stopped" are the same event. `complete: True` is therefore not a finding, it
+is a constant — and the audit found seven technologies where it is a lie.
+
+Every failure in the audit is downstream of one of four questions the system
+never properly asks:
+
+| Question | Failures | Currently answered by |
+|---|---|---|
+| **Which project is this?** | F1, F2, F4, F6 | counting a word |
+| **Where is its documentation?** | F3, F6 | first HTTP 200 |
+| **How much of it is there?** | F9 | nothing at all |
+| **Which version is this?** | F5 | whichever ran last |
+
+Plus two operational: F7 (harvest blocks past client timeouts) and F8 (the
+production store is untested by default).
+
+### The one that reframes everything
+
+F9's real cause, measured, is not what the first audit said:
+
+```
+detect_source("https://ai-sdk.dev/llms.txt")   -> keeps the 2 KB index
+detect_source("https://ai-sdk.dev")            -> finds llms-full.txt, 5.7 MB
+```
+
+DocsForge **already prefers the full file**. `docsforge.py:280` returns early on
+any URL ending in `llms.txt`, so the probe at `:301` that would have found the
+full one never runs — and `resolver.py:38` hands over exactly that URL, scored
+`0.95`, the highest confidence it can assign.
+
+**The resolver succeeding is what makes the extractor fail.** Two components,
+each correct in isolation, wrong in combination. No amount of care inside either
+one would have caught it; only measuring the whole pipeline did.
+
+Cost: **155,442 characters stored against 19,129,996 available — 0.81%.** The
+missing 19 M is more than twice the entire rest of the store.
 
 ---
 
-## 8. Open questions
+## 3. Do not plan around `llms.txt`
 
-1. **Web search: in or out?** Recommendation above is keyless-first. Open.
-2. **Should `learn_technology` block?** No — but the shape of the alternative
-   (return a handle and let the caller poll, or stream progress) is undecided.
-3. **Should resolutions be cached in the store** as first-class rows, so a
-   resolved name → URL mapping survives restarts and is inspectable? Would also
-   address the rate-limit risk.
-4. **Which ecosystems next?** npm, PyPI and crates.io are wired. Go and Packagist
-   are more work for less return, and after §4 the ecosystem question looks less
-   important than the domain-probe question.
+Before designing anything, one assumption had to be tested: *do sites just
+publish their docs for us now?* Surveyed 24 real documentation sites today:
 
-### Answered since the first draft
+| | publishes `llms.txt` or `llms-full.txt` |
+|---|---|
+| Modern AI-era dev tools — ai-sdk, hono, svelte, bun, nuxt, prisma, vercel | **7 / 8** |
+| Established & enterprise docs | **4 / 16** |
 
-- ~~Can the caller hand DocsForge a project path?~~ Yes — `scan_project` ships
-  and reads five manifest formats.
-- ~~Should the ranked search be exposed as a tool?~~ Done —
-  `search_knowledge_base`.
-- ~~Will aliasing work?~~ Yes — `Effect.ts` finds `effect`, and a second harvest
-  under a different spelling fetches nothing.
+Nothing on Python, Django, PostgreSQL, Kubernetes, MDN, Go, Rust, FastAPI,
+Spring, Laravel, Oracle — **or HashiCorp**. React and Node publish a 14 KB
+index and no full file.
+
+The inversion is the design constraint:
+
+> **The sites that publish `llms.txt` are the ones that need us least.** A
+> project shipping 5.7 MB of clean Markdown is already readable by any model.
+> The hard, valuable cases — Kubernetes, Terraform, Django, Spring, Oracle —
+> publish nothing, and there the crawler is the only path.
+
+So the convention is an optimisation to exploit, never a foundation. The
+crawler has to be genuinely good.
+
+---
+
+## 4. The architecture
+
+Five stages. Two of them are new, and they are the two the audit says are
+missing.
+
+```mermaid
+flowchart TD
+    N["name"] --> ID["1 · IDENTITY<br/>triangulate independent sources"]
+    ID -->|"agreed"| MAP["2 · MAP<br/>enumerate URLs before fetching"]
+    ID -->|"conflict"| ASK["report both candidates<br/>with evidence"]
+    MAP --> SEL["3 · SELECT<br/>cheapest source covering the map"]
+    SEL --> EX["extract"]
+    EX --> REC["4 · RECONCILE<br/>stored vs expected"]
+    REC --> VER["5 · VERSION<br/>newest, with provenance"]
+    VER --> OUT["store + honesty contract"]
+
+    style ID fill:#2a2a4a,stroke:#7a7ac0,color:#fff
+    style MAP fill:#2a2a4a,stroke:#7a7ac0,color:#fff
+    style REC fill:#1f3a2b,stroke:#4a9a6a,color:#fff
+    style ASK fill:#3a2f22,stroke:#c09a5a,color:#fff
+```
+
+### 4.1 Identity — triangulate, do not count
+
+The audit noticed that every correct answer came from the project's own domain
+and every wrong one came through a registry. "Domain first" is the right
+behaviour, but it is a heuristic that happened to work on eight names. The
+principle underneath it is stronger:
+
+> **Identity is established when independent sources name each other.**
+
+For `hono`: npm gives homepage `hono.dev` and repository `github.com/honojs/hono`;
+`hono.dev` links back to that same repository; the install line on the page reads
+`npm create hono@latest`. Three independent artefacts agree. The loop closes.
+
+For `terraform`: npm gives repository `github.com/sintaxi/terraform`, and that
+loop closes too — but `terraform.io` resolves to HashiCorp, a *different*
+project. **Two identities, in conflict.** That conflict is information, and it
+is currently thrown away.
+
+Signals, each independently checkable, none requiring a key:
+
+| Signal | What it establishes |
+|---|---|
+| Host is `<name>.{dev,io,org,com}` or `docs.<name>.*` | the project owns the name |
+| Page links back to the repository the registry named | site and registry agree |
+| Install line matches the registry's ecosystem — `npm i htmx` vs `cargo add htmx` | right ecosystem |
+| Registry's own homepage / repository / documentation fields agree | internally consistent |
+| Host is a code forge, `docs.rs`, or a shared docs host | **negative** — third-party surface |
+
+Rules:
+
+1. **`verified: true` requires at least two independent signals.** A word count
+   is not a signal.
+2. **When a live project domain conflicts with a registry entry, the domain
+   wins** — owning `<name>.org` is a far stronger claim on a bare name than
+   being *a* package called that in *one* namespaced, first-come registry.
+3. **Conflicts are reported, not silently resolved.** Return both with evidence.
+
+Checked against the three wrong answers: `terraform.io`, `kubernetes.io` and
+`htmx.org` all exist and all conflict with the registry hit. All three become
+correct, or at minimum become honest.
+
+### 4.2 Map — enumerate before fetching
+
+The missing organ. Before downloading any content, build a URL set from
+everything cheap:
+
+- `llms.txt` — parsed **as an index**, for the links inside it
+- `llms-full.txt` — `HEAD` it, record whether it exists and how big
+- `sitemap.xml`, sitemap indexes, and any sitemap declared in `robots.txt`
+- a scoped link crawl, as fallback only
+
+Output: `expected: N`, which sources produced it, and any full dump found. A
+handful of requests, amortised across a harvest that will fetch hundreds of
+pages.
+
+This is the idea worth taking from Firecrawl — its `/map` is a separate call
+from its `/scrape`, and that separation is precisely what DocsForge lacks. We
+need the shape, not the dependency (§6).
+
+### 4.3 Select — cheapest source that covers the map
+
+Full dump if one exists and is substantial · else the sitemap pages within docs
+scope · else a scoped crawl. Record which and why.
+
+Note this kills F9 *structurally* rather than by special case: with a map in
+hand, an `llms.txt` index is self-evidently an index — it is a list of 40 links
+— so either the full dump or those 40 pages get fetched. The index alone can
+never again be mistaken for the documentation.
+
+**One consequence that must ship with it.** A 5.7 MB full dump stored as a
+single page destroys search granularity — every query would return "page 1".
+This is already visible: all 16 single-page technologies include `zod` at 266 KB
+in one page, while Effect's 703 pages rank and snippet beautifully. So full
+dumps must be **split on heading boundaries into pages** as they are stored. The
+F9 fix is not complete without it.
+
+### 4.4 Reconcile — compute completeness, never assert it
+
+```
+complete  =  stored_pages >= expected_urls        (with tolerance for dead links)
+```
+
+And the rule that matters more than the formula:
+
+> **`complete` must be derived from `(stored, expected)`, not stored as a
+> settable boolean. Where nothing was counted, it is `unknown` — never `true`.**
+
+This is the single most important change in the proposal. It makes the system
+structurally incapable of expressing confidence it has not earned. Every one of
+the audit's most damaging findings was a true-by-default flag; remove the
+ability to default to true and that entire class of failure is gone, whether or
+not we anticipated the specific bug.
+
+### 4.5 Version — newest, with provenance
+
+- `latest` = highest **comparable version label**, not most recent harvest.
+  Fall back to harvest time only when labels cannot be ordered, and say so.
+- Record where the label came from: the URL, the page content, or the harvest
+  date. A date-derived label must not masquerade as a release number.
+- Wire `manifests.doc_versions()` into `scan_project` — it already computes the
+  right answer and nothing calls it.
+
+### 4.6 The honesty contract
+
+Every tool response carries the same shape:
+
+```
+resolved_via : domain | registry | user-supplied
+confidence   : { score, evidence: [ ...which signals fired... ] }
+complete     : true | false | unknown          (derived, never set)
+coverage     : { stored: 41, expected: 400 }
+version      : { label: "2.11", source: url | page | harvest-date }
+```
+
+A model can then distinguish *"here is the documentation"* from *"here is my
+best guess"* — which today it cannot, because both look identical.
+
+---
+
+## 5. How each finding dies
+
+| | Failure | Killed by |
+|---|---|---|
+| F1 | verification confirms the name, not the project | 4.1 triangulation |
+| F2 | candidate ranking crosses ecosystems | 4.1 install-line signal |
+| F3 | 80-byte stub outranks the real docs root | 4.1 content floor |
+| F4 | forge guard is exact-host, `gist.github.com` slips in | 4.1 suffix match |
+| F5 | `latest` means most-recently-harvested | 4.5 |
+| F6 | multi-word names unreachable | 4.1 domain probe + curated index (E1) |
+| F7 | `learn_technology` blocks for 12 minutes | D1 |
+| F8 | Postgres backend untested by default | D3 |
+| F9 | index stored as documentation | 4.2 map + 4.4 reconcile |
+
+---
+
+## 6. What this deliberately does not do
+
+**No agentic crawling.** `sitemap.xml` is a complete, authoritative, free list
+of every page. An agent exploring link by link is slower, costs tokens per page,
+is not reproducible between runs, and reaches *less* — it only finds what is
+linked. Intelligence belongs at judgment points, not at traversal.
+
+**No RAG inside the crawler.** RAG is query-time retrieval, and DocsForge
+already has it: Postgres `tsvector`, `ts_rank`, `ts_headline`. Crawling is the
+separate job of filling the store beforehand. The two never touch. DocsForge
+*is* the R in somebody else's RAG — that is what the MCP server is for.
+
+**No mandatory API keys.** A standalone MCP server that people install must work
+after `pip install` and nothing else. Anything needing a key is opt-in, always.
+
+**No Firecrawl dependency.** Worth copying its map/extract split — that is §4.2.
+Not worth requiring: its core is AGPL-3.0 against this project's MIT (its SDKs
+are MIT, so an *optional* backend over HTTP stays clean), it costs every user a
+key or a Docker host, and it does not solve identity, which is our hardest
+problem. Adopting it without §4.1 would fetch the wrong documentation faster and
+in higher fidelity. Revisit at E3, as an opt-in accelerator for JS-heavy sites.
+
+**No reliance on `llms.txt`.** §3.
+
+---
+
+## 7. Acceptance criteria
+
+Numbers, so this can be shown to have worked rather than argued to have worked.
+
+| Measure | Today | Target |
+|---|---|---|
+| Resolution accuracy on a fixture of ~30 names | 3/8 (37%) | **≥ 90%** |
+| **Wrong answers marked `verified`** | **3** | **0 — hard gate** |
+| Technologies falsely marked `complete` | 7 | **0** |
+| Stored corpus | 8.42 M chars | **~27.4 M** after A1 alone |
+| `latest` returns newest version | no | yes, all multi-version technologies |
+| Postgres suite in CI | skipped | green |
+
+The second row is the one to hold the line on. Accuracy will never be 100% —
+some names are genuinely ambiguous. **Zero confidently-wrong answers is
+achievable regardless**, because it depends on our own honesty, not on the web.
+
+---
+
+## 8. Plan
+
+### Phase A — stop reporting unearned confidence · days
+
+- **A1** Do not short-circuit on `llms.txt`; probe the sibling full file, raise
+  the 10 s probe timeout (it currently biases *against* large files — the more
+  valuable the dump, the likelier it loses), and **split full dumps into pages
+  on headings** (§4.3). → **+19 M characters**
+- **A2** `complete` becomes derived; `unknown` where nothing was counted.
+- **A3** `verified` carries its evidence. Wrong answers stay possible; wrong
+  answers claiming proof do not.
+- **A4** `latest` = newest version.
+
+### Phase B — identity · the correctness core
+
+- **B1** Live accuracy fixture **first** — without it, B2–B4 cannot be shown to
+  have worked.
+- **B2** Domain probe ahead of registries, with conflict detection.
+- **B3** Triangulated identity signals replace mention-counting.
+- **B4** Content floor on probes; suffix-matched forge guard.
+
+### Phase C — discovery
+
+- **C1** The map stage (§4.2). **C2** Reconcile against it. **C3** Strategy
+  selection driven by the map.
+
+### Phase D — operate as a hub
+
+- **D1** Non-blocking harvest: start a job, poll it. **D2** Staleness and
+  re-harvest policy. **D3** Postgres suite in CI.
+
+### Phase E — reach the tail
+
+- **E1** Curated index for multi-word names (`cloudflare workers`).
+- **E2** Optional LLM judgment at exactly two points — identity tie-break, and
+  docs-vs-blog scope classification over a *URL list*. Two calls per technology,
+  not four hundred. Off by default.
+- **E3** Optional Firecrawl / web-search backends.
+
+### Why this order
+
+- **A before B** — a wrong answer that admits uncertainty is recoverable; one
+  labelled `verified` is not. Cheapest work, largest safety gain.
+- **B before C** — complete documentation of the wrong project is worthless.
+  Correct-and-partial beats complete-and-wrong.
+- **C before D** — no point scaling a pipeline that cannot tell finishing from
+  stopping.
+- **E last** — every item costs a dependency or a key, and none is needed for
+  correctness.
+
+---
+
+## 9. Risks
+
+**Domain-first is wrong when a project does not own its name.** Squatted
+domains, or names that are common words. Mitigated by keeping the identity
+signals as the gate — the domain gets *preference*, not a free pass — and by
+reporting conflicts instead of silently resolving them.
+
+**Full dumps are large.** 5.7 MB in one request, and Svelte's timed out at 30 s
+during the audit. Needs streaming, a raised timeout, and heading-split storage.
+Already scoped into A1.
+
+**The map stage costs extra requests.** A handful of HEADs and one sitemap
+fetch, against a crawl that will make hundreds. Acceptable, and it is what makes
+every honesty claim downstream possible.
+
+**A curated index needs maintenance.** Deliberately kept small — the top names
+only — and it is a fallback, not the mechanism.
+
+---
+
+## 10. Open questions
+
+1. **Conflict presentation.** When `terraform.io` and the npm package disagree,
+   does the tool return both and let the model choose, or pick the domain and
+   flag it? Returning both is more honest; picking is easier to consume.
+   Leaning: pick, flag loudly, and include the runner-up.
+2. **Freshness.** Documentation moves. How stale is too stale, and should
+   re-harvest be automatic or requested? Nothing in the store currently ages.
+3. **Chunk size for split dumps.** Heading level, or a character target? Effect's
+   703 pages rank well; that is the granularity to aim at.
+4. **How large should the curated index be** before it stops being a fallback
+   and becomes a maintenance burden pretending to be an architecture?
