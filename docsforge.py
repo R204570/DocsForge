@@ -322,6 +322,114 @@ SITEMAP_CANDIDATES = ("/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml"
                       "/sitemap-0.xml", "/docs/sitemap.xml")
 
 
+#: Enumeration is meant to be cheap next to the harvest it precedes.
+MAP_TIMEOUT = 10
+
+
+def _weigh(url: str, fetcher: Fetcher) -> int:
+    """How many bytes are at this URL, without downloading them if avoidable.
+
+    Streaming means the headers arrive and the body does not, so a 5.7 MB dump
+    can be measured for the cost of a request. Servers that decline to say fall
+    back to reading it, which is still correct, only slower.
+    """
+    try:
+        r = fetcher.get(url, timeout=MAP_TIMEOUT, allow_redirects=True, stream=True)
+    except ForgeError:
+        return 0
+    try:
+        if r.status_code != 200:
+            return 0
+        if "html" in (r.headers.get("content-type") or "").lower():
+            return 0
+        declared = r.headers.get("content-length")
+        if declared and declared.isdigit():
+            return int(declared)
+        return len(_decode(r))
+    finally:
+        closer = getattr(r, "close", None)
+        if callable(closer):
+            closer()
+
+
+@dataclass
+class DocMap:
+    """What documentation exists at a URL, established *before* fetching it.
+
+    Enumeration is the stage DocsForge did not have, and its absence is why
+    `complete` could only ever be an assertion: with no idea how many pages a
+    site has, finishing and stopping are the same event. Counting first is what
+    lets everything downstream be measured instead of assumed.
+    """
+
+    urls: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    dump_url: str = ""
+    dump_bytes: int = 0
+
+    @property
+    def expected(self) -> int | None:
+        """How many pages the site says it has, or None if nobody could tell."""
+        return len(self.urls) or None
+
+    def as_dict(self) -> dict:
+        return {"expected": self.expected, "sources": self.sources,
+                "dump_url": self.dump_url, "dump_bytes": self.dump_bytes}
+
+
+def discover(url: str, fetcher: Fetcher, opts: Options | None = None) -> DocMap:
+    """Enumerate the documentation at `url` without downloading it.
+
+    Cheap on purpose — a handful of requests against a harvest that will fetch
+    hundreds of pages. Three independent views, because no single one is
+    reliable: the `llms.txt` index a site publishes for machines, the full dump
+    beside it, and the sitemap it publishes for search engines.
+    """
+    opts = opts or Options()
+    found = DocMap()
+
+    # The full dump, if the site publishes one. Its *size* is what matters
+    # here, not its contents — knowing it exists is what makes an index
+    # recognisable as an index — so this asks for the headers and does not
+    # pull the megabytes down a second time.
+    for sibling in DUMP_SIBLINGS:
+        for target in (urljoin(url, sibling), urljoin(url, "/" + sibling)):
+            size = _weigh(target, fetcher)
+            if size >= MIN_DUMP:
+                found.dump_url, found.dump_bytes = target, size
+                found.sources.append(sibling)
+                break
+        if found.dump_url:
+            break
+
+    # The index a site publishes for machines is a list of its own pages.
+    try:
+        index = fetcher.text(urljoin(url, "/llms.txt"), timeout=MAP_TIMEOUT)
+    except ForgeError:
+        index = ""
+    links = [urljoin(url, m) for m in re.findall(r"\]\(([^)\s]+)\)", index or "")]
+    if links:
+        found.sources.append("llms.txt")
+
+    # The sitemap is the site's own statement of what exists, and reaches
+    # pages nothing links to.
+    prefix = docs_scope(url)
+    host = (urlparse(url).hostname or "").lower()
+    sitemap = find_sitemap(url, fetcher, opts)
+    if sitemap:
+        try:
+            listed = _sitemap_links(fetcher.text(sitemap), fetcher, opts)
+        except ForgeError:
+            listed = []
+        scoped = [l for l in listed if _crawlable(l, host, prefix)]
+        if scoped:
+            found.sources.append("sitemap.xml")
+            links += scoped
+
+    found.urls = list(dict.fromkeys(_normalize(l) for l in links))
+    return found
+
+
 def find_sitemap(url: str, fetcher: Fetcher, opts: Options) -> str | None:
     """Look for a sitemap: robots.txt first (it is the declared location),
     then the conventional paths. Returns a URL or None."""
@@ -409,7 +517,7 @@ def _anchor(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "section"
 
 
-def _split_dump(text: str) -> list[tuple[str, str]]:
+def _split_dump(text: str, above: int = SPLIT_ABOVE) -> list[tuple[str, str]]:
     """Cut a large single-file dump into pages on its own headings.
 
     Returns [(title, chunk), ...], or [] to leave the text alone. The heading
@@ -417,7 +525,7 @@ def _split_dump(text: str) -> list[tuple[str, str]]:
     `###` yields the most pages without going silly is the one the document
     actually uses for sections.
     """
-    if len(text) < SPLIT_ABOVE:
+    if len(text) < above:
         return []
 
     best, best_hits = None, []
@@ -1002,7 +1110,8 @@ def forge(url: str, opts: Options | None = None, fetcher: Fetcher | None = None)
 _NAMES_A_FULLER_FILE = re.compile(r"llms-(full|medium)\.txt", re.I)
 
 
-def _note_coverage(stats: dict | None, det: "Detection", docs: list) -> None:
+def _note_coverage(stats: dict | None, det: "Detection", docs: list,
+                   found: "DocMap | None" = None) -> None:
     """Record whether this harvest actually got the whole documentation.
 
     `whole` is three-valued on purpose. `True` is a claim we can defend, `False`
@@ -1020,14 +1129,23 @@ def _note_coverage(stats: dict | None, det: "Detection", docs: list) -> None:
         whole = not (det.url.lower().endswith("llms.txt")
                      and _NAMES_A_FULLER_FILE.search(body))
         if not whole:
-            stats["reason"] = ("stored an llms.txt index that names a fuller "
-                               "file which could not be fetched")
+            missing = found.dump_bytes if found else 0
+            stats["reason"] = (
+                "stored an llms.txt index that names a fuller file which could "
+                "not be fetched"
+                + (f" ({missing:,} characters of it)" if missing else ""))
     else:
         # A spec, a single file, or a repository's Markdown tree: each is
         # enumerated in full by its handler.
         whole = True
     stats["whole"] = whole
-    stats.setdefault("discovered", len(docs))
+    if found is not None:
+        stats["map"] = found.as_dict()
+        # What the site says it has beats how many pieces we happened to cut
+        # its dump into. Only fall back to our own count when nobody could say.
+        stats.setdefault("discovered", found.expected or len(docs))
+    else:
+        stats.setdefault("discovered", len(docs))
 
 
 def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = None,
@@ -1061,7 +1179,12 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
             else:
                 _log(opts, f"  harvesting via {det.kind}")
                 docs = HANDLERS[det.kind](det, fetcher, opts)
-                _note_coverage(stats, det, docs)
+                # This is the path with no enumeration of its own: one artifact
+                # arrives and there is nothing to compare it against. Ask the
+                # site what it has, so completeness can be measured rather
+                # than assumed.
+                found = discover(url, fetcher, opts) if stats is not None else None
+                _note_coverage(stats, det, docs, found)
                 return docs, det.kind
 
         prefix = docs_scope(url) if opts.scope in ("", "section", None) else (

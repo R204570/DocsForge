@@ -343,7 +343,7 @@ def tool_list_knowledge_base() -> str:
         if labels:
             lines.append(f"    versions: {labels}")
     lines += ["", "Pass `version=` to read_knowledge_base to pick one; "
-                  "it defaults to the most recently harvested."]
+                  "it defaults to the newest version stored."]
     return "\n".join(lines)
 
 
@@ -818,7 +818,7 @@ TOOLS: list[Tool] = [
                             "description": "Optional phrase to match against page titles."},
                 "version": {"type": "string",
                             "description": "Which stored version to read, e.g. \"v3\". "
-                                           "Defaults to the most recently harvested one."},
+                                           "Defaults to the newest version stored — the highest release number, not the most recent download."},
             },
             "required": ["name"],
         },

@@ -11,6 +11,27 @@
 > completed with measurements that were previously marked "not measured", and
 > the total recoverable figure is far larger than first reported.
 
+> **Fix status (20 August).** Phases A–C of [PROPOSAL.md](PROPOSAL.md) are
+> implemented. The findings below are kept as written — they are the record of
+> what was measured — with the outcome noted against each.
+>
+> | | Finding | Status |
+> |---|---|---|
+> | F1 | verification confirms the name, not the project | **fixed** — triangulated identity |
+> | F2 | candidate ranking crosses ecosystems | **fixed** — install-line ecosystem check |
+> | F3 | an 80-byte stub outranks the real docs root | **fixed** — content floor + redirect following |
+> | F4 | the forge guard is exact-host | **fixed** — suffix match |
+> | F5 | `latest` means most-recently-harvested | **fixed** — `versions.py` |
+> | F6 | multi-word technologies do not resolve | **open** — still an honest failure (phase E1) |
+> | F7 | `learn_technology` blocks for minutes | **open** — phase D1 |
+> | F8 | the Postgres backend is unexercised by default | **fixed** — CI runs it |
+> | F9 | an `llms.txt` index is stored as documentation | **fixed** — sibling probe + page splitting |
+>
+> Measured after the fixes: resolution goes from **3 correct / 3 wrong** to
+> **7 correct / 0 wrong** on the same eight names, and no wrong answer is
+> marked `verified`. Harvesting `hono` returns **440 pages / 434,041
+> characters** where it previously stored **1 page / 5,649**.
+
 ---
 
 ## Verdict in one paragraph

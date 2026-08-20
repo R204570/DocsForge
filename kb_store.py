@@ -649,9 +649,16 @@ class PostgresStore:
 
     def _version_id(self, cx, tech: str, version: str | None) -> int:
         if version is None:
-            row = cx.execute(
-                "select v.id from doc_version v join technology t on t.id = v.technology_id "
-                " where t.name = %s order by v.harvested_at desc limit 1", (tech,)).fetchone()
+            # Naming no version means "the current one". Ordering by harvest
+            # time answered a different question and got it wrong: Pydantic
+            # 1.10 was crawled after 2.11, so every unqualified read returned
+            # the older major. Rows arrive harvest-newest-first so that labels
+            # carrying no ordering still break ties sensibly.
+            rows = cx.execute(
+                "select v.id, v.version from doc_version v "
+                "  join technology t on t.id = v.technology_id "
+                " where t.name = %s order by v.harvested_at desc", (tech,)).fetchall()
+            row = max(rows, key=lambda r: versions_mod.sort_key(r[1])) if rows else None
         else:
             row = cx.execute(
                 "select v.id from doc_version v join technology t on t.id = v.technology_id "
