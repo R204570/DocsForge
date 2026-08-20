@@ -182,6 +182,20 @@ _JS_REDIRECT = re.compile(
     r"""location(?:\.href|\.replace\()?\s*=?\s*\(?\s*["']([^"']+)["']""", re.I)
 
 
+def _is_docs_host(url: str) -> bool:
+    """Is this a host dedicated to documentation, like `docs.astro.build`?
+
+    Such a host is exempt from the content floor. Astro's docs root renders
+    entirely client-side and serves an empty shell, so measuring its text
+    rejects it — and rejecting it hands the harvest to `astro.build`, whose
+    sitemap is mostly blog posts. Pointing `/docs` at `docs.<project>` is an
+    explicit statement about where the documentation lives, and it outranks
+    what the index page happens to render without JavaScript.
+    """
+    host = _host(url)
+    return host.startswith(("docs.", "developer.", "devdocs.")) or ".readthedocs." in host
+
+
 def _visible_text(html: str) -> str:
     """Roughly what a reader would see, for measuring whether a page is empty."""
     body = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html or "")
@@ -365,15 +379,15 @@ def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
             continue
         ctype = (r.headers.get("content-type") or "").lower()
         if "html" in ctype and not path.endswith(".txt"):
-            # An HTTP 200 is not a documentation root. `docs.astro.build`
-            # answers 200 with an 80-byte client-side redirect shell holding
-            # three characters of text, and accepting it cost the *correct*
-            # answer: it entered the pool, failed verification, and handed the
-            # win to the marketing homepage.
+            # An HTTP 200 is not a documentation root: a stub that redirects
+            # with a meta tag or a line of script arrives as a perfectly good
+            # empty page, and accepting one costs the correct answer.
             hop = _follow_client_redirect(r, target, fetcher)
             if hop is not None:
                 r = hop
-            if len(_visible_text(getattr(r, "text", ""))) < MIN_PROBE_TEXT:
+            landed = getattr(r, "url", "") or target
+            if (len(_visible_text(getattr(r, "text", ""))) < MIN_PROBE_TEXT
+                    and not _is_docs_host(landed)):
                 continue
         if path.endswith(".txt"):
             if "html" in ctype:
@@ -574,8 +588,17 @@ def identity_signals(candidate: Candidate, name: str, body: str,
 
     # A project's domain may redirect off itself — terraform.io lands on
     # developer.hashicorp.com — so how we arrived counts, not just where.
-    if facts.get("via_domain") or _owns_the_name(candidate.url, slug):
+    owns = _owns_the_name(candidate.url, slug)
+    if facts.get("via_domain") or owns:
         found.append("own-domain")
+
+    # `docs.astro.build` is the project's own documentation host, and that is
+    # a statement about identity that survives the page rendering nothing
+    # without JavaScript. Deliberately conditional on owning the name:
+    # `docs.rs/htmx` is also a "docs." host, and it is a Rust crate registry
+    # hosting somebody else's package, not htmx's documentation.
+    if owns and _is_docs_host(candidate.url):
+        found.append("docs-host")
 
     eco = _install_line(text, slug)
     if eco:
@@ -601,7 +624,8 @@ def identity_signals(candidate: Candidate, name: str, body: str,
 
 #: Signals that identify a project rather than merely describe one. Mention
 #: counts are deliberately excluded: they are corroboration, never proof.
-STRONG = ("own-domain", "install:", "repo-backlink", "registry-agreement")
+STRONG = ("own-domain", "docs-host", "install:", "repo-backlink",
+          "registry-agreement")
 
 
 def is_identified(signals: list[str]) -> bool:

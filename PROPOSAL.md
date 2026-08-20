@@ -274,7 +274,38 @@ not we anticipated the specific bug.
 - Wire `manifests.doc_versions()` into `scan_project` — it already computes the
   right answer and nothing calls it.
 
-### 4.6 The honesty contract
+### 4.6 The caller-facing surface — added after a field report
+
+Everything above is about being *right*. None of it matters if the model
+driving the tools cannot reach it, and the first small model to try could not.
+
+A real session with `qwen3.5:9b` asked five times for Astro's documentation and
+was answered four times with a listing of the knowledge base. The cause was one
+line of prompt: *"Before learning anything, check `list_knowledge_base` …
+(`learn_technology` checks this for you.)"* — an imperative cancelled by a
+parenthetical. Claude weighs the two and skips the call. A 9B model obeys the
+imperative, receives 2 KB of listing, and then answers about the most recent
+blob of text in its context instead of the question.
+
+The principle this forces into the architecture:
+
+> **Guidance written for a strong model is not neutral for a weak one.** A
+> caveat that a capable reader silently applies is an instruction that a small
+> model follows literally. DocsForge exists to serve models that do not know the
+> technology being asked about, which correlates with being small — so the tool
+> surface has to be legible to the least capable caller in the target audience,
+> not merely unambiguous to the most capable.
+
+Concretely: lead with the rule, not the exception. One obvious action per
+situation. Never make a model infer that an instruction does not apply. And
+give the loop enough rounds to recover from one wasted call, because a small
+model will spend one.
+
+This is not a footnote to the design. It is the difference between the product
+working and not working for the audience it was built for, and nothing in
+sections 4.1–4.5 would have surfaced it.
+
+### 4.7 The honesty contract
 
 Every tool response carries the same shape:
 
@@ -304,10 +335,20 @@ best guess"* — which today it cannot, because both look identical.
 | F7 | `learn_technology` blocks for 12 minutes | D1 | ⬜ |
 | F8 | Postgres backend untested by default | D3 | ✅ |
 | F9 | index stored as documentation | 4.2 map + 4.4 reconcile | ✅ |
+| F10 | prompt orders the model to list the store first | 4.6 | ✅ |
+| F11 | marketing homepage accepted when the docs root is client-rendered | 4.1 docs-host signal | ✅ |
+| F12 | homepage harvest scopes to the whole host, returns the blog | 4.3 selection | ✅ |
+| F13 | multi-locale sitemap returns an arbitrary language | 4.3 selection | ✅ |
 
 The two open rows are the two that were never in the correctness core. Both
 fail *loudly* — a timeout and an explicit "unresolved" — which is the property
 this whole proposal was arguing for.
+
+F10–F13 came from a single real session with a 9B model (AUDIT.md §9) and are
+worth noting for how they were found: none by testing a component, all by using
+the product as its actual audience would. F11 in particular slipped past the
+accuracy fixture because the fixture accepted `astro.build` for `astro` —
+settling for the right project instead of the right page.
 
 ---
 

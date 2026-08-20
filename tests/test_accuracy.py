@@ -46,7 +46,11 @@ EXPECTED = {
     "fastapi":    ("fastapi.tiangolo.com",),
     "vitest":     ("vitest.dev",),
     "deno":       ("deno.com", "docs.deno.com", "deno.land"),
-    "astro":      ("astro.build", "docs.astro.build"),
+    # NOT astro.build. Accepting the marketing homepage here is what let a real
+    # bug survive this fixture: resolution landed on astro.build, the harvest
+    # scoped to the whole host, and a user asking about Astro was handed 34
+    # blog posts and no documentation at all.
+    "astro":      ("docs.astro.build",),
     "htmx":       ("htmx.org",),
     "kubernetes": ("kubernetes.io",),
     "terraform":  ("developer.hashicorp.com", "terraform.io"),

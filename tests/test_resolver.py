@@ -212,6 +212,45 @@ def test_a_backlink_to_the_declared_repository_identifies_it():
     assert got.verified is True
 
 
+def test_a_projects_own_docs_host_identifies_it_even_when_it_renders_nothing():
+    """`docs.astro.build` serves an empty shell and renders client-side.
+
+    Measuring its text rejects it, and rejecting it hands the harvest to
+    `astro.build` — whose sitemap is mostly blog posts. Pointing `/docs` at
+    `docs.<project>` is a statement about where the documentation lives, and it
+    outranks what the index happens to render without JavaScript.
+    """
+    fetcher = FakeFetcher({"https://docs.astro.build": FakeResponse("<html></html>")})
+    got = resolver.verify(Candidate("https://docs.astro.build", "t", 0.7),
+                          "astro", fetcher)
+    assert got.verified is True
+    assert "docs-host" in got.signals
+
+
+def test_a_third_party_docs_host_is_not_the_projects_own():
+    """`docs.rs` is also a "docs." host. It is a Rust crate registry hosting
+    somebody else's package, which is exactly how htmx resolved to a crate."""
+    fetcher = FakeFetcher({"https://docs.rs/htmx": FakeResponse("htmx " * 40)})
+    got = resolver.verify(Candidate("https://docs.rs/htmx", "t", 0.7), "htmx", fetcher)
+    assert "docs-host" not in got.signals
+    assert got.verified is False
+
+
+def test_an_empty_page_on_an_unrelated_host_is_still_rejected():
+    fetcher = FakeFetcher({"https://x.dev/docs": FakeResponse("<html></html>",
+                                                             url="https://x.dev/docs")})
+    assert resolver.probe_docs_root("https://x.dev", fetcher) == []
+
+
+def test_a_docs_subdomain_survives_the_content_floor():
+    fetcher = FakeFetcher({
+        "https://astro.build/docs": FakeResponse("<html></html>",
+                                                 url="https://docs.astro.build/"),
+    })
+    found = resolver.probe_docs_root("https://astro.build", fetcher)
+    assert found and found[0].url == "https://docs.astro.build/"
+
+
 def test_a_page_that_never_names_it_fails():
     fetcher = FakeFetcher({"https://x.dev": FakeResponse("something else entirely")})
     got = resolver.verify(Candidate("https://x.dev", "t", 0.5), "effect", fetcher)
