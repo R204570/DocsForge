@@ -33,6 +33,10 @@ Section 6 says what was done about each, section 7 measures the result.
 | F7 | `learn_technology` blocks for minutes | ⬜ **open** — the largest remaining defect |
 | F8 | the Postgres backend is unexercised by default | ✅ **fixed** — CI stands one up |
 | F9 | an `llms.txt` index is stored as documentation | ✅ **fixed** — sibling probe + page splitting |
+| F10 | the chat prompt orders the model to list the store first | ✅ **fixed** — see §9 |
+| F11 | a marketing homepage is accepted when the docs root renders client-side | ✅ **fixed** — §9 |
+| F12 | a homepage harvest scopes to the whole host and returns the blog | ✅ **fixed** — §9 |
+| F13 | a multi-locale sitemap returns an arbitrary language | ✅ **fixed** — §9 |
 
 **The code is fixed. The stored corpus is not yet** — the seven affected
 technologies were harvested before the fix and still hold their indexes. See
@@ -687,3 +691,124 @@ The resolver's original 23 tests all stubbed the network, which is exactly why
 nine failures could sit in a green suite. **The fixture is the durable part of
 this work.** The fixes are worth less than the thing that will catch the next
 one.
+
+---
+
+## 9. Field report — a 9B model, and what it exposed
+
+**Date:** 20 August 2026 · **Source:** a real session against the web chat,
+Ollama running `qwen3.5:9b`.
+
+This is the audience DocsForge is *for*: a model small enough not to know the
+technology being asked about. It failed, and it failed in ways the eight-name
+fixture could not see, because the fixture tests resolution and this was a
+failure of the whole product around it.
+
+The user asked five times, in escalating plainness, for Astro's documentation.
+On four of those turns the model answered by listing the knowledge base back to
+them. On the fifth it finally harvested — and stored Astro's **blog**.
+
+### F10 — The prompt orders the model to check the store first 🔴
+
+`SYSTEM_PROMPT` said:
+
+> **Before learning anything**, check `list_knowledge_base`. If it is already
+> stored, `read_knowledge_base` instead — re-scraping a site you already have is
+> wasted time. (`learn_technology` checks this for you.)
+
+An imperative followed by a parenthetical that cancels it. A strong model
+weighs the two and skips the call. **A 9B model obeys the imperative**, gets a
+2 KB listing back, and then answers about the most recent large blob of text in
+its context rather than about the question — which is exactly what the
+transcript shows, four turns running.
+
+The parenthetical is true: `tool_learn_technology` calls `stored_name()` first
+and returns without fetching if the technology is known. So the instruction was
+redundant *and* actively harmful, and harmful only to the models the product
+exists to serve. **This is the answer to "why does it work in Claude Code and
+not with Ollama."** Nothing was wrong with the tools; the guidance around them
+was written for a reader who could resolve a contradiction.
+
+Fixed by leading with the rule instead of the caveat — call `learn_technology`
+immediately, never call `list_knowledge_base` to decide what to do, never stop
+at a tool result. `MAX_ROUNDS` also went from 4 to 6: three rounds is the happy
+path, a small model routinely wastes one, and at four it then ran out and was
+*forced to answer without having read anything*.
+
+### F11 — A marketing homepage is accepted when the docs root renders client-side 🔴
+
+`astro` resolved to `https://astro.build` with five identity signals. The right
+project — the identity work doing its job — and the wrong page.
+
+The docs root was found and thrown away, for the second time and for a
+different reason. F3 fixed the 80-byte redirect stub; this is not that:
+
+```
+https://docs.astro.build/   ->  200,  0 characters of visible text
+```
+
+It is a client-rendered application. There is no meta-refresh to follow and no
+text to measure, so the content floor rejected it — correctly by its own rule,
+and wrongly in fact.
+
+Fixed by exempting a project's own documentation host from the floor. Pointing
+`/docs` at `docs.<project>` is a statement about where the documentation lives,
+and it outranks what the index renders without JavaScript. Deliberately
+conditional on the host *also* owning the name: `docs.rs` is a "docs." host
+too, and it is where `htmx` went wrong.
+
+### F12 — A homepage harvest scopes to the whole host 🔴
+
+The more general defect, and the one that actually produced the blog:
+
+```
+docs_scope("https://astro.build")   ->  "/"
+sitemap                             ->  astro.build/sitemap-index.xml
+40 pages harvested                  ->  34 blog, 0 documentation
+```
+
+Any technology whose resolution lands on a homepage harvests marketing. Fixed
+by narrowing a whole-host sitemap to its documentation: prefer `/docs`,
+`/guide`, `/reference` and friends where enough exist, and otherwise drop
+`/blog`, `/careers`, `/pricing` and the rest. Applies only when scope is the
+entire host — a caller who named a section meant that section.
+
+### F13 — A multi-locale sitemap returns an arbitrary language 🟠
+
+Found while verifying F12's fix, and invisible until then:
+
+```
+docs.astro.build/sitemap-index.xml  ->  5,880 URLs, every translation
+first 25 pages harvested            ->  all Arabic
+```
+
+The sitemap is locale-sorted, `/ar/` sorts first, and a capped harvest stops
+before it ever reaches English. Storing every translation is no better: it
+multiplies the corpus twentyfold and makes search return the same page in
+languages the caller cannot read. Fixed by keeping the untagged and English
+pages, against a curated list of locale codes rather than "any two letters" —
+`/go/`, `/js/` and `/ai/` are sections, not languages.
+
+### Measured after
+
+```
+astro  ->  https://docs.astro.build/       identified by own-domain, docs-host
+           40 pages, 423,325 characters, all /en/, 0 blog
+           reported honestly: INCOMPLETE, 345+ pages still queued
+```
+
+### What this says about the audit itself
+
+The eight-name fixture passed throughout. It could not have caught any of this:
+F10 is not resolution at all, and F11 slipped through because **the fixture
+accepted `astro.build` as a correct answer for `astro`.** That was too lenient
+— written by someone who had just watched the marketing page win and settled
+for the right project instead of the right page. It now requires
+`docs.astro.build`, and that one-line tightening is what turns F11 and F12 into
+regressions the suite will catch rather than bugs a user has to report.
+
+The lesson is narrower than "test more". Every defect in this section was found
+by **using the product as its actual audience would** — a small model, a plain
+question, no special knowledge — and none by testing a component. A resolution
+fixture measures resolution. It says nothing about whether a 9B model can get
+an answer out of the thing, which is the only question that matters.

@@ -992,6 +992,67 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
 # ─────────────────────────────────────────────────────────────
 # Strategy: sitemap.xml
 # ─────────────────────────────────────────────────────────────
+#: Sections of a project's site that are emphatically not its documentation.
+#: Astro's sitemap is mostly these: harvesting `astro.build` returned 34 blog
+#: posts out of 40 pages and not one page of documentation.
+_NOT_DOCS = re.compile(
+    r"/(blog|news|posts?|articles?|changelog|releases?|careers?|jobs|pricing|"
+    r"about|contact|team|events?|showcase|agencies|partners|sponsors|store|"
+    r"shop|legal|privacy|terms|press|community)(/|$)", re.I)
+
+#: …and the sections that are.
+_DOCSY = re.compile(
+    r"/(docs?|documentation|guide|guides|manual|reference|api|learn|tutorial)(/|$)", re.I)
+
+#: Locale codes common on documentation sites. A curated list rather than
+#: "any two letters", because `/go/`, `/js/` and `/ai/` are sections, not
+#: languages, and dropping them would lose real documentation.
+_LOCALES = {
+    "ar", "bn", "cs", "da", "de", "el", "es", "fa", "fi", "fr", "he", "hi",
+    "hu", "id", "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ro", "ru",
+    "sv", "th", "tr", "uk", "vi", "zh",
+}
+_LOCALE_SEGMENT = re.compile(r"^/([a-z]{2})(?:-[a-z]{2})?(?:/|$)", re.I)
+
+
+def _focus_on_docs(urls: list[str], prefix: str) -> list[str]:
+    """Drop the marketing when the harvest was pointed at a whole site.
+
+    Only applies when scope is the entire host, which is what happens when
+    resolution lands on a homepage rather than a docs root. Somebody asking
+    for a technology's documentation does not want its careers page.
+    """
+    if prefix not in ("", "/"):
+        return urls
+    docsy = [u for u in urls if _DOCSY.search(urlparse(u).path)]
+    if len(docsy) >= 5:
+        return docsy
+    trimmed = [u for u in urls if not _NOT_DOCS.search(urlparse(u).path)]
+    return trimmed or urls
+
+
+def _prefer_default_locale(urls: list[str]) -> list[str]:
+    """One language, not all of them.
+
+    A sitemap that lists every translation is sorted by locale, so a capped
+    harvest of `docs.astro.build` returns Arabic — `/ar/` sorts first — and
+    stops before reaching English. Storing every translation is no better: it
+    multiplies the corpus by twenty and makes search return the same page in
+    languages the caller cannot read.
+    """
+    groups: dict[str, list[str]] = {}
+    for url in urls:
+        match = _LOCALE_SEGMENT.match(urlparse(url).path)
+        code = match.group(1).lower() if match else ""
+        groups.setdefault(code if code in _LOCALES or code == "en" else "", []).append(url)
+    if len(groups) < 2:
+        return urls
+    # Untagged pages are the default language; `en` is the default when the
+    # site tags every language including its own.
+    keep = groups.get("", []) + groups.get("en", [])
+    return keep or urls
+
+
 def _xml_soup(text: str):
     """Prefer a real XML parser, but degrade instead of exploding when lxml
     is not installed — the README used to call it optional."""
@@ -1199,6 +1260,11 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                 links = []
             scoped = [l for l in dict.fromkeys(_normalize(l) for l in links)
                       if _crawlable(l, host, prefix)]
+            before = len(scoped)
+            scoped = _prefer_default_locale(_focus_on_docs(scoped, prefix))
+            if len(scoped) != before:
+                _log(opts, f"  narrowed {before} sitemap URLs to {len(scoped)} "
+                           f"(documentation, default language)")
             # One or two hits usually means the sitemap does not really cover
             # the docs; a crawl will do better than a near-empty list.
             if len(scoped) >= 3:

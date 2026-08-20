@@ -19,7 +19,12 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Iterator
 
 # Tool round-trips before we stop offering tools and make the model answer.
-MAX_ROUNDS = 4
+# The happy path is three — learn_technology, read_knowledge_base, answer — and
+# a smaller model routinely spends one round on something unhelpful before
+# finding its footing. At four it then runs out mid-task and is forced to answer
+# without ever having read the documentation, which is the one outcome this
+# product exists to prevent. The headroom costs nothing when it is not needed.
+MAX_ROUNDS = 6
 
 # Conversation turns and per-message characters accepted from a client.
 MAX_HISTORY = 40

@@ -160,6 +160,57 @@ def test_splitting_loses_nothing():
     assert body.split() == joined.split(), "every word survives the split"
 
 
+# ── a homepage harvest must not return the blog ──────────
+def test_a_whole_host_harvest_keeps_the_docs_and_drops_the_marketing():
+    """Measured: harvesting `astro.build` returned 34 blog posts out of 40
+    pages and not one page of documentation."""
+    urls = ([f"https://astro.build/blog/post-{i}" for i in range(30)]
+            + [f"https://astro.build/docs/guide-{i}" for i in range(8)]
+            + ["https://astro.build/agencies", "https://astro.build/pricing"])
+    kept = df._focus_on_docs(urls, "/")
+    assert all("/docs/" in u for u in kept)
+    assert len(kept) == 8
+
+
+def test_marketing_sections_are_dropped_even_with_no_docs_section():
+    urls = ["https://x.dev/blog/a", "https://x.dev/careers",
+            "https://x.dev/getting-started", "https://x.dev/install"]
+    kept = df._focus_on_docs(urls, "/")
+    assert "https://x.dev/blog/a" not in kept
+    assert "https://x.dev/getting-started" in kept
+
+
+def test_a_scoped_harvest_is_left_alone():
+    """The filter is for the case where resolution landed on a homepage. A
+    caller who named a section meant that section."""
+    urls = ["https://x.dev/docs/blog-plugin", "https://x.dev/docs/news-feed"]
+    assert df._focus_on_docs(urls, "/docs/") == urls
+
+
+def test_one_language_is_harvested_not_twenty():
+    """docs.astro.build lists 5,880 URLs across every translation, sorted by
+    locale — so a capped harvest returned Arabic and stopped before English."""
+    urls = ([f"https://d.dev/ar/page-{i}" for i in range(20)]
+            + [f"https://d.dev/en/page-{i}" for i in range(20)]
+            + [f"https://d.dev/zh/page-{i}" for i in range(20)])
+    kept = df._prefer_default_locale(urls)
+    assert len(kept) == 20
+    assert all("/en/" in u for u in kept)
+
+
+def test_a_section_that_looks_like_a_locale_is_not_dropped():
+    """`/go/`, `/js/` and `/ai/` are sections, not languages. Treating any two
+    letters as a locale would silently lose real documentation."""
+    urls = ([f"https://d.dev/go/page-{i}" for i in range(5)]
+            + [f"https://d.dev/js/page-{i}" for i in range(5)])
+    assert df._prefer_default_locale(urls) == urls
+
+
+def test_an_untranslated_site_is_untouched():
+    urls = [f"https://d.dev/guide/page-{i}" for i in range(5)]
+    assert df._prefer_default_locale(urls) == urls
+
+
 # ── completeness is measured, not assumed ────────────────
 def test_storing_an_index_reports_itself_incomplete():
     stats = {}
