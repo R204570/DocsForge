@@ -1348,6 +1348,64 @@ def write_docs(docs: list[Doc], out_dir: str, single_file: bool = False,
 
 
 # ─────────────────────────────────────────────────────────────
+def _forget(targets: list[str], assume_yes: bool = False) -> int:
+    """Remove harvests from the knowledge base.
+
+    A harvest can be wrong — the wrong project, a partial copy, a table of
+    contents stored as though it were the documentation — and being unable to
+    take one back out means the store only ever accumulates mistakes. The
+    backends could always delete; nothing could ask them to.
+
+    Each target is `name` (every version) or `name@version` (just that one).
+    """
+    # Imported here rather than at module scope: the extraction engine does not
+    # otherwise know the store exists, and this is the one place it needs to.
+    from kb_store import StoreError, build_store
+
+    store = build_store()
+    plan: list[tuple[str, str | None, int, int]] = []
+    for target in targets:
+        name, _, version = target.partition("@")
+        name, version = name.strip(), version.strip() or None
+        try:
+            rows = [v for v in store.versions(name)
+                    if version is None or v["version"] == version]
+        except StoreError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if not rows:
+            print(f"error: {name} has no version {version!r}", file=sys.stderr)
+            return 1
+        for row in rows:
+            plan.append((name, row["version"], row["pages"], row["characters"]))
+
+    print(f"About to remove {len(plan)} harvest(s) from {store.kind} "
+          f"({store.location}):\n")
+    for name, version, pages, chars in plan:
+        print(f"  {name} {version} — {pages:,} pages, {chars:,} characters")
+    print()
+
+    if not assume_yes:
+        # `isatty()` is not enough on its own: a pipe, a CI runner or a harness
+        # can look like a terminal and still hand back EOF. Anything other than
+        # a person typing "yes" means no, because the alternative is deleting
+        # someone's corpus on the strength of a closed stdin.
+        try:
+            answer = input("Type 'yes' to delete: ") if sys.stdin.isatty() else ""
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer.strip().lower() != "yes":
+            print("Nothing was removed. Pass --yes to confirm without a prompt.")
+            return 1
+
+    removed = 0
+    for target in targets:
+        name, _, version = target.partition("@")
+        removed += store.delete(name.strip(), version.strip() or None)
+    print(f"Removed {removed} harvest(s).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Before parse_args: --help prints the module docstring, which contains
     # arrows, and argparse writes it straight to a cp1252 console.
@@ -1358,7 +1416,14 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("url")
+    ap.add_argument("url", nargs="?",
+                    help="the documentation source to extract")
+    ap.add_argument("--forget", metavar="NAME[@VERSION]", action="append",
+                    help="remove a harvest from the knowledge base and exit. "
+                         "NAME alone removes every version of it; NAME@VERSION "
+                         "removes one. Repeatable.")
+    ap.add_argument("--yes", action="store_true",
+                    help="skip the confirmation prompt for --forget")
     ap.add_argument("-o", "--out", default="./docs_md", help="output directory")
     ap.add_argument("--crawl", action="store_true", help="follow same-host links")
     ap.add_argument("--max-pages", type=int, default=25, metavar="N",
@@ -1372,6 +1437,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-q", "--quiet", action="store_true")
     ap.add_argument("--version", action="version", version=f"docsforge {__version__}")
     args = ap.parse_args(argv)
+
+    if args.forget:
+        return _forget(args.forget, assume_yes=args.yes)
+    if not args.url:
+        ap.error("a URL is required (or use --forget to remove a harvest)")
 
     opts = Options(
         crawl=args.crawl,

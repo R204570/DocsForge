@@ -211,6 +211,56 @@ def test_an_untranslated_site_is_untouched():
     assert df._prefer_default_locale(urls) == urls
 
 
+# ── the CLI can take a harvest back out ──────────────────
+@pytest.fixture
+def cli_store(tmp_path, monkeypatch):
+    from kb_store import build_store
+
+    monkeypatch.setenv("DOCSFORGE_KB_ROOT", str(tmp_path))
+    monkeypatch.delenv("DOCSFORGE_DB", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    store = build_store()
+    for version in ("1.10", "2.11"):
+        store.save("pydantic", version, f"https://d.dev/{version}/", "crawl",
+                   [("A", f"https://d.dev/{version}/a", "body")], complete=True)
+    return store
+
+
+def test_forget_removes_one_version(cli_store):
+    assert df.main(["--forget", "pydantic@1.10", "--yes"]) == 0
+    assert [v["version"] for v in cli_store.versions("pydantic")] == ["2.11"]
+
+
+def test_forget_removes_every_version(cli_store):
+    from kb_store import StoreError
+
+    assert df.main(["--forget", "pydantic", "--yes"]) == 0
+    with pytest.raises(StoreError):
+        cli_store.versions("pydantic")
+
+
+def test_forget_does_nothing_without_confirmation(cli_store):
+    """A closed stdin is not consent. The prompt cannot be answered here, so
+    the only safe reading of that is "no"."""
+    assert df.main(["--forget", "pydantic"]) == 1
+    assert len(cli_store.versions("pydantic")) == 2
+
+
+def test_forget_refuses_a_name_it_does_not_have(cli_store):
+    assert df.main(["--forget", "nosuchthing", "--yes"]) == 1
+
+
+def test_forget_refuses_a_version_it_does_not_have(cli_store):
+    assert df.main(["--forget", "pydantic@9.9", "--yes"]) == 1
+    assert len(cli_store.versions("pydantic")) == 2
+
+
+def test_a_url_is_still_required_for_an_ordinary_run():
+    with pytest.raises(SystemExit) as exit_info:
+        df.main([])
+    assert exit_info.value.code == 2
+
+
 # ── completeness is measured, not assumed ────────────────
 def test_storing_an_index_reports_itself_incomplete():
     stats = {}

@@ -335,6 +335,64 @@
 .version .go { color: var(--text-3); }
 .version:hover .go { color: var(--accent); }
 
+/* ── removing a harvest ───────────────────────────────── */
+/* A harvest can be the wrong project or a table of contents stored as though
+   it were the documentation, so it has to be possible to take one back out.
+   The control stays quiet until you reach for it: deleting is available, not
+   suggested. */
+.version-row { display: flex; align-items: stretch; gap: 8px; }
+.version-row .version { flex: 1 1 auto; min-width: 0; }
+
+.forget {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.forget span { display: none; }               /* icon only, until it matters */
+.forget:hover {
+  color: var(--danger);
+  border-color: rgba(255, 154, 154, 0.45);
+  background: rgba(255, 154, 154, 0.07);
+}
+.forget:disabled { opacity: 0.6; cursor: default; }
+.forget:disabled span { display: inline; }
+
+/* Armed: the button has become the confirmation, so it says so in words. */
+.forget.armed {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(255, 154, 154, 0.12);
+}
+.forget.armed span { display: inline; }
+
+.forget.wide { width: 100%; padding: 11px 14px; }
+.forget.wide span { display: inline; }
+
+.card-foot {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+  max-width: 820px;
+}
+
+@media (max-width: 620px) {
+  .version-row { flex-wrap: wrap; }
+  .forget { width: 100%; padding: 10px 14px; }
+  .forget span { display: inline; }
+}
+
 /* ── the version tab strip ────────────────────────────── */
 /* Inside a version, the others stay one click away: the same list, folded up. */
 .tabs {
