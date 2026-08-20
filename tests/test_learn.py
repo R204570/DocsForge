@@ -209,3 +209,55 @@ def test_every_tool_schema_is_well_formed():
         assert tool.schema["type"] == "object"
         for field in tool.schema.get("required", []):
             assert field in tool.schema["properties"], f"{tool.name}: {field}"
+
+
+# ── deletion ─────────────────────────────────────────────
+def test_models_cannot_delete_documentation_by_default():
+    """The one irreversible thing DocsForge does, and a model that has just
+    mis-resolved a name is the last caller who should hold that lever."""
+    assert ft.ALLOW_DELETE is False
+    assert "forget_documentation" not in {t.name for t in ft.TOOLS}
+
+
+def test_forget_removes_one_version_and_keeps_the_rest(kb):
+    stored(version="v2", pages=PAGES[:1])
+    stored(version="v3")
+    out = ft.tool_forget_documentation("effect", "v2")
+    assert "Deleted" in out and "v2" in out
+    assert [v["version"] for v in ft.store().versions("effect")] == ["v3"]
+    assert "1 other version" in out
+
+
+def test_forget_without_a_version_removes_the_technology(kb):
+    stored(version="v2")
+    stored(version="v3")
+    ft.tool_forget_documentation("effect")
+    with pytest.raises(Exception):
+        ft.store().versions("effect")
+
+
+def test_forget_accepts_the_spelling_the_caller_saw(kb):
+    """`Effect.ts` is filed as `effect`; a delete that misses because of
+    dressing would leave the caller believing it worked."""
+    stored()
+    ft.tool_forget_documentation("Effect.ts")
+    with pytest.raises(Exception):
+        ft.store().versions("effect")
+
+
+def test_forget_says_what_is_there_when_the_version_is_wrong(kb):
+    stored(version="v3")
+    with pytest.raises(ft.ForgeError, match="v3"):
+        ft.tool_forget_documentation("effect", "v9")
+
+
+def test_forget_refuses_a_technology_it_does_not_have(kb):
+    with pytest.raises(ft.ForgeError, match="Nothing stored"):
+        ft.tool_forget_documentation("nosuchthing")
+
+
+def test_forget_reports_what_it_destroyed(kb):
+    stored()
+    out = ft.tool_forget_documentation("effect")
+    assert "2 pages" in out
+    assert "cannot be undone" in out

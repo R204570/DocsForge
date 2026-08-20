@@ -245,6 +245,41 @@ Everything is optional; see `.env.example` for the full list.
 | `DOCSFORGE_MAX_CHARS` | `60000` | Largest tool result returned to a model. |
 | `DOCSFORGE_OUT_ROOT` | `./docs_md` | Directory `save_docs` may write into. |
 | `DOCSFORGE_ALLOW_PRIVATE` | unset | Allow fetching private/loopback addresses. |
+| `DOCSFORGE_ALLOW_DELETE` | unset | Let the **model** delete stored documentation. Off by default — see below. |
+
+### Removing a harvest
+
+A harvest can be wrong: the wrong project, a partial copy, a table of contents
+stored as though it were the documentation. Three ways to take one back out.
+
+**In DocsStore.** Open a technology at `/library` and each version has a delete
+control, with a second one below for the whole technology. It asks once before
+acting.
+
+**From the command line**, which is the one to reach for when clearing several:
+
+```bash
+python docsforge.py --forget pydantic@1.10     # one version
+python docsforge.py --forget astro             # every version of it
+python docsforge.py --forget a --forget b --yes  # several, no prompt
+```
+
+It prints what it is about to remove — pages and characters — and does nothing
+unless you type `yes` or pass `--yes`.
+
+**Over HTTP**, which is what the UI uses:
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/library/astro
+curl -X DELETE http://127.0.0.1:8000/api/library/pydantic/1.10
+```
+
+**Can the model delete?** Not unless you say so. Deleting is the one
+irreversible thing DocsForge does, and a model that has just mis-resolved a
+name is the last caller who should hold that lever — 703 pages of Effect are
+one confident hallucination away. Set `DOCSFORGE_ALLOW_DELETE=1` to add a
+`forget_documentation` tool to the surface. Note that you do not need it to
+re-harvest: harvesting the same name again replaces that version on its own.
 
 ### Endpoints
 

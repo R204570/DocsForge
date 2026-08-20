@@ -304,6 +304,38 @@ def library_versions(tech: str):
         return _store_error(e)
 
 
+# ── Removing things ──────────────────────────────────────────
+# A harvest can be wrong — the wrong project, a partial copy, a table of
+# contents stored as if it were the documentation — and until now there was no
+# way to take it back out. The store could delete; nothing could ask it to.
+#
+# These are deliberately HTTP DELETE and deliberately not exposed to the chat
+# model by default (see forge_tools.ALLOW_DELETE): the person who harvested
+# something is the one who should decide it was a mistake.
+@app.delete("/api/library/{tech}")
+def library_forget(tech: str):
+    """Remove a technology and every version of it."""
+    try:
+        removed = _store().delete(tech)
+    except StoreError as e:
+        return _store_error(e, 503)
+    if not removed:
+        return _store_error(StoreError(f"nothing stored for {tech!r}"))
+    return {"technology": tech, "removed": removed, "versions": None}
+
+
+@app.delete("/api/library/{tech}/{version}")
+def library_forget_version(tech: str, version: str):
+    """Remove one version, leaving the others alone."""
+    try:
+        removed = _store().delete(tech, version)
+    except StoreError as e:
+        return _store_error(e, 503)
+    if not removed:
+        return _store_error(StoreError(f"{tech} has no version {version!r}"))
+    return {"technology": tech, "version": version, "removed": removed}
+
+
 @app.get("/api/library/{tech}/{version}")
 def library_pages(tech: str, version: str):
     backend = _store()

@@ -2,6 +2,7 @@
 
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import app
 import docsforge as df
 import forge_tools
+from kb_store import StoreError
 from providers import MAX_CONTENT, MAX_HISTORY
 
 
@@ -264,3 +266,46 @@ def test_library_says_what_is_missing_rather_than_crashing(box, call):
     response = call()
     assert response.status_code == 404
     assert json.loads(response.body)["detail"]
+
+
+# ── DocsStore: taking a harvest back out ─────────────────
+# A harvest can be the wrong project, or a table of contents stored as though
+# it were the documentation. Until this existed the store could only grow.
+def test_one_version_can_be_removed_and_the_others_survive(box):
+    assert app.library_forget_version("effect", "v2")["removed"] == 1
+    left = [v["version"] for v in box.versions("effect")]
+    assert left == ["v3"]
+
+
+def test_removing_a_technology_removes_every_version(box):
+    assert app.library_forget("effect")["removed"] == 2
+    with pytest.raises(StoreError):
+        box.versions("effect")
+
+
+def test_removing_a_technology_leaves_the_others_alone(box):
+    before = app.library_index()["total"]
+    app.library_forget("effect")
+    assert app.library_index()["total"] == before - 1
+    assert box.versions("lib00")
+
+
+@pytest.mark.parametrize("call", [
+    lambda: app.library_forget("nosuchthing"),
+    lambda: app.library_forget_version("effect", "v9"),
+])
+def test_deleting_something_that_is_not_there_says_so(box, call):
+    import json
+
+    response = call()
+    assert response.status_code == 404
+    assert json.loads(response.body)["detail"]
+
+
+def test_the_files_are_actually_gone(box, tmp_path):
+    """Not merely unlisted. A delete that leaves the Markdown on disk is a
+    leak the index cannot see."""
+    path = Path(box.entry("effect", "v2")["file"])
+    assert path.exists()
+    app.library_forget_version("effect", "v2")
+    assert not path.exists()

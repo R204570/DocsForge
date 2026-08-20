@@ -544,6 +544,38 @@ def tool_search_knowledge_base(query: str, technology: str | None = None,
     return "\n".join(lines)
 
 
+def tool_forget_documentation(name: str, version: str | None = None) -> str:
+    """Delete a stored technology, or one version of it. Irreversible."""
+    backend = store()
+    # Resolve the caller's spelling to what is actually filed, so "Effect.ts"
+    # removes `effect` rather than reporting that nothing matched.
+    known = stored_name(name) or name
+    try:
+        rows = backend.versions(known)
+    except StoreError:
+        raise ForgeError(
+            f"Nothing stored for {name!r}. `list_knowledge_base` shows what is."
+        ) from None
+
+    doomed = [v for v in rows if version is None or v["version"] == version]
+    if not doomed:
+        have = ", ".join(v["version"] for v in rows)
+        raise ForgeError(f"{known} has no version {version!r} (have: {have}).")
+
+    pages = sum(v["pages"] for v in doomed)
+    chars = sum(v["characters"] for v in doomed)
+    removed = backend.delete(known, version)
+    left = len(rows) - len(doomed)
+
+    return (
+        f"Deleted **{known}**"
+        + (f" {version}" if version else " (all versions)")
+        + f" — {removed} version(s), {pages:,} pages, {chars:,} characters.\n\n"
+        + (f"{left} other version(s) of {known} are still stored.\n\n" if left else "")
+        + "This cannot be undone; re-harvesting means crawling the site again."
+    )
+
+
 def tool_scan_project(path: str | None = None, unknown_only: bool = False) -> str:
     """List a project's dependencies and say which are already documented here."""
     from pathlib import Path as _Path
@@ -825,6 +857,41 @@ TOOLS: list[Tool] = [
         tool_read_knowledge_base,
     ),
 ]
+
+
+# ── Deletion, off by default ─────────────────────────────────
+# Removing a harvest is the one irreversible thing DocsForge can do, and a
+# model that has just mis-resolved a name is exactly the caller you do not want
+# holding that lever: 703 pages of Effect are one confident hallucination away.
+# The person who harvested something is the one who should decide it was a
+# mistake, so the human surfaces — DocsStore's UI and `docsforge --forget` —
+# are always available and this one is opt-in.
+ALLOW_DELETE = os.environ.get("DOCSFORGE_ALLOW_DELETE", "").strip().lower() in (
+    "1", "true", "yes", "on")
+
+if ALLOW_DELETE:
+    TOOLS.append(Tool(
+        "forget_documentation",
+        "Delete stored documentation. IRREVERSIBLE — the pages are gone and "
+        "re-harvesting means crawling the site again. Use it only when the "
+        "user has asked for something to be removed, or when a harvest "
+        "demonstrably stored the wrong project. Never call it to 'refresh' "
+        "something: harvesting the same name again replaces that version on "
+        "its own.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": "The stored technology name, exactly as "
+                                        "list_knowledge_base reports it."},
+                "version": {"type": "string",
+                            "description": "Which version to remove. Omit to remove "
+                                           "the technology and every version of it."},
+            },
+            "required": ["name"],
+        },
+        tool_forget_documentation,
+    ))
 
 BY_NAME = {t.name: t for t in TOOLS}
 

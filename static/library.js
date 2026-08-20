@@ -71,11 +71,50 @@ function plural(n, one, many) {
   return `${n.toLocaleString()} ${n === 1 ? one : many || one + "s"}`;
 }
 
-async function api(path) {
-  const r = await fetch(path);
+async function api(path, method = "GET") {
+  const r = await fetch(path, { method });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.detail || `${r.status} ${r.statusText}`);
   return data;
+}
+
+/** A destructive button that asks once before doing anything.
+
+    Deleting a harvest cannot be undone and re-harvesting means crawling the
+    site again, so it takes two clicks — but a modal for it would be heavier
+    than the act deserves. The button becomes the confirmation, and reverts on
+    its own if you walk away. */
+function arming(button, label, confirmLabel, run) {
+  let armed = 0;
+  const disarm = () => {
+    armed = 0;
+    button.classList.remove("armed");
+    button.replaceChildren(icon("i-trash", "sm"), el("span", null, label));
+    button.title = label;
+  };
+  disarm();
+  button.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!armed) {
+      armed = window.setTimeout(disarm, 4000);
+      button.classList.add("armed");
+      button.replaceChildren(icon("i-trash", "sm"), el("span", null, confirmLabel));
+      button.title = confirmLabel;
+      return;
+    }
+    window.clearTimeout(armed);
+    armed = 0;
+    button.disabled = true;
+    button.replaceChildren(el("span", null, "Deleting…"));
+    try {
+      await run();
+    } catch (err) {
+      button.disabled = false;
+      disarm();
+      renderError("Could not delete that", err.message);
+    }
+  });
+  return button;
 }
 
 /** How many crawls of this technology the store holds, drawn as stacked
@@ -371,6 +410,7 @@ function renderVersions() {
 
   state.versions.forEach((v) => {
     const li = el("li");
+    const row = el("div", "version-row");
     const btn = el("button", "version");
     btn.type = "button";
     btn.append(el("span", "tag", v.version));
@@ -380,18 +420,47 @@ function renderVersions() {
     facts.append(el("span", null, size(v.characters)));
     facts.append(el("span", null, `harvested ${v.harvested}`));
     facts.append(el("span", null, `via ${v.strategy}`));
-    if (!v.complete) facts.append(Object.assign(el("span", "warn"),
+    // Three states, not two: `null` means nothing counted how much there was
+    // to get, which is a different warning from a copy known to be partial.
+    if (v.complete === false) facts.append(Object.assign(el("span", "warn"),
       { textContent: "partial harvest" }));
+    else if (v.complete === null || v.complete === undefined) {
+      facts.append(Object.assign(el("span", "warn"),
+        { textContent: "coverage unknown" }));
+    }
     facts.append(Object.assign(el("span", "src"), { textContent: v.source }));
     btn.append(facts);
     btn.append(icon("i-arrow", "go"));
 
     btn.addEventListener("click", () => go(state.tech, v.version));
-    li.append(btn);
+    row.append(btn);
+    row.append(arming(
+      Object.assign(el("button", "forget"), { type: "button" }),
+      `Delete ${v.version}`, "Really delete?",
+      async () => {
+        await api(`/api/library/${encodeURIComponent(state.tech)}`
+                  + `/${encodeURIComponent(v.version)}`, "DELETE");
+        // Last one gone means the technology is gone; go back to the box.
+        if (state.versions.length <= 1) return go(null);
+        return open();
+      }));
+    li.append(row);
     list.append(li);
   });
 
   field.append(list);
+
+  const foot = el("div", "card-foot");
+  foot.append(arming(
+    Object.assign(el("button", "forget wide"), { type: "button" }),
+    `Delete ${state.tech} and all ${plural(state.versions.length, "version")}`,
+    "Really delete everything?",
+    async () => {
+      await api(`/api/library/${encodeURIComponent(state.tech)}`, "DELETE");
+      return go(null);
+    }));
+  field.append(foot);
+
   card(state.tech, {}, meta, field);
 }
 
