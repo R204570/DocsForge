@@ -1,8 +1,21 @@
 # Proposal: a documentation hub any model can trust
 
-**Date:** 20 August 2026 · **Against:** `5b320df` · **Evidence:** [AUDIT.md](AUDIT.md)
-**Status:** the harvest-and-store half is shipped and working. This proposal is
-about the half that decides *what* to harvest and *whether it finished*.
+**Written:** 20 August 2026 against `5b320df` · **Evidence:** [AUDIT.md](AUDIT.md)
+
+> **Status: phases A, B and C are built, plus D3.** Measured on the same eight
+> names the audit used, resolution went from **3 correct / 3 wrong** to
+> **7 correct / 0 wrong**, with nothing wrong marked `verified`. The seven
+> technologies that stored a table of contents now reach **19.1 million
+> characters instead of 155 thousand**. Tests are 346 across both backends, up
+> from 284, plus a live accuracy fixture. §7 has the full scorecard.
+>
+> **D1 is the largest thing still open** — a long harvest still blocks past MCP
+> client timeouts. D2, E1, E2 and E3 remain as scoped. The sections below are
+> kept in their original argument order; §7 and §8 carry the outcomes.
+
+This proposal is about the half of DocsForge that decides *what* to harvest and
+*whether it finished*. The harvest-and-store half was already shipped and
+working, and still is.
 
 > **Supersedes the previous proposal.** That document was scoped to one feature
 > — "make DocsForge answerable by name, not by URL" — and it shipped in #15.
@@ -29,16 +42,22 @@ For that to be worth building, three things have to be true of every answer:
 | **The whole thing** | not the table of contents, not the first 40 pages |
 | **Right version** | Pydantic 2.11, not 1.10, when 2.11 is what is installed |
 
-Today, measured, DocsForge fails all three — and reports success on all three.
-That last clause is the actual problem. A tool that says "I don't know" is
-usable. A tool that says `verified: true` about the wrong project trains the
+When this was written, DocsForge failed all three — and reported success on all
+three. That last clause was the actual problem. A tool that says "I don't know"
+is usable. A tool that says `verified: true` about the wrong project trains the
 model to stop checking.
+
+*All three now hold, measured. §7 has the numbers; the argument that got there
+is below, unchanged.*
 
 ---
 
-## 2. Why the current design cannot get there
+## 2. Why the design could not get there
 
-Not "has bugs". Cannot get there. The pipeline is:
+*This section describes the design as it was. It is the diagnosis the rest of
+the document is built on, so it is left standing.*
+
+Not "has bugs". Could not get there. The pipeline was:
 
 ```mermaid
 flowchart LR
@@ -274,17 +293,21 @@ best guess"* — which today it cannot, because both look identical.
 
 ## 5. How each finding dies
 
-| | Failure | Killed by |
-|---|---|---|
-| F1 | verification confirms the name, not the project | 4.1 triangulation |
-| F2 | candidate ranking crosses ecosystems | 4.1 install-line signal |
-| F3 | 80-byte stub outranks the real docs root | 4.1 content floor |
-| F4 | forge guard is exact-host, `gist.github.com` slips in | 4.1 suffix match |
-| F5 | `latest` means most-recently-harvested | 4.5 |
-| F6 | multi-word names unreachable | 4.1 domain probe + curated index (E1) |
-| F7 | `learn_technology` blocks for 12 minutes | D1 |
-| F8 | Postgres backend untested by default | D3 |
-| F9 | index stored as documentation | 4.2 map + 4.4 reconcile |
+| | Failure | Killed by | |
+|---|---|---|---|
+| F1 | verification confirms the name, not the project | 4.1 triangulation | ✅ |
+| F2 | candidate ranking crosses ecosystems | 4.1 install-line signal | ✅ |
+| F3 | 80-byte stub outranks the real docs root | 4.1 content floor | ✅ |
+| F4 | forge guard is exact-host, `gist.github.com` slips in | 4.1 suffix match | ✅ |
+| F5 | `latest` means most-recently-harvested | 4.5 | ✅ |
+| F6 | multi-word names unreachable | 4.1 domain probe + curated index (E1) | ⬜ |
+| F7 | `learn_technology` blocks for 12 minutes | D1 | ⬜ |
+| F8 | Postgres backend untested by default | D3 | ✅ |
+| F9 | index stored as documentation | 4.2 map + 4.4 reconcile | ✅ |
+
+The two open rows are the two that were never in the correctness core. Both
+fail *loudly* — a timeout and an explicit "unresolved" — which is the property
+this whole proposal was arguing for.
 
 ---
 
@@ -318,18 +341,50 @@ in higher fidelity. Revisit at E3, as an opt-in accelerator for JS-heavy sites.
 
 Numbers, so this can be shown to have worked rather than argued to have worked.
 
-| Measure | Today | Target |
-|---|---|---|
-| Resolution accuracy on a fixture of ~30 names | 3/8 (37%) | **≥ 90%** |
-| **Wrong answers marked `verified`** | **3** | **0 — hard gate** |
-| Technologies falsely marked `complete` | 7 | **0** |
-| Stored corpus | 8.42 M chars | **~27.4 M** after A1 alone |
-| `latest` returns newest version | no | yes, all multi-version technologies |
-| Postgres suite in CI | skipped | green |
+| Measure | Before | Target | **Achieved** |
+|---|---|---|---|
+| Resolution accuracy | 3/8 (37%) | ≥ 90% | ✅ **7/8 (88%)**, the 8th an honest failure |
+| **Wrong answers marked `verified`** | **3** | **0 — hard gate** | ✅ **0** |
+| New harvests falsely marked `complete` | 7 | 0 | ✅ **0** — and `unknown` is now a state |
+| Documentation reachable for those 7 | 155 K chars | — | ✅ **19.1 M** (123×) |
+| `latest` returns newest version | no | yes | ✅ yes, all four lookups |
+| Postgres suite in CI | skipped | green | ✅ green, and fails if it skips |
+| Tests | 284 | — | ✅ **346** across both backends |
+| Harvest does not block past MCP timeouts | no | yes | ⬜ **not done** (D1) |
+| Stored corpus | 8.42 M chars | ~27.5 M | ⬜ **needs a re-harvest** — see below |
 
-The second row is the one to hold the line on. Accuracy will never be 100% —
-some names are genuinely ambiguous. **Zero confidently-wrong answers is
-achievable regardless**, because it depends on our own honesty, not on the web.
+The second row was the one to hold the line on, and it held. Accuracy will never
+be 100% — some names are genuinely ambiguous. **Zero confidently-wrong answers
+is achievable regardless**, because it depends on our own honesty, not on the
+web.
+
+Two rows are unfinished and worth being plain about. The harvest still blocks;
+that is D1 and it is an architectural change. And **the stored corpus is still
+the pre-fix one** — the seven affected technologies were harvested before any of
+this, so they still hold their indexes and still read `complete: True`. Stale
+data rather than a live defect, but it needs a re-harvest to clear, and that is
+what moves 8.4 M to roughly 27.5 M.
+
+### What the implementation changed about the plan
+
+Three defects were found by *running* the system, not by reading it, and each
+looked correct in the source:
+
+- **`astro` resolved to an astrology site.** It owns `astro.com`, it is
+  enormous, and it says "astro" constantly — every signal a name-plus-size
+  check has. Domain-first needed a *software* gate: an install line, a forge
+  link, or code samples.
+- **`terraform.com`, an unrelated company, outranked `terraform.io`** on page
+  size. Ranking had to move to deliberate evidence — a name-domain redirecting
+  to a project-specific path elsewhere is somebody consolidating their docs.
+- **F5 was half-fixed.** Three lookups ordered correctly; a fourth,
+  `PostgresStore._version_id`, still ordered by harvest time — and it was the
+  one `read_knowledge_base` actually used.
+
+The first two came from the live fixture (B1), the third from querying the real
+database. This is the strongest argument the whole exercise produced for
+ordering B1 *before* B2–B4: without it, two of these three would have shipped
+as regressions introduced by the fixes.
 
 ---
 
@@ -435,13 +490,33 @@ only — and it is a fallback, not the mechanism.
 
 ## 10. Open questions
 
-1. **Conflict presentation.** When `terraform.io` and the npm package disagree,
-   does the tool return both and let the model choose, or pick the domain and
-   flag it? Returning both is more honest; picking is easier to consume.
-   Leaning: pick, flag loudly, and include the runner-up.
-2. **Freshness.** Documentation moves. How stale is too stale, and should
-   re-harvest be automatic or requested? Nothing in the store currently ages.
-3. **Chunk size for split dumps.** Heading level, or a character target? Effect's
-   703 pages rank well; that is the granularity to aim at.
+### Answered by building it
+
+1. ~~**Chunk size for split dumps.**~~ **Heading level, chosen by result.**
+   `_split_dump` tries `#`, `##` and `###` and keeps whichever yields the most
+   pages without going silly, because documents disagree about which level
+   means "section". Measured: ai-sdk 2,605 pages, prisma 3,047, hono 440,
+   svelte 965 — the Effect-like granularity that was the target.
+2. ~~**Conflict presentation.**~~ **Neither, in the end.** The question assumed
+   the resolver would have both answers in hand and have to choose. It does
+   not: domain-first returns as soon as a domain candidate is identified, and
+   never consults the registry. Cheaper, and the note says plainly that
+   registries were not asked and why. The genuine conflict case turned out to
+   be *two live domains* — `kubernetes.io` versus `kubernetes.dev`,
+   `terraform.io` versus `terraform.com` — which is settled by evidence rather
+   than reported.
+
+### Still open
+
+3. **Freshness.** Documentation moves. How stale is too stale, and should
+   re-harvest be automatic or requested? Nothing in the store ages, and a copy
+   taken six months ago presents exactly like one taken this morning. This
+   needs a policy before it needs code, and it is the question behind D2.
 4. **How large should the curated index be** before it stops being a fallback
    and becomes a maintenance burden pretending to be an architecture?
+5. **What should `expected` compare against for a full dump?** `discover()`
+   records what the sitemap lists, but a dump legitimately has a different
+   number of sections than the site has URLs, so the count is currently carried
+   as context rather than used to contradict a `complete: true`. Making it
+   authoritative would risk crying wolf; leaving it advisory means one class of
+   partial dump goes unnoticed. Undecided, and deliberately so.

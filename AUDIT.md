@@ -1,53 +1,66 @@
 # DocsForge — audit
 
-**First run:** 17 August 2026 · **Re-verified:** 20 August 2026 against `5b320df`
-· **Method:** every claim below was executed, not read off the source.
+**Method:** every number in this document was executed, not read off the source.
 
-> **Re-verification note (20 August).** Every finding below was re-run. All of
-> them still reproduce, including the three wrong resolutions and their
-> `verified: true` flags. One diagnosis was **wrong and has been corrected**:
-> F9's cause is not that the harvester cannot tell an index from a full dump —
-> it can, and does. See F9 for what actually happens. Two tables have been
-> completed with measurements that were previously marked "not measured", and
-> the total recoverable figure is far larger than first reported.
+This is a two-pass document.
 
-> **Fix status (20 August).** Phases A–C of [PROPOSAL.md](PROPOSAL.md) are
-> implemented. The findings below are kept as written — they are the record of
-> what was measured — with the outcome noted against each.
->
-> | | Finding | Status |
-> |---|---|---|
-> | F1 | verification confirms the name, not the project | **fixed** — triangulated identity |
-> | F2 | candidate ranking crosses ecosystems | **fixed** — install-line ecosystem check |
-> | F3 | an 80-byte stub outranks the real docs root | **fixed** — content floor + redirect following |
-> | F4 | the forge guard is exact-host | **fixed** — suffix match |
-> | F5 | `latest` means most-recently-harvested | **fixed** — `versions.py` |
-> | F6 | multi-word technologies do not resolve | **open** — still an honest failure (phase E1) |
-> | F7 | `learn_technology` blocks for minutes | **open** — phase D1 |
-> | F8 | the Postgres backend is unexercised by default | **fixed** — CI runs it |
-> | F9 | an `llms.txt` index is stored as documentation | **fixed** — sibling probe + page splitting |
->
-> Measured after the fixes: resolution goes from **3 correct / 3 wrong** to
-> **7 correct / 0 wrong** on the same eight names, and no wrong answer is
-> marked `verified`. Harvesting `hono` returns **440 pages / 434,041
-> characters** where it previously stored **1 page / 5,649**.
+| | | |
+|---|---|---|
+| **Pass 1** | 17 August, re-verified 20 August against `5b320df` | found nine failures — §1–§5 |
+| **Pass 2** | 20 August, against `316c7f2` | measured what the fixes did — §7 |
+
+**Sections 1 to 5 are left as they were written.** They are the record of what
+was true before anything was changed, and rewriting them into the past tense
+would destroy the evidence the fixes were built from. Read them as *as-found*.
+Section 6 says what was done about each, section 7 measures the result.
+
+> **One diagnosis in pass 1 was wrong and has been corrected in place.** F9's
+> cause is not that the harvester cannot tell an `llms.txt` index from a full
+> dump — it can, and does. See F9 for what actually happens. Two tables were
+> also completed with measurements previously marked "not measured", and the
+> recoverable total turned out far larger than first reported.
+
+### Status at a glance
+
+| | Finding | Status |
+|---|---|---|
+| F1 | verification confirms the name, not the project | ✅ **fixed** — triangulated identity |
+| F2 | candidate ranking crosses ecosystems | ✅ **fixed** — install-line ecosystem check |
+| F3 | an 80-byte stub outranks the real docs root | ✅ **fixed** — content floor + redirect following |
+| F4 | the forge guard is exact-host | ✅ **fixed** — suffix match |
+| F5 | `latest` means most-recently-harvested | ✅ **fixed** — `versions.py` |
+| F6 | multi-word technologies do not resolve | ⬜ **open** — still an honest failure |
+| F7 | `learn_technology` blocks for minutes | ⬜ **open** — the largest remaining defect |
+| F8 | the Postgres backend is unexercised by default | ✅ **fixed** — CI stands one up |
+| F9 | an `llms.txt` index is stored as documentation | ✅ **fixed** — sibling probe + page splitting |
+
+**The code is fixed. The stored corpus is not yet** — the seven affected
+technologies were harvested before the fix and still hold their indexes. See
+§7.3, which is the one action outstanding.
 
 ---
 
 ## Verdict in one paragraph
 
-The pipeline from **a URL to stored, searchable, versioned documentation is
-solid** — that half is well built, well tested and doing real work (703 pages of
+**As found:** the pipeline from a URL to stored, searchable, versioned
+documentation was solid — well built, well tested, doing real work (703 pages of
 Effect, 109 of Pydantic across two versions, ranked full-text search returning
-genuinely relevant snippets). The weakness is not that DocsForge fails; it is
-that **it fails confidently, and labels the failures as checked.** Of eight
-technologies resolved live today, three landed on the wrong project and **all
-three were marked `verified`**. Separately, seven stored technologies contain a
-table of contents rather than documentation — 0.81% of the text that was
-actually available, 19 million characters missing — and every one is marked
-`complete`. The verification and
-completeness signals that exist precisely to prevent silent wrong answers are
-the signals that are wrong. That is the finding this audit is really about.
+genuinely relevant snippets). The weakness was not that DocsForge failed; it was
+that **it failed confidently, and labelled the failures as checked.** Of eight
+technologies resolved live, three landed on the wrong project and **all three
+were marked `verified`**. Separately, seven stored technologies held a table of
+contents rather than documentation — 0.81% of the text actually available, 19
+million characters missing — and every one was marked `complete`. The
+verification and completeness signals that existed precisely to prevent silent
+wrong answers were the signals that were wrong.
+
+**After the fixes:** resolution is 7 of 8 with nothing wrong and nothing wrongly
+verified; the same seven technologies now fetch 19.1 million characters instead
+of 155 thousand; and completeness is computed from a count, with `unknown` as a
+distinct answer, so unearned confidence is no longer expressible. Two defects
+remain and both announce themselves: harvests still block past MCP client
+timeouts, and multi-word names still fail to resolve out loud. §7 has the
+measurements.
 
 ---
 
@@ -201,9 +214,13 @@ npm → `valibot.dev/llms.txt` → verified → harvested in 4s; a second call s
 
 ## 3. What does not work
 
+*As found. Seven of these nine are now fixed — see §6 for what was done and §7
+for the measurements. They are preserved here as written because the evidence
+is what the fixes were built from.*
+
 🔴 wrong answers delivered as correct · 🟠 real limitation, visible when it bites
 · F1–F8 concern resolution and run roughly in damage order. **F9 was found last
-and is the single highest-payoff fix on the list** — it is numbered last only
+and was the single highest-payoff fix on the list** — it is numbered last only
 because the numbers are referenced elsewhere and renumbering would break them.
 
 ### F1 — Verification confirms the *name*, not the *project* 🔴
@@ -445,12 +462,26 @@ failure in section 4 passes the resolver test suite. Nothing in the repository
 would tell you `terraform` resolves to the wrong project.
 
 **A fixture of known-correct name → docs mappings, asserted against live
-resolution, would have caught every single F1–F4 failure.** That is the highest
--value test to add, and it does not exist.
+resolution, would have caught every single F1–F4 failure.** That was the
+highest-value test to add, and it did not exist.
+
+> **It exists now** — `tests/test_accuracy.py`, ten names against the live web
+> behind `DOCSFORGE_TEST_NETWORK=1`, asserting both the right project and the
+> hard gate that nothing wrong is ever marked `verified`. It earned its place
+> immediately by catching two regressions in the fixes themselves (§7.2), which
+> is a better argument for it than anything written here. The suite is now 346
+> passing across both backends, up from 284.
 
 ---
 
-## 6. What to fix, in order
+## 6. What was fixed, in the order it was done
+
+*The list below was written as a plan and is kept in its original order, with
+the outcome marked against each item. The order was argued rather than
+convenient: a wrong answer that admits uncertainty is recoverable and one
+labelled `verified` is not, so honesty came before accuracy; and complete
+documentation of the wrong project is worthless, so accuracy came before
+completeness.*
 
 ```mermaid
 flowchart TD
@@ -466,63 +497,193 @@ flowchart TD
     style D fill:#2a2a4a,stroke:#7a7ac0,color:#fff
 ```
 
-0. **Stop the `llms.txt` short-circuit** (F9). Do this first. `detect_source()`
-   already prefers `llms-full.txt`; it is simply skipped when the URL already
-   ends in `llms.txt`. Probing the sibling before accepting an index recovers
-   **19.0 million characters** — more than twice the current store — from
-   technologies DocsForge already believes it has stored completely. Nothing
-   else here has that ratio of effort to payoff.
-1. **Invert the spine — probe the domain before asking a registry.** Every
-   correct answer in section 4 came from the project's own domain; every wrong
-   one came through a registry. Registries answer the question "what package is
-   called this", which is not the question being asked.
-2. **Replace mention-counting with identity checks** (F1). Repository backlink,
-   install-line ecosystem, host match. This is what makes resolution safe rather
-   than merely usual.
-3. **Add a live accuracy fixture** (§5). Without it, fixes 1 and 2 cannot be
-   shown to have worked.
-4. **Fix `latest`** (F5) — newest version, not newest harvest — and make
-   `scan_project` use `doc_versions()` it already computes.
-5. **Content floor on probes** (F3) and **suffix-matched forge guard** (F4).
-   Both are a few lines and both currently cost correct answers.
-6. **Make `learn_technology` non-blocking** (F7).
-7. **Run the Postgres suite in CI** (F8).
-8. **Then, and only then**, consider a web-search layer for F6. It is the only
-   fix here that costs every user an API key, and it should not be used to paper
-   over F1–F4 — a search engine feeding an unreliable verifier just produces
-   wrong answers from a larger pool.
+0. ✅ **Stop the `llms.txt` short-circuit** (F9). `detect_source()` already
+   preferred `llms-full.txt`; it was simply skipped when the URL already ended
+   in `llms.txt`. It now probes the sibling first, in the index's own directory
+   and then at the origin — Prisma publishes `/docs/llms-full.txt`, most sites
+   put it at the root. **Large dumps are also split into pages on their own
+   headings**, without which the fix trades one problem for another: 5.7 MB
+   stored as a single page is unsearchable.
+1. ✅ **Probe the domain before asking a registry.** `from_domains()` tries
+   `<name>.dev|.io|.org|.com` ahead of the registries. Two guards had to come
+   with it, both discovered by the fixture rather than by reasoning — see §7.2.
+2. ✅ **Replace mention-counting with identity checks** (F1). Host owning the
+   name as a whole label, install-line ecosystem, repository backlink, registry
+   agreement. Two must agree, or one plus the name. Mention counts survive as
+   corroboration and are no longer sufficient alone.
+3. ✅ **Add a live accuracy fixture.** `tests/test_accuracy.py`, ten names
+   against the live web behind `DOCSFORGE_TEST_NETWORK=1`. It asserts the right
+   project *and* the hard gate — that nothing wrong is ever marked `verified`.
+4. ✅ **Fix `latest`** (F5) — newest version, not newest harvest, via a new
+   `versions.py` where release numbers outrank harvest dates and `1.10` sorts
+   above `1.9`. Four separate lookups needed changing; the fourth was found only
+   by running against the live database (§7.2).
+5. ✅ **Content floor on probes** (F3), with meta-refresh and JS-redirect
+   following, and **suffix-matched forge guard** (F4).
+6. ⬜ **Make `learn_technology` non-blocking** (F7). **Not done.** This is now
+   the largest remaining defect and the only one that is an architectural
+   change rather than a fix — it needs a job table and a start/poll tool pair.
+   It was deliberately not rushed in beside the correctness work.
+7. ✅ **Run the Postgres suite in CI** (F8). `.github/workflows/ci.yml` stands
+   up Postgres 17 and **fails the build if those tests skip anyway** — a green
+   run that quietly omitted the production backend is the situation F8
+   describes.
+8. ⬜ **A web-search layer for F6.** Still not done, and still last. It is the
+   only item that costs every user an API key, and it must not paper over
+   F1–F4: a search engine feeding an unreliable verifier produces wrong answers
+   from a larger pool. With F1–F4 fixed the case for it is *weaker*, not
+   stronger — what remains is the genuine tail.
 
-Items 0, 4 and 5 are together perhaps a day's work and fix the three defects
-most likely to produce a confidently wrong answer today.
+Alongside these, **completeness became a measurement rather than an
+assertion**: `complete` is now three-valued, and `null` — "nobody counted" —
+is a distinct state from `true`. A `discover()` stage enumerates what exists
+before anything is fetched. Neither was on the original list; both came out of
+writing §2 of the proposal and asking what the nine findings had in common.
 
 ---
 
-## 7. Summary
+## 7. Measured after the fixes
 
-| Area | State |
-|---|---|
-| URL → Markdown | ✅ strong |
-| Crawl scoping | ✅ strong |
-| Version labelling at harvest | ✅ strong |
-| DocsStore, ranked search | ✅ strong |
-| MCP surface generation | ✅ strong |
-| Manifest parsing | ✅ strong |
-| Name normalisation | ✅ good |
-| Name → URL resolution | ⚠️ 3 of 8 wrong, all marked verified |
-| Verification | 🔴 does not distinguish projects |
-| `llms.txt` index vs full dump | 🔴 index stored as complete; 7 technologies affected |
-| Version selection on read | 🔴 returns most-recent harvest |
-| Long harvests over MCP | 🟠 blocks past client timeouts |
-| Postgres test coverage | 🟠 skipped by default |
+Against `316c7f2`, same method: executed, not read.
 
-The half of DocsForge that was hard to build is done and works. What remains is
-small in code and large in consequence, and the three red rows share one shape:
-**DocsForge reports confidence it has not earned.** A resolution that landed on
-the wrong project says `verified`. A stored table of contents says `complete`. A
-read with no version says `latest` and hands back the older one.
+### 7.1 Resolution — the eight names, again
 
-Each is individually minor and locally sensible. Together they mean the failure
-mode of this product is not *"no answer"* — it is *"a wrong answer that looks
-checked"*. That is the thing worth fixing, and it is worth fixing before any new
-capability, because everything downstream is already good enough to make a wrong
-answer look authoritative.
+| Name | Resolved to | Via | Verdict |
+|---|---|---|---|
+| `fastapi` | `fastapi.tiangolo.com/` | registry | ✅ |
+| `vitest` | `vitest.dev/llms.txt` | domain | ✅ |
+| `deno` | `deno.com/docs` | domain | ✅ |
+| `astro` | `astro.build` | registry | ✅ |
+| `htmx` | `htmx.org/docs/` | domain | ✅ *was `docs.rs/htmx`* |
+| `kubernetes` | `kubernetes.io/docs/home/` | domain | ✅ *was the Python client* |
+| `terraform` | `developer.hashicorp.com/terraform` | domain | ✅ *was `sintaxi/terraform`* |
+| `cloudflare workers` | unresolved | — | ⚠️ honest failure (F6) |
+
+**7 correct · 0 wrong · 1 honest failure**, from 3 correct · 3 wrong. Every
+answer now carries the signals that identified it, so `verified` can be argued
+with:
+
+```
+terraform  -> own-domain, names-it:10
+htmx       -> own-domain, install:npm, names-it:61
+astro      -> own-domain, install:npm, repo-backlink, registry-agreement, names-it:60
+```
+
+Note `fastapi` and `astro` resolved through the *registry* and are still
+correct — domain-first is a preference, not a rule, and the identity checks are
+what make the registry path safe rather than merely usual.
+
+### 7.2 Two things the fixture caught that reasoning did not
+
+Worth recording, because both would have shipped as regressions:
+
+- **`astro` resolved to an astrology site.** It owns `astro.com`, it is
+  enormous, and it says "astro" constantly — which is every signal a
+  name-plus-size check has, and none of the ones that matter. A live domain now
+  has to show *software*: an install line, a forge link, or code samples.
+- **`terraform.com`, an unrelated company, outranked `terraform.io`** on page
+  size. Domains are now ranked on deliberate evidence instead: a name-domain
+  redirecting to a project-specific path elsewhere is somebody consolidating
+  their documentation, and a site that merely serves itself has made no such
+  claim.
+
+A third came from running against the live database rather than the test
+suite. F5 looked fixed — `technologies()`, `versions()` and `entry()` all
+ordered correctly — but `PostgresStore._version_id` still did `order by
+harvested_at desc limit 1`, and that is the lookup `read_knowledge_base`
+actually goes through. Reading the code said done; running it said otherwise.
+
+### 7.3 F9 — what the fix recovers, and the one thing outstanding
+
+Every URL below now resolves to the full dump instead of the index:
+
+| Technology | Stored | Now fetches | Pages after splitting |
+|---|---|---|---|
+| `ai-sdk` | 2,216 | **5,755,322** | 2,605 |
+| `prisma` | 7,086 | **4,957,254** | 3,047 |
+| `nuxt` | 56,614 | **4,448,297** | 2,959 |
+| `railway` | 70,612 | **2,395,280** | 383 |
+| `svelte` | 1,673 | **1,179,728** | 965 |
+| `hono` | 5,649 | **368,654** | 440 |
+| `tanstack` | 11,592 | 11,593 | 1 — no real loss |
+| **Total** | **155,442** | **19,116,128** | **123×** |
+
+> **⚠️ The store still holds the pre-fix data.** All seven technologies were
+> harvested before any of this, so they still contain their indexes and still
+> read `complete: True`. That is stale data, not a live defect — a re-harvest
+> now stores the full documentation and reports honestly. **This is the one
+> action outstanding**, and it takes the corpus from 8,424,298 characters to
+> roughly 27.5 million.
+
+### 7.4 Versions, against the live store
+
+```
+pydantic latest        = 2.11        (was 1.10)
+versions order         = 2.11, 1.10  (was harvest order)
+read("pydantic")       = 85 blocks   (was 24)
+```
+
+### 7.5 The forge guard
+
+```
+is_forge("https://gist.github.com/x/y")            -> True   (was False)
+is_forge("https://raw.githubusercontent.com/a/b")  -> True   (was False)
+is_forge("https://docs.pydantic.dev")              -> False
+```
+
+### 7.6 Tests
+
+346 passing across both backends, from 284 — 316 offline plus the 22 Postgres
+tests that used to skip by default, which CI now runs on every push and fails
+the build if they skip. Plus 22 live accuracy checks behind
+`DOCSFORGE_TEST_NETWORK=1`, in about four minutes.
+
+---
+
+## 8. Summary
+
+| Area | As found | Now |
+|---|---|---|
+| URL → Markdown | ✅ strong | ✅ strong |
+| Crawl scoping | ✅ strong | ✅ strong |
+| DocsStore, ranked search | ✅ strong | ✅ strong |
+| MCP surface generation | ✅ strong | ✅ strong |
+| Manifest parsing | ✅ strong | ✅ strong |
+| Name normalisation | ✅ good | ✅ good |
+| Name → URL resolution | ⚠️ 3 of 8 wrong, all marked verified | ✅ 7 of 8, none wrong |
+| Verification | 🔴 does not distinguish projects | ✅ triangulated, evidence reported |
+| `llms.txt` index vs full dump | 🔴 index stored as complete | ✅ full dump, split into pages |
+| Completeness signal | 🔴 always `true` | ✅ measured; `unknown` is a state |
+| Version selection on read | 🔴 returns most-recent harvest | ✅ newest version |
+| Postgres test coverage | 🟠 skipped by default | ✅ CI runs it, fails if skipped |
+| Long harvests over MCP | 🟠 blocks past client timeouts | 🟠 **unchanged** |
+| Multi-word technologies | 🟠 unreachable | 🟠 **unchanged**, still honest |
+| Stored corpus | — | ⚠️ **pre-fix; needs a re-harvest** (§7.3) |
+
+The finding this audit was really about was never any single bug. It was that
+the three red rows shared one shape: **DocsForge reported confidence it had not
+earned.** A resolution that landed on the wrong project said `verified`. A
+stored table of contents said `complete`. A read with no version said `latest`
+and handed back the older one. The failure mode was not *"no answer"* — it was
+*"a wrong answer that looks checked"*.
+
+That shape is gone. Not because each bug was patched, but because the two
+things underneath them were built: identity is now established by independent
+sources agreeing rather than by counting a word, and completeness is derived
+from a count rather than asserted — with `unknown` as a first-class answer, so
+the system can no longer *express* unearned confidence even where nobody
+anticipated the specific defect.
+
+What is left is honest. `learn_technology` still blocks for twelve minutes on a
+large harvest and will time out in most MCP clients; that is visible, loud, and
+next. `cloudflare workers` still fails to resolve and says so. Neither is a
+wrong answer wearing a checkmark, which is the distinction the whole exercise
+was about.
+
+One thing to note about how this went. Three of the defects fixed here were
+found by *running* the system — two by the live accuracy fixture, one by
+querying the real database — and each of them looked correct in the source.
+The resolver's original 23 tests all stubbed the network, which is exactly why
+nine failures could sit in a green suite. **The fixture is the durable part of
+this work.** The fixes are worth less than the thing that will catch the next
+one.
