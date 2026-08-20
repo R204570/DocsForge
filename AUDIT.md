@@ -37,10 +37,12 @@ Section 6 says what was done about each, section 7 measures the result.
 | F11 | a marketing homepage is accepted when the docs root renders client-side | ✅ **fixed** — §9 |
 | F12 | a homepage harvest scopes to the whole host and returns the blog | ✅ **fixed** — §9 |
 | F13 | a multi-locale sitemap returns an arbitrary language | ✅ **fixed** — §9 |
+| F14 | a harvest could never be removed; the store only grew | ✅ **fixed** — §10 |
 
 **The code is fixed. The stored corpus is not yet** — the seven affected
-technologies were harvested before the fix and still hold their indexes. See
-§7.3, which is the one action outstanding.
+technologies were harvested before the fix and still hold their indexes, and
+`astro` holds 194 blog pages. That is stale data rather than a live defect, and
+clearing it is now a supported operation rather than a wish: see §7.3.
 
 ---
 
@@ -473,7 +475,7 @@ highest-value test to add, and it did not exist.
 > behind `DOCSFORGE_TEST_NETWORK=1`, asserting both the right project and the
 > hard gate that nothing wrong is ever marked `verified`. It earned its place
 > immediately by catching two regressions in the fixes themselves (§7.2), which
-> is a better argument for it than anything written here. The suite is now 346
+> is a better argument for it than anything written here. The suite is now 375
 > passing across both backends, up from 284.
 
 ---
@@ -614,10 +616,21 @@ Every URL below now resolves to the full dump instead of the index:
 
 > **⚠️ The store still holds the pre-fix data.** All seven technologies were
 > harvested before any of this, so they still contain their indexes and still
-> read `complete: True`. That is stale data, not a live defect — a re-harvest
-> now stores the full documentation and reports honestly. **This is the one
-> action outstanding**, and it takes the corpus from 8,424,298 characters to
-> roughly 27.5 million.
+> read `complete: True`. `astro`, harvested during the session in §9, holds 194
+> blog pages and one documentation page. That is stale data, not a live defect
+> — a re-harvest stores the full documentation and reports honestly, and takes
+> the corpus from 8,424,298 characters to roughly 27.5 million.
+>
+> Until recently there was no way to clear it: `kb_store` had `delete()` on both
+> backends and nothing could call it, so the store could only ever grow. It is
+> now reachable from DocsStore, over HTTP, and from the command line:
+>
+> ```bash
+> python docsforge.py --forget astro --forget ai-sdk --forget prisma --yes
+> ```
+>
+> **This is the one action outstanding**, and it is the owner's to take — the
+> harvests are theirs.
 
 ### 7.4 Versions, against the live store
 
@@ -637,7 +650,7 @@ is_forge("https://docs.pydantic.dev")              -> False
 
 ### 7.6 Tests
 
-346 passing across both backends, from 284 — 316 offline plus the 22 Postgres
+375 passing across both backends, from 284 — offline plus the 22 Postgres
 tests that used to skip by default, which CI now runs on every push and fails
 the build if they skip. Plus 22 live accuracy checks behind
 `DOCSFORGE_TEST_NETWORK=1`, in about four minutes.
@@ -662,6 +675,7 @@ the build if they skip. Plus 22 live accuracy checks behind
 | Postgres test coverage | 🟠 skipped by default | ✅ CI runs it, fails if skipped |
 | Long harvests over MCP | 🟠 blocks past client timeouts | 🟠 **unchanged** |
 | Multi-word technologies | 🟠 unreachable | 🟠 **unchanged**, still honest |
+| Removing a harvest | 🔴 impossible; the store only grew | ✅ DocsStore, CLI, HTTP |
 | Stored corpus | — | ⚠️ **pre-fix; needs a re-harvest** (§7.3) |
 
 The finding this audit was really about was never any single bug. It was that
@@ -812,3 +826,42 @@ by **using the product as its actual audience would** — a small model, a plain
 question, no special knowledge — and none by testing a component. A resolution
 fixture measures resolution. It says nothing about whether a 9B model can get
 an answer out of the thing, which is the only question that matters.
+
+---
+
+## 10. F14 — the store could only ever grow 🔴
+
+Not found by auditing behaviour. Found by the owner trying to clear the wrong
+harvest from §9 and discovering there was no way to.
+
+`kb_store` had `delete()` on **both** backends the whole time — tested, working,
+and unreachable. No route, no UI, no CLI flag, no tool. The capability was
+stranded, so every wrong harvest was permanent: the wrong project, a partial
+copy, a table of contents stored as though it were the documentation. All of it
+accumulated, and the only remedy was to edit the database by hand.
+
+This matters more in the light of the rest of this audit than it would in
+isolation. An audit whose findings are *"the store confidently holds wrong
+things"* is much worse when the wrong things cannot be taken out.
+
+Fixed with three surfaces, all of them for a person:
+
+```
+DocsStore   a delete control per version, and one for the technology
+CLI         docsforge --forget NAME[@VERSION]
+HTTP        DELETE /api/library/{tech}[/{version}]
+```
+
+**The model gets none of them by default.** Deleting is the only irreversible
+thing DocsForge does, and a model that has just mis-resolved a name is the last
+caller who should hold that lever — 703 pages of Effect are one confident
+hallucination away. `DOCSFORGE_ALLOW_DELETE=1` adds a `forget_documentation`
+tool for anyone who wants it, and its description says plainly that
+re-harvesting does not need it: harvesting the same name again replaces that
+version on its own.
+
+Two smaller things fell out of building it. `isatty()` is not a sufficient
+guard on a confirmation prompt — a pipe or a test harness can report as a
+terminal and still hand back EOF — so anything other than a person typing "yes"
+is read as no. And the version list rendered a `null` `complete` as "partial
+harvest"; three states need three labels, so unknown coverage now says so.

@@ -6,7 +6,7 @@
 > names the audit used, resolution went from **3 correct / 3 wrong** to
 > **7 correct / 0 wrong**, with nothing wrong marked `verified`. The seven
 > technologies that stored a table of contents now reach **19.1 million
-> characters instead of 155 thousand**. Tests are 346 across both backends, up
+> characters instead of 155 thousand**. Tests are 375 across both backends, up
 > from 284, plus a live accuracy fixture. §7 has the full scorecard.
 >
 > **D1 is the largest thing still open** — a long harvest still blocks past MCP
@@ -320,6 +320,34 @@ version      : { label: "2.11", source: url | page | harvest-date }
 A model can then distinguish *"here is the documentation"* from *"here is my
 best guess"* — which today it cannot, because both look identical.
 
+### 4.8 Taking things out — added after the owner tried to
+
+Everything above assumes the store is something you add to. It was only that: a
+harvest, once taken, was permanent. `kb_store` had `delete()` on both backends
+and nothing could call it — no route, no UI, no CLI, no tool. The capability
+was written, tested, and unreachable.
+
+That is a worse gap here than it would be elsewhere, and the rest of this
+document is why:
+
+> A design whose central finding is *"the store confidently holds wrong
+> things"* cannot also be a design where wrong things are permanent. Every
+> honesty signal in 4.4 and 4.7 exists to tell a caller that a copy is bad. If
+> the answer to "so remove it" is *you can't*, the signal is just a label on a
+> problem nobody can act on.
+
+So a store needs a full lifecycle, not an append path. Concretely: remove one
+version, or a technology and all of it, from **DocsStore, the CLI, and HTTP** —
+three surfaces because the person who took a harvest is the one who decides it
+was a mistake.
+
+**And not from the model, by default.** Deletion is the only irreversible
+operation in the product, and by 4.1's own argument the caller most likely to
+want it is the one that has just mis-resolved a name. It is opt-in behind
+`DOCSFORGE_ALLOW_DELETE`, and re-harvesting deliberately does not route through
+it — harvesting the same name again replaces that version on its own, so
+"refresh this" never needs a delete.
+
 ---
 
 ## 5. How each finding dies
@@ -339,6 +367,7 @@ best guess"* — which today it cannot, because both look identical.
 | F11 | marketing homepage accepted when the docs root is client-rendered | 4.1 docs-host signal | ✅ |
 | F12 | homepage harvest scopes to the whole host, returns the blog | 4.3 selection | ✅ |
 | F13 | multi-locale sitemap returns an arbitrary language | 4.3 selection | ✅ |
+| F14 | a harvest could never be removed | 4.8 | ✅ |
 
 The two open rows are the two that were never in the correctness core. Both
 fail *loudly* — a timeout and an explicit "unresolved" — which is the property
@@ -390,7 +419,7 @@ Numbers, so this can be shown to have worked rather than argued to have worked.
 | Documentation reachable for those 7 | 155 K chars | — | ✅ **19.1 M** (123×) |
 | `latest` returns newest version | no | yes | ✅ yes, all four lookups |
 | Postgres suite in CI | skipped | green | ✅ green, and fails if it skips |
-| Tests | 284 | — | ✅ **346** across both backends |
+| Tests | 284 | — | ✅ **375** across both backends |
 | Harvest does not block past MCP timeouts | no | yes | ⬜ **not done** (D1) |
 | Stored corpus | 8.42 M chars | ~27.5 M | ⬜ **needs a re-harvest** — see below |
 
@@ -435,7 +464,7 @@ as regressions introduced by the fixes.
 > same eight names the audit used, resolution went from 3 correct / 3 wrong to
 > **7 correct / 0 wrong**, with nothing wrong marked `verified`. `hono` harvests
 > to 440 pages / 434,041 characters where it stored 1 page / 5,649. The suite is
-> 346 passing across both backends, plus a live accuracy fixture. **D1, D2 and
+> 375 passing across both backends, plus a live accuracy fixture. **D1, D2 and
 > all of E remain open** — see the bottom of this section.
 
 ### Phase A — stop reporting unearned confidence · days · **done**
