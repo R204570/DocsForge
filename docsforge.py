@@ -277,8 +277,15 @@ def detect_source(url: str, fetcher: Fetcher) -> Detection:
 
     if host in ("github.com", "www.github.com") and not u.endswith((".md", ".txt")):
         return Detection("github", url)
-    if u.endswith(("llms-full.txt", "llms.txt")):
+    if u.endswith("llms-full.txt"):
         return Detection("llms_txt", url)
+    if u.endswith("llms.txt"):
+        # The convention has two shapes: a full dump, and a short *index* that
+        # names a fuller file beside it. Taking the index at face value is how
+        # 2 KB of the AI SDK's 5.7 MB got stored and recorded as complete — and
+        # it only ever happened on this path, because the probe below already
+        # prefers llms-full.txt and never got the chance to run.
+        return _fuller_dump(url, fetcher) or Detection("llms_txt", url)
     if u.endswith("sitemap.xml") or path.endswith("/sitemap_index.xml"):
         return Detection("sitemap", url)
 
@@ -353,9 +360,109 @@ def _looks_like_openapi(text: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 # Strategy: llms.txt (already LLM-ready)
 # ─────────────────────────────────────────────────────────────
+#: A full dump runs to megabytes — ai-sdk.dev publishes 5.7 MB — so it needs a
+#: budget the ordinary probe timeout does not give it. The short timeout used
+#: to bias *against* large files: the more documentation a site published, the
+#: likelier the fetch lost and a 2 KB index won instead.
+DUMP_TIMEOUT = 45
+
+#: Below this a dump is left as one page; splitting a short file just scatters
+#: it. Above it, one page makes the whole document rank as a single search hit.
+SPLIT_ABOVE = 60_000
+SPLIT_MIN_PARTS = 3
+SPLIT_MAX_PARTS = 4_000
+
+#: Files an `llms.txt` index points at, best first.
+DUMP_SIBLINGS = ("llms-full.txt", "llms-medium.txt")
+
+#: A sibling has to carry real text to be worth preferring over the index.
+MIN_DUMP = 1_000
+
+
+def _fuller_dump(url: str, fetcher: Fetcher) -> "Detection | None":
+    """The full dump sitting beside an `llms.txt` index, if the site has one.
+
+    Checked in the index's own directory first and then at the origin, because
+    both are in use — Prisma publishes `/docs/llms-full.txt` while most sites
+    put it at the root.
+    """
+    seen = set()
+    for sibling in DUMP_SIBLINGS:
+        for target in (urljoin(url, sibling), urljoin(url, "/" + sibling)):
+            if target in seen or target.lower() == url.lower():
+                continue
+            seen.add(target)
+            try:
+                r = fetcher.get(target, timeout=DUMP_TIMEOUT, allow_redirects=True)
+            except ForgeError:
+                continue
+            ctype = (r.headers.get("content-type") or "").lower()
+            if r.status_code != 200 or "html" in ctype:
+                continue
+            body = _decode(r)
+            if len(body) >= MIN_DUMP:
+                return Detection("llms_txt", target, body)
+    return None
+
+
+def _anchor(title: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "section"
+
+
+def _split_dump(text: str) -> list[tuple[str, str]]:
+    """Cut a large single-file dump into pages on its own headings.
+
+    Returns [(title, chunk), ...], or [] to leave the text alone. The heading
+    level is chosen by result rather than assumed: whichever of `#`, `##` or
+    `###` yields the most pages without going silly is the one the document
+    actually uses for sections.
+    """
+    if len(text) < SPLIT_ABOVE:
+        return []
+
+    best, best_hits = None, []
+    for prefix in ("#", "##", "###"):
+        hits = list(re.finditer(rf"^{prefix}[ \t]+(\S[^\n]*)$", text, re.M))
+        if SPLIT_MIN_PARTS <= len(hits) <= SPLIT_MAX_PARTS and len(hits) > len(best_hits):
+            best, best_hits = prefix, hits
+    if not best:
+        return []
+
+    parts: list[tuple[str, str]] = []
+    # Anything before the first heading is the document's own preamble. Its
+    # first line is often a machine-readable banner rather than a title —
+    # Hono's opens with a <SYSTEM> tag — so it gets tidied before being shown.
+    if best_hits[0].start() > 0:
+        head = text[:best_hits[0].start()].strip()
+        if head:
+            first = re.sub(r"<[^>]*>", " ", head.split("\n", 1)[0]).lstrip("# ").strip()
+            parts.append(((first[:90].rstrip() or "Overview"), head))
+
+    for i, hit in enumerate(best_hits):
+        end = best_hits[i + 1].start() if i + 1 < len(best_hits) else len(text)
+        chunk = text[hit.start():end].strip()
+        if chunk:
+            parts.append((hit.group(1).strip(), chunk))
+    return parts
+
+
 def handle_llms_txt(det: Detection, fetcher: Fetcher, opts: Options) -> list[Doc]:
-    body = det.body if det.body is not None else fetcher.text(det.url)
-    return [Doc(det.url, "llms.txt", _meta_header(det.url, "llms.txt") + body.strip())]
+    body = det.body if det.body is not None else fetcher.text(det.url, timeout=DUMP_TIMEOUT)
+    body = body.strip()
+
+    # A multi-megabyte dump kept as a single page is technically stored and
+    # practically unsearchable: every query matches "page 1" and the snippet
+    # ranking has nothing to choose between. Effect's 703 pages rank well
+    # precisely because they are 703 pages.
+    parts = _split_dump(body)
+    if len(parts) < 2:
+        return [Doc(det.url, "llms.txt", _meta_header(det.url, "llms.txt") + body)]
+
+    docs = [Doc(f"{det.url}#{_anchor(title)}", title,
+                _meta_header(det.url, "llms.txt") + chunk)
+            for title, chunk in parts]
+    _log(opts, f"  split {len(body):,} characters into {len(docs)} pages")
+    return docs
 
 
 # ─────────────────────────────────────────────────────────────
@@ -763,6 +870,11 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
         stats["fetched"] = len(out)
         stats["remaining"] = len(queue)
         stats["truncated"] = bool(queue)
+        # A crawl that drained its frontier reached everything linked inside
+        # its scope. That is a real claim, and a weaker one than a sitemap:
+        # pages nothing links to are invisible to it either way.
+        stats["whole"] = not queue
+        stats.setdefault("discovered", len(out) + len(queue))
 
     if not out:
         raise ForgeError(f"Crawl produced no pages from {start}")
@@ -885,6 +997,39 @@ def forge(url: str, opts: Options | None = None, fetcher: Fetcher | None = None)
             fetcher.close()
 
 
+#: An index that still names a fuller file we could not fetch. Storing it is
+#: storing a table of contents, and the caller has to be told so.
+_NAMES_A_FULLER_FILE = re.compile(r"llms-(full|medium)\.txt", re.I)
+
+
+def _note_coverage(stats: dict | None, det: "Detection", docs: list) -> None:
+    """Record whether this harvest actually got the whole documentation.
+
+    `whole` is three-valued on purpose. `True` is a claim we can defend, `False`
+    is a known gap, and `None` means nobody counted — which must never be
+    presented to a model as if it were `True`.
+    """
+    if stats is None:
+        return
+    whole: bool | None
+    if det.kind == "llms_txt":
+        body = "\n".join(d.markdown for d in docs)[:200_000]
+        # A full dump is the site handing over everything it has. An index that
+        # still points at a fuller file is the opposite, and is exactly what
+        # got stored as `complete` for seven technologies.
+        whole = not (det.url.lower().endswith("llms.txt")
+                     and _NAMES_A_FULLER_FILE.search(body))
+        if not whole:
+            stats["reason"] = ("stored an llms.txt index that names a fuller "
+                               "file which could not be fetched")
+    else:
+        # A spec, a single file, or a repository's Markdown tree: each is
+        # enumerated in full by its handler.
+        whole = True
+    stats["whole"] = whole
+    stats.setdefault("discovered", len(docs))
+
+
 def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = None,
             stats: dict | None = None) -> tuple[list[Doc], str]:
     """Get a WHOLE documentation set from one starting URL.
@@ -915,7 +1060,9 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                            "the URL asks for one version of the docs")
             else:
                 _log(opts, f"  harvesting via {det.kind}")
-                return HANDLERS[det.kind](det, fetcher, opts), det.kind
+                docs = HANDLERS[det.kind](det, fetcher, opts)
+                _note_coverage(stats, det, docs)
+                return docs, det.kind
 
         prefix = docs_scope(url) if opts.scope in ("", "section", None) else (
             "/" if opts.scope == "host" else opts.scope)
@@ -950,6 +1097,15 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                     _log(opts, f"  [{len(out)}] {link}")
                     time.sleep(opts.delay)
                 if out:
+                    # The sitemap is the site's own list of what exists, so
+                    # this is the one strategy that can measure completeness
+                    # against something other than its own effort.
+                    if stats is not None:
+                        stats["whole"] = len(out) >= len(scoped)
+                        if not stats["whole"]:
+                            stats["reason"] = (
+                                f"stored {len(out)} of the {len(scoped)} pages "
+                                f"the sitemap lists")
                     return out, "sitemap"
 
         _log(opts, "  harvesting by crawl")

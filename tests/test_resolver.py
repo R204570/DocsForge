@@ -115,41 +115,115 @@ def test_a_published_llms_txt_wins_the_probe():
     assert found[0].confidence >= 0.95
 
 
+PAGE = "Getting started. " * 40      # enough text to clear the content floor
+
+
 def test_an_html_docs_root_is_found_when_there_is_no_llms_txt():
     fetcher = FakeFetcher({
-        "https://x.dev/docs": FakeResponse("<h1>Docs</h1>", url="https://x.dev/docs/"),
+        "https://x.dev/docs": FakeResponse(f"<h1>Docs</h1><p>{PAGE}</p>",
+                                           url="https://x.dev/docs/"),
     })
     found = resolver.probe_docs_root("https://x.dev", fetcher)
     assert found and "/docs" in found[0].url
 
 
-# ── verification ─────────────────────────────────────────
-def test_a_page_that_repeats_the_name_verifies():
-    fetcher = FakeFetcher({"https://x.dev": FakeResponse("effect effect effect")})
-    got = resolver.verify(Candidate("https://x.dev", "t", 0.5), "effect", fetcher)
+def test_an_empty_redirect_shell_is_not_a_docs_root():
+    """The measured Astro failure: docs.astro.build answers 200 with 3
+    characters of text, and accepting it cost the correct answer — it entered
+    the pool, failed verification, and handed the win to the marketing page."""
+    fetcher = FakeFetcher({
+        "https://x.dev/docs": FakeResponse("<html><body></body></html>",
+                                           url="https://x.dev/docs"),
+    })
+    assert resolver.probe_docs_root("https://x.dev", fetcher) == []
+
+
+def test_a_client_side_redirect_is_followed_to_the_real_page():
+    fetcher = FakeFetcher({
+        "https://x.dev/docs": FakeResponse(
+            '<meta http-equiv="refresh" content="0; url=/guide/intro">',
+            url="https://x.dev/docs"),
+        "https://x.dev/guide/intro": FakeResponse(f"<h1>Guide</h1>{PAGE}",
+                                                  url="https://x.dev/guide/intro"),
+    })
+    found = resolver.probe_docs_root("https://x.dev", fetcher)
+    assert found and found[0].url.endswith("/guide/intro")
+
+
+# ── identity ─────────────────────────────────────────────
+def test_repeating_the_name_is_not_proof_of_identity():
+    """The F1 failure in miniature.
+
+    A page about *any* project called terraform says "terraform" constantly, so
+    counting the word measures the topic and not the project. Three live
+    resolutions passed this check and landed on the wrong software.
+    """
+    fetcher = FakeFetcher({"https://unrelated.example": FakeResponse("effect " * 40)})
+    got = resolver.verify(Candidate("https://unrelated.example", "t", 0.5),
+                          "effect", fetcher)
+    assert got.verified is False
+    assert "names-it:40" in got.signals, "the mention count is still reported…"
+    assert "not enough to identify" in got.reason, "…just no longer sufficient"
+
+
+def test_the_projects_own_domain_plus_the_name_identifies_it():
+    fetcher = FakeFetcher({"https://effect.dev": FakeResponse("effect " * 40)})
+    got = resolver.verify(Candidate("https://effect.dev", "t", 0.5), "effect", fetcher)
+    assert got.verified is True
+    assert "own-domain" in got.signals
+
+
+def test_a_forge_url_never_counts_as_the_projects_own_domain():
+    fetcher = FakeFetcher({
+        "https://github.com/sintaxi/terraform": FakeResponse("terraform " * 40)})
+    got = resolver.verify(Candidate("https://github.com/sintaxi/terraform", "t", 0.5),
+                          "terraform", fetcher)
+    assert got.verified is False
+    assert "own-domain" not in got.signals
+
+
+def test_an_install_line_identifies_the_ecosystem():
+    body = "<h1>htmx</h1><pre>npm install htmx</pre>" + "htmx " * 40
+    fetcher = FakeFetcher({"https://elsewhere.example": FakeResponse(body)})
+    got = resolver.verify(Candidate("https://elsewhere.example", "t", 0.5), "htmx",
+                          fetcher, {"ecosystem": "npm"})
+    assert "install:npm" in got.signals
     assert got.verified is True
 
 
-def test_one_passing_mention_is_not_proof():
-    # Every page on the internet says "effect" once. Accepting that is how a
-    # resolver becomes an elaborate guess.
-    fetcher = FakeFetcher({"https://x.dev": FakeResponse("this has some effect on things")})
-    got = resolver.verify(Candidate("https://x.dev", "t", 0.5), "effect", fetcher)
+def test_an_install_line_from_the_wrong_ecosystem_is_held_against_it():
+    """`npm i htmx` and `cargo add htmx` are different projects sharing a word.
+    Resolving htmx landed on a Rust crate; the ecosystems disagreeing is the
+    signal that should have stopped it."""
+    body = "<h1>htmx</h1><pre>cargo add htmx</pre>" + "htmx " * 40
+    fetcher = FakeFetcher({"https://docs.rs/htmx": FakeResponse(body)})
+    got = resolver.verify(Candidate("https://docs.rs/htmx", "t", 0.5), "htmx",
+                          fetcher, {"ecosystem": "npm"})
     assert got.verified is False
-    assert "too weak" in got.reason
+    assert any(s.startswith("install-mismatch") for s in got.signals)
+
+
+def test_a_backlink_to_the_declared_repository_identifies_it():
+    body = ('<a href="https://github.com/honojs/hono">source</a>' + "hono " * 40)
+    fetcher = FakeFetcher({"https://elsewhere.example": FakeResponse(body)})
+    got = resolver.verify(Candidate("https://elsewhere.example", "t", 0.5), "hono",
+                          fetcher, {"repository": "https://github.com/honojs/hono"})
+    assert "repo-backlink" in got.signals
+    assert got.verified is True
 
 
 def test_a_page_that_never_names_it_fails():
     fetcher = FakeFetcher({"https://x.dev": FakeResponse("something else entirely")})
     got = resolver.verify(Candidate("https://x.dev", "t", 0.5), "effect", fetcher)
     assert got.verified is False
-    assert "never mentions" in got.reason
+    assert got.signals == []
+    assert "nothing on the page identifies it" in got.reason
 
 
 def test_markup_does_not_hide_the_name():
-    fetcher = FakeFetcher({"https://x.dev": FakeResponse(
+    fetcher = FakeFetcher({"https://effect.dev": FakeResponse(
         "<title>effect</title><h1>effect</h1><code>import effect</code>")})
-    got = resolver.verify(Candidate("https://x.dev", "t", 0.5), "effect", fetcher)
+    got = resolver.verify(Candidate("https://effect.dev", "t", 0.5), "effect", fetcher)
     assert got.verified is True
 
 
