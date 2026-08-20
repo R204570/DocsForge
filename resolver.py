@@ -49,12 +49,16 @@ class Candidate:
     evidence: str = ""
     verified: bool | None = None  # None = not checked yet
     reason: str = ""
+    #: Which identity checks fired. `verified: true` on its own is what made
+    #: the wrong answers dangerous — a caller shown the reasons can disagree.
+    signals: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
             "url": self.url, "source": self.source,
             "confidence": round(self.confidence, 2), "evidence": self.evidence,
             "verified": self.verified, "reason": self.reason,
+            "signals": list(self.signals),
         }
 
 
@@ -65,13 +69,16 @@ class Resolution:
     candidates: list[Candidate] = field(default_factory=list)
     best: Candidate | None = None
     note: str = ""
+    #: "domain", "registry", or "" when nothing resolved. Part of the honesty
+    #: contract: how an answer was reached bears on how much to trust it.
+    resolved_via: str = ""
 
     def as_dict(self) -> dict:
         return {
             "name": self.name, "ecosystem": self.ecosystem,
             "best": self.best.as_dict() if self.best else None,
             "candidates": [c.as_dict() for c in self.candidates],
-            "note": self.note,
+            "note": self.note, "resolved_via": self.resolved_via,
         }
 
 
@@ -139,7 +146,7 @@ def _clean_repo(url: str) -> str:
 #: probing `github.com/llms.txt` finds GitHub's own file and offers it as the
 #: documentation for whatever package happened to be asked about.
 FORGES = ("github.com", "gitlab.com", "bitbucket.org", "sourceforge.net",
-          "codeberg.org", "git.sr.ht")
+          "codeberg.org", "git.sr.ht", "githubusercontent.com")
 
 
 def _host(url: str) -> str:
@@ -147,7 +154,61 @@ def _host(url: str) -> str:
 
 
 def is_forge(url: str) -> bool:
-    return _host(url) in FORGES
+    """Is this URL on a code host rather than a project's own site?
+
+    Matched by suffix, not equality. Exact matching let `gist.github.com` and
+    `raw.githubusercontent.com` through, and probing them offered GitHub's own
+    `llms.txt` as the documentation for whatever had been asked about — it
+    entered one live resolution at 0.95, the top-scoring candidate of the run,
+    and lost only because that file happened not to contain the word.
+    """
+    host = _host(url)
+    return any(host == forge or host.endswith("." + forge) for forge in FORGES)
+
+
+#: How much readable text a page must carry before it counts as documentation.
+#: Tuned against the measured failure: the real Astro docs root returns 3
+#: characters, the marketing homepage 6,448.
+MIN_PROBE_TEXT = 200
+
+#: `<meta http-equiv="refresh" content="0; url=…">`, the usual shape of the
+#: stub that sits where a docs root used to be.
+_META_REFRESH = re.compile(
+    r"""<meta[^>]+http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*"""
+    r"""["'][^"']*url\s*=\s*([^"'\s>]+)""", re.I)
+
+#: A stub that redirects with a script instead: `location.href = "..."`.
+_JS_REDIRECT = re.compile(
+    r"""location(?:\.href|\.replace\()?\s*=?\s*\(?\s*["']([^"']+)["']""", re.I)
+
+
+def _visible_text(html: str) -> str:
+    """Roughly what a reader would see, for measuring whether a page is empty."""
+    body = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html or "")
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body)).strip()
+
+
+def _follow_client_redirect(response, base: str, fetcher: Fetcher):
+    """Follow one hop of a redirect the HTTP layer cannot see.
+
+    `requests` follows 3xx, but a page that redirects with a meta tag or a line
+    of JavaScript arrives as a perfectly good 200 holding nothing. That is not
+    a page, it is a signpost, and the thing it points at is the answer.
+    """
+    html = getattr(response, "text", "") or ""
+    if len(html) > 4_000:            # a real page, not a signpost
+        return None
+    match = _META_REFRESH.search(html) or _JS_REDIRECT.search(html)
+    if not match:
+        return None
+    target = urljoin(base, match.group(1).strip())
+    if target.rstrip("/") == base.rstrip("/"):
+        return None
+    try:
+        hop = fetcher.get(target, timeout=PROBE_TIMEOUT, allow_redirects=True)
+    except ForgeError:
+        return None
+    return hop if hop.status_code == 200 else None
 
 
 def _looks_like_docs(url: str) -> bool:
@@ -240,6 +301,24 @@ def _crates(name: str, fetcher: Fetcher) -> list[Candidate]:
 REGISTRIES = {"npm": _npm, "pypi": _pypi, "crates": _crates}
 
 
+def _facts_from(found: list[Candidate], ecosystem: str) -> dict:
+    """What the registries claimed, for the identity checks to test against.
+
+    These are the independent statements a candidate page can agree with: the
+    repository the package declares, and the homepage it declares. Agreement
+    between two sources that never consulted each other is the evidence a
+    mention count cannot provide.
+    """
+    facts: dict = {"ecosystem": ecosystem}
+    for cand in found:
+        tail = cand.source.rsplit(":", 1)[-1].lower()
+        if "repo" in tail or "source" in tail:
+            facts.setdefault("repository", cand.url)
+        elif "home" in tail:
+            facts.setdefault("homepage", cand.url)
+    return facts
+
+
 def from_registries(name: str, ecosystem: str, fetcher: Fetcher) -> tuple[list[Candidate], str]:
     """Ask the package registries where this library documents itself.
 
@@ -285,6 +364,17 @@ def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
         if r.status_code != 200:
             continue
         ctype = (r.headers.get("content-type") or "").lower()
+        if "html" in ctype and not path.endswith(".txt"):
+            # An HTTP 200 is not a documentation root. `docs.astro.build`
+            # answers 200 with an 80-byte client-side redirect shell holding
+            # three characters of text, and accepting it cost the *correct*
+            # answer: it entered the pool, failed verification, and handed the
+            # win to the marketing homepage.
+            hop = _follow_client_redirect(r, target, fetcher)
+            if hop is not None:
+                r = hop
+            if len(_visible_text(getattr(r, "text", ""))) < MIN_PROBE_TEXT:
+                continue
         if path.endswith(".txt"):
             if "html" in ctype:
                 continue
@@ -301,6 +391,121 @@ def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
 
 
 # ─────────────────────────────────────────────────────────────
+# The project's own domain
+# ─────────────────────────────────────────────────────────────
+#: Tried in order, and kept short because each one costs a request. `.com`
+#: is last: it is the most heavily squatted, so it is the least trustworthy
+#: evidence that the project owns the name.
+NAME_TLDS = ("dev", "io", "org", "com")
+
+#: A missing domain fails fast at DNS, so this can be tight.
+DOMAIN_TIMEOUT = 6
+
+#: How many live domains get the full docs-root treatment. Bounded because
+#: each one costs a handful of requests, and past the second the returns are
+#: not worth the latency.
+DOMAINS_EXPLORED = 2
+
+
+#: Evidence that a site is about software at all, rather than merely owning
+#: the word. Without this gate `astro` resolves to an astrology site: it owns
+#: astro.com, it is enormous, and it says "astro" constantly — which is every
+#: signal a name-and-size check has, and none of the ones that matter.
+_FORGE_LINK = re.compile(r"https?://(?:www\.)?(?:github|gitlab|bitbucket)\.com/[\w.\-]+/", re.I)
+_CODE_BLOCK = re.compile(r"<(?:code|pre)[\s>]", re.I)
+
+
+def _looks_like_software(body: str, slug: str) -> str:
+    """Why this page appears to be a software project's, or "" if it does not."""
+    if _install_line(re.sub(r"<[^>]+>", " ", body), slug):
+        return "an install command"
+    if _FORGE_LINK.search(body):
+        return "a link to its source repository"
+    if len(_CODE_BLOCK.findall(body)) >= 3:
+        return "code samples"
+    return ""
+
+
+def _domain_score(origin: str, landed: str, html: str, slug: str) -> int:
+    """How strongly this domain looks like *the* home of the technology.
+
+    Two live domains can both pass the software gate — `terraform.io` and
+    `terraform.com` did, and page size preferred the wrong one. What separates
+    them is deliberateness: `terraform.io` redirects to
+    `developer.hashicorp.com/terraform`, and a name-domain pointed at a
+    project-specific path somewhere else is somebody consolidating their
+    documentation. A site that simply serves itself has made no such claim.
+    """
+    score = 0
+    if _host(landed) != _host(origin):
+        score += 2
+        if slug in urlparse(landed).path.lower():
+            score += 3
+    if _install_line(re.sub(r"<[^>]+>", " ", html), slug):
+        score += 2
+    if _FORGE_LINK.search(html):
+        score += 1
+    return score
+
+
+def from_domains(name: str, fetcher: Fetcher) -> list[Candidate]:
+    """Look for the project's own site before asking anyone else.
+
+    Measured, this is the whole ballgame: every correct resolution in the audit
+    came from the project's own domain, and every wrong one came through a
+    registry. Registries answer "what package is named X", which is a different
+    question from "what is the technology X" — and when the two disagree,
+    `terraform` is an unrelated static-site tool and `kubernetes` is a Python
+    client library.
+    """
+    slug = normalise(name)
+    if not slug or len(slug) < 2:
+        return []
+
+    live: list[tuple[int, str, str]] = []
+    for tld in NAME_TLDS:
+        origin = f"https://{slug}.{tld}"
+        try:
+            r = fetcher.get(origin, timeout=DOMAIN_TIMEOUT, allow_redirects=True)
+        except ForgeError:
+            continue
+        if r.status_code != 200 or "html" not in (
+                r.headers.get("content-type") or "").lower():
+            continue
+        html = getattr(r, "text", "")
+        text = len(_visible_text(html))
+        if text < MIN_PROBE_TEXT:
+            continue
+        # Owning the word is not the same as being the software. Something on
+        # the page has to say "this is a code project" before the domain counts
+        # as the project's, or any common noun resolves to whoever bought it.
+        why = _looks_like_software(html, slug)
+        if not why:
+            continue
+        landed = getattr(r, "url", "") or origin
+        live.append((_domain_score(origin, landed, html, slug), text, tld, landed, why))
+
+    # A project can own several of these and put different things on them:
+    # `kubernetes.dev` is the contributor portal and `kubernetes.io` the
+    # documentation, while `terraform.com` is a different company entirely.
+    # Rank on deliberate evidence first and volume of text only as a tiebreak.
+    live.sort(reverse=True)
+
+    out: list[Candidate] = []
+    for _score, text, tld, landed, why in live[:DOMAINS_EXPLORED]:
+        # The homepage is usually marketing with the docs one click away, so
+        # the docs root under it outranks it.
+        for found in probe_docs_root(landed, fetcher):
+            found.source = f"domain:{tld}/{found.source}"
+            found.confidence = min(0.97, found.confidence + 0.02)
+            out.append(found)
+        out.append(Candidate(landed, f"domain:{tld}", 0.75,
+                             f"{slug}.{tld} is the project's own domain and "
+                             f"carries {why}"))
+    return out
+
+
+# ─────────────────────────────────────────────────────────────
 # Verification
 # ─────────────────────────────────────────────────────────────
 #: How much of a page to read when checking it is the right library. The name
@@ -312,13 +517,114 @@ VERIFY_WINDOW = 40_000
 MIN_MENTIONS = 3
 
 
-def verify(candidate: Candidate, name: str, fetcher: Fetcher) -> Candidate:
-    """Confirm a page actually documents the package that was asked for.
+#: Install commands, per ecosystem. A page that tells you how to install the
+#: package is a page about that package, in that ecosystem — which is the
+#: distinction `htmx` needed: `npm i htmx` and `cargo add htmx` are different
+#: projects that happen to share a word.
+_INSTALL = (
+    ("npm", r"(?:npm|pnpm|bun)\s+(?:i|add|install|create)\s+(?:-\w+\s+)*"),
+    ("npm", r"yarn\s+add\s+"),
+    ("pypi", r"(?:pip|pip3|uv pip|poetry add|conda install)\s+(?:install\s+)?"),
+    ("crates", r"cargo\s+add\s+"),
+    ("go", r"go\s+get\s+(?:[\w.\-/]+/)?"),
+)
+
+
+def _owns_the_name(url: str, slug: str) -> bool:
+    """Is the name a whole label of this host?
+
+    `htmx.org`, `kubernetes.io`, `docs.pydantic.dev`, `fastapi.tiangolo.com` —
+    all the project itself. `github.com/sintaxi/terraform` and `docs.rs/htmx`
+    are not, and that single distinction separates every correct answer in the
+    audit from every wrong one. Owning a label in the hostname is a far
+    stronger claim on a bare name than being one package in one namespaced,
+    first-come registry.
+    """
+    if not slug or is_forge(url):
+        return False
+    labels = _host(url).split(".")
+    flat = slug.replace("-", "")
+    return any(label == slug or label.replace("-", "") == flat for label in labels)
+
+
+def _install_line(body: str, slug: str) -> str:
+    """The ecosystem an install command on this page names, or ""."""
+    for eco, prefix in _INSTALL:
+        # The package may be scoped or path-qualified; anchor on the bare name.
+        if re.search(prefix + r"[\"'@\w./\-]*\b" + re.escape(slug) + r"\b",
+                     body, re.I):
+            return eco
+    return ""
+
+
+def identity_signals(candidate: Candidate, name: str, body: str,
+                     facts: dict | None = None) -> list[str]:
+    """Independent reasons to believe this page documents *this* project.
+
+    Counting how often a page says a word measures its topic, not its
+    identity: a page about any project called terraform says "terraform"
+    constantly. What distinguishes projects is agreement between sources that
+    did not consult each other — the host owning the name, an install line in
+    the right ecosystem, a link back to the repository the registry declared.
+    """
+    slug = normalise(name)
+    facts = facts or {}
+    text = re.sub(r"<[^>]+>", " ", body)
+    found: list[str] = []
+
+    # A project's domain may redirect off itself — terraform.io lands on
+    # developer.hashicorp.com — so how we arrived counts, not just where.
+    if facts.get("via_domain") or _owns_the_name(candidate.url, slug):
+        found.append("own-domain")
+
+    eco = _install_line(text, slug)
+    if eco:
+        wanted = facts.get("ecosystem")
+        found.append(f"install:{eco}" if not wanted or wanted == eco
+                     else f"install-mismatch:{eco}")
+
+    repo = (facts.get("repository") or "").rstrip("/")
+    if repo:
+        path = urlparse(repo).path.strip("/").lower()
+        if path and path in body.lower() and candidate.url.rstrip("/") != repo:
+            found.append("repo-backlink")
+
+    home = facts.get("homepage") or ""
+    if home and _host(home) and _host(home) == _host(candidate.url):
+        found.append("registry-agreement")
+
+    hits = normalise(text).count(slug) if slug else 0
+    if hits >= MIN_MENTIONS:
+        found.append(f"names-it:{hits}")
+    return found
+
+
+#: Signals that identify a project rather than merely describe one. Mention
+#: counts are deliberately excluded: they are corroboration, never proof.
+STRONG = ("own-domain", "install:", "repo-backlink", "registry-agreement")
+
+
+def is_identified(signals: list[str]) -> bool:
+    """Two independent sources agreeing, or one strong source plus the name.
+
+    A wrong answer is survivable. A wrong answer stamped `verified` is not,
+    because the caller has been given a reason to stop checking — so the bar
+    is agreement, not familiarity.
+    """
+    strong = [s for s in signals if s.startswith(STRONG)]
+    named = any(s.startswith("names-it") for s in signals)
+    if any(s.startswith("install-mismatch") for s in signals) and len(strong) < 2:
+        return False
+    return len(strong) >= 2 or (len(strong) == 1 and named)
+
+
+def verify(candidate: Candidate, name: str, fetcher: Fetcher,
+           facts: dict | None = None) -> Candidate:
+    """Confirm a page documents the project that was asked for.
 
     Without this the resolver is a more elaborate guess: a plausible-looking
     URL gets harvested and summarised, and nobody finds out it was the wrong
-    project. Cheap to do, and the difference between a loud failure and a
-    silent wrong answer.
+    project.
     """
     try:
         body = fetcher.text(candidate.url, timeout=PROBE_TIMEOUT)[:VERIFY_WINDOW]
@@ -333,21 +639,16 @@ def verify(candidate: Candidate, name: str, fetcher: Fetcher) -> Candidate:
         candidate.reason = "no usable name to check against"
         return candidate
 
-    haystack = normalise(re.sub(r"<[^>]+>", " ", body))
-    # A single stray occurrence proves nothing — every page on the internet
-    # mentions "effect" once. A page that documents a library says its name
-    # repeatedly: in the title, the install line, the imports.
-    hits = haystack.count(slug)
-    if hits >= MIN_MENTIONS:
-        candidate.verified = True
-        candidate.reason = f"names {name!r} {hits} times"
-    elif hits:
-        candidate.verified = False
-        candidate.reason = (f"mentions {name!r} only {hits} time"
-                            f"{'s' if hits != 1 else ''} — too weak to trust")
+    candidate.signals = identity_signals(candidate, name, body, facts)
+    candidate.verified = is_identified(candidate.signals)
+    if candidate.verified:
+        candidate.reason = "identified by " + ", ".join(candidate.signals)
+    elif candidate.signals:
+        candidate.reason = (
+            f"not enough to identify {name!r} — only {', '.join(candidate.signals)}. "
+            f"Naming a project is not the same as being it.")
     else:
-        candidate.verified = False
-        candidate.reason = f"never mentions {name!r}"
+        candidate.reason = f"nothing on the page identifies it as {name!r}"
     return candidate
 
 
@@ -366,15 +667,35 @@ def resolve(name: str, ecosystem: str = "", fetcher: Fetcher | None = None,
     fetcher = fetcher or Fetcher(Options(delay=0.0))
 
     try:
+        # 1. The project's own domain. Checked first because the data says so:
+        #    it produced every correct answer and none of the wrong ones.
+        domain = from_domains(name, fetcher)
+        if verify_best:
+            for cand in domain:
+                verify(cand, name, fetcher, {"via_domain": True})
+                if cand.verified:
+                    result.candidates = domain[:limit]
+                    result.best = cand
+                    result.resolved_via = "domain"
+                    result.note = (
+                        f"Resolved from {name!r}'s own domain. Registries were not "
+                        f"consulted: owning the name is the stronger claim, and "
+                        f"where the two disagree the registry is usually a "
+                        f"different project that shares the word.")
+                    return result
+
+        # 2. Registries, as the fallback.
         found, hit = from_registries(name, result.ecosystem, fetcher)
         if hit:
             result.ecosystem = result.ecosystem or hit
         if not found:
+            result.candidates = domain[:limit]
             result.note = (
                 f"No registry knows {name!r}. If it is private or internal, "
                 f"pass the documentation URL directly to harvest_docs."
             )
             return result
+        found += domain
 
         # A homepage is worth one round of convention-guessing before use.
         extra: list[Candidate] = []
@@ -391,11 +712,15 @@ def resolve(name: str, ecosystem: str = "", fetcher: Fetcher | None = None,
             ranked.append(cand)
         result.candidates = ranked[:limit]
 
+        facts = _facts_from(found, result.ecosystem)
         if verify_best:
             for cand in result.candidates:
-                verify(cand, name, fetcher)
+                verify(cand, name, fetcher,
+                       dict(facts, via_domain=cand.source.startswith("domain:")))
                 if cand.verified:
                     result.best = cand
+                    result.resolved_via = ("domain" if cand.source.startswith("domain:")
+                                           else "registry")
                     # The ecosystem is whichever registry actually produced the
                     # answer, not whichever one happened to reply first: the
                     # same name often exists in several, on different projects.

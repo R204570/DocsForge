@@ -32,6 +32,8 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
+import versions as versions_mod
+
 # A page written by a combined file looks like:
 #     ## {title}
 #
@@ -41,6 +43,23 @@ _PAGE_HEAD = re.compile(r"^## (?P<title>[^\n]*)\n+Source: <(?P<url>[^>]*)>\s*", 
 
 #: A path segment that looks like a documentation version: v3, 2.1, latest…
 _VERSION_SEGMENT = re.compile(r"^(v\d+(\.\d+)*|\d+\.\d+(\.\d+)*|latest|stable|next|canary)$", re.I)
+
+
+def merge_complete(*values) -> bool | None:
+    """Combine per-version completeness into one answer for a technology.
+
+    Three states, and the order they resolve in matters. A known-partial copy
+    stays partial no matter what else is stored beside it. Failing that, a copy
+    whose extent was never established makes the whole answer `unknown` —
+    because a caller told `True` will stop looking, and we have no grounds to
+    say `True` about something nobody counted.
+    """
+    seen = list(values)
+    if any(v is False for v in seen):
+        return False
+    if any(v is None for v in seen):
+        return None
+    return True
 
 
 def split_pages(body: str) -> tuple[str, list[str]]:
@@ -165,7 +184,8 @@ class FileStore:
         return f"{tech}@{version}"
 
     # -- writing ------------------------------------------------
-    def save(self, tech, version, source, strategy, pages, complete) -> dict:
+    def save(self, tech, version, source, strategy, pages, complete,
+             expected: int | None = None) -> dict:
         folder = self.root / tech
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{slugify(version)}.md"
@@ -191,6 +211,7 @@ class FileStore:
             # version" has to agree with Postgres about which that is.
             "saved": time.time(),
             "complete": complete,
+            "expected": expected,
             "titles": [t for t, _, _ in pages][:2000],
         }
         self._save(index)
@@ -219,17 +240,25 @@ class FileStore:
         for row in self._rows():
             tech = grouped.setdefault(row["technology"], {
                 "name": row["technology"], "versions": 0, "pages": 0,
-                "characters": 0, "latest": "", "harvested": "", "complete": True,
-                "saved": 0.0,
+                "characters": 0, "latest": "", "harvested": "",
+                "complete": True, "saved": 0.0, "_labels": [],
             })
             tech["versions"] += 1
             tech["pages"] += row["pages"]
             tech["characters"] += row["characters"]
-            tech["complete"] = tech["complete"] and row.get("complete", True)
+            tech["complete"] = merge_complete(tech["complete"], row.get("complete"))
+            tech["_labels"].append((row.get("saved", 0.0), row["version"]))
             if row.get("saved", 0) >= tech["saved"]:
                 tech["saved"] = row.get("saved", 0)
                 tech["harvested"] = row["harvested"]
-                tech["latest"] = row["version"]
+
+        # "latest" is the newest version, not the newest download. Handing a
+        # model 1.10 because it was crawled after 2.11 is the contradiction the
+        # versioned store exists to prevent. Labels that carry no ordering fall
+        # back to harvest time, hence the pre-sort.
+        for tech in grouped.values():
+            labels = sorted(tech.pop("_labels"), reverse=True)
+            tech["latest"] = versions_mod.newest([label for _, label in labels])
 
         rows = sorted(grouped.values(), key=lambda t: t["name"])
         if query:
@@ -244,7 +273,12 @@ class FileStore:
         rows = [dict(r) for r in self._rows() if r["technology"] == tech]
         if not rows:
             raise StoreError(f"nothing stored for {tech!r}")
-        rows.sort(key=lambda r: (r.get("saved", 0.0), r["harvested"]), reverse=True)
+        # Newest *version* first, not most recently harvested — a caller that
+        # names no version is asking for the current one. Harvest time only
+        # breaks ties between labels that cannot be ordered against each other.
+        rows.sort(key=lambda r: (versions_mod.sort_key(r["version"]),
+                                 r.get("saved", 0.0), r["harvested"]),
+                  reverse=True)
         return rows
 
     def entry(self, tech: str, version: str | None = None) -> dict | None:
@@ -348,7 +382,12 @@ create table if not exists doc_version (
     version        text not null,
     source         text not null,
     strategy       text not null,
-    complete       boolean not null default true,
+    -- Nullable on purpose: null means "nobody counted", which is not the same
+    -- claim as "this is partial" and very much not the same as "this is whole".
+    complete       boolean,
+    -- How many pages discovery said existed, when discovery ran at all. This
+    -- is what makes `complete` a measurement instead of an assertion.
+    expected       integer,
     harvested_at   timestamptz not null default now(),
     unique (technology_id, version)
 );
@@ -399,8 +438,22 @@ class PostgresStore:
         with self._connect() as cx:
             self._upgrade_v1(cx)
             cx.execute(SCHEMA)
+            self._upgrade_v2(cx)
             cx.commit()
         self._ready = True
+
+    @staticmethod
+    def _upgrade_v2(cx) -> None:
+        """Let completeness be unknown, and record what discovery expected.
+
+        v2 stored `complete boolean not null default true`, so every harvest
+        that never counted anything claimed to be whole — the defect this
+        column existed to warn about. Existing rows keep their value; only the
+        ability to say "unknown" is added.
+        """
+        cx.execute("alter table doc_version add column if not exists expected integer")
+        cx.execute("alter table doc_version alter column complete drop not null")
+        cx.execute("alter table doc_version alter column complete drop default")
 
     @staticmethod
     def _upgrade_v1(cx) -> None:
@@ -468,7 +521,8 @@ class PostgresStore:
             return False
 
     # -- writing ------------------------------------------------
-    def save(self, tech, version, source, strategy, pages, complete) -> dict:
+    def save(self, tech, version, source, strategy, pages, complete,
+             expected: int | None = None) -> dict:
         self.migrate()
         chars = sum(len(b) for _, _, b in pages)
         with self._connect() as cx:
@@ -481,9 +535,10 @@ class PostgresStore:
             cx.execute("delete from doc_version where technology_id = %s and version = %s",
                        (tech_id, version))
             version_id = cx.execute(
-                "insert into doc_version (technology_id, version, source, strategy, complete) "
-                "values (%s, %s, %s, %s, %s) returning id",
-                (tech_id, version, source, strategy, complete)).fetchone()[0]
+                "insert into doc_version "
+                "  (technology_id, version, source, strategy, complete, expected) "
+                "values (%s, %s, %s, %s, %s, %s) returning id",
+                (tech_id, version, source, strategy, complete, expected)).fetchone()[0]
             with cx.cursor().copy(
                 "copy page (version_id, ordinal, title, url, content) from stdin"
             ) as copy:
@@ -495,6 +550,7 @@ class PostgresStore:
             "strategy": strategy, "pages": len(pages), "characters": chars,
             "file": f"postgres://{self.location} ({tech} {version})",
             "harvested": time.strftime("%Y-%m-%d %H:%M"), "complete": complete,
+            "expected": expected,
             "titles": [t for t, _, _ in pages][:2000],
         }
 
@@ -526,8 +582,8 @@ class PostgresStore:
                    count(p.id),
                    coalesce(sum(length(p.content)), 0),
                    to_char(max(v.harvested_at), 'YYYY-MM-DD HH24:MI'),
-                   bool_and(v.complete),
-                   (array_agg(v.version order by v.harvested_at desc))[1]
+                   array_agg(v.complete),
+                   array_agg(v.version order by v.harvested_at desc)
               from technology t
               left join doc_version v on v.technology_id = t.id
               left join page p on p.version_id = v.id
@@ -540,10 +596,16 @@ class PostgresStore:
             total = len(rows)
             if limit is not None:
                 rows = rows[offset:offset + limit]
+        # `latest` and `complete` are both computed here rather than in SQL:
+        # version labels do not sort lexically (1.10 > 1.9), and completeness
+        # is three-valued in a way `bool_and` cannot express.
         return [{
             "name": r[0], "versions": r[1], "pages": r[2], "characters": r[3],
-            "harvested": r[4] or "", "complete": bool(r[5]) if r[5] is not None else True,
-            "latest": r[6] or "",
+            "harvested": r[4] or "",
+            # A technology with no versions at all is vacuously whole; the
+            # left join hands us [null] for it, which must not read as unknown.
+            "complete": merge_complete(*(r[5] or [])) if r[1] else True,
+            "latest": versions_mod.newest([v for v in (r[6] or []) if v]),
         } for r in rows], total
 
     def versions(self, tech: str) -> list[dict]:
@@ -552,7 +614,8 @@ class PostgresStore:
             rows = cx.execute("""
                 select v.version, v.source, v.strategy, v.complete,
                        to_char(v.harvested_at, 'YYYY-MM-DD HH24:MI'),
-                       count(p.id), coalesce(sum(length(p.content)), 0)
+                       count(p.id), coalesce(sum(length(p.content)), 0),
+                       v.expected, extract(epoch from v.harvested_at)
                   from doc_version v
                   join technology t on t.id = v.technology_id
                   left join page p on p.version_id = v.id
@@ -562,11 +625,18 @@ class PostgresStore:
             """, (tech,)).fetchall()
         if not rows:
             raise StoreError(f"nothing stored for {tech!r}")
-        return [{
+        out = [{
             "technology": tech, "version": r[0], "source": r[1], "strategy": r[2],
             "complete": r[3], "harvested": r[4], "pages": r[5], "characters": r[6],
+            "expected": r[7], "saved": float(r[8] or 0),
             "file": f"postgres://{self.location} ({tech} {r[0]})",
         } for r in rows]
+        # Newest version first — `entry(tech, None)` takes the head of this
+        # list, and "no version named" means "the current one", not "the one
+        # that happened to be downloaded most recently".
+        out.sort(key=lambda r: (versions_mod.sort_key(r["version"]), r["saved"]),
+                 reverse=True)
+        return out
 
     def entry(self, tech: str, version: str | None = None) -> dict | None:
         try:
@@ -579,9 +649,16 @@ class PostgresStore:
 
     def _version_id(self, cx, tech: str, version: str | None) -> int:
         if version is None:
-            row = cx.execute(
-                "select v.id from doc_version v join technology t on t.id = v.technology_id "
-                " where t.name = %s order by v.harvested_at desc limit 1", (tech,)).fetchone()
+            # Naming no version means "the current one". Ordering by harvest
+            # time answered a different question and got it wrong: Pydantic
+            # 1.10 was crawled after 2.11, so every unqualified read returned
+            # the older major. Rows arrive harvest-newest-first so that labels
+            # carrying no ordering still break ties sensibly.
+            rows = cx.execute(
+                "select v.id, v.version from doc_version v "
+                "  join technology t on t.id = v.technology_id "
+                " where t.name = %s order by v.harvested_at desc", (tech,)).fetchall()
+            row = max(rows, key=lambda r: versions_mod.sort_key(r[1])) if rows else None
         else:
             row = cx.execute(
                 "select v.id from doc_version v join technology t on t.id = v.technology_id "

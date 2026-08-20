@@ -335,7 +335,14 @@ achievable regardless**, because it depends on our own honesty, not on the web.
 
 ## 8. Plan
 
-### Phase A — stop reporting unearned confidence · days
+> **Status: phases A, B and C are implemented, plus D3.** Measured against the
+> same eight names the audit used, resolution went from 3 correct / 3 wrong to
+> **7 correct / 0 wrong**, with nothing wrong marked `verified`. `hono` harvests
+> to 440 pages / 434,041 characters where it stored 1 page / 5,649. The suite is
+> 346 passing across both backends, plus a live accuracy fixture. **D1, D2 and
+> all of E remain open** — see the bottom of this section.
+
+### Phase A — stop reporting unearned confidence · days · **done**
 
 - **A1** Do not short-circuit on `llms.txt`; probe the sibling full file, raise
   the 10 s probe timeout (it currently biases *against* large files — the more
@@ -346,7 +353,7 @@ achievable regardless**, because it depends on our own honesty, not on the web.
   answers claiming proof do not.
 - **A4** `latest` = newest version.
 
-### Phase B — identity · the correctness core
+### Phase B — identity · the correctness core · **done**
 
 - **B1** Live accuracy fixture **first** — without it, B2–B4 cannot be shown to
   have worked.
@@ -354,17 +361,17 @@ achievable regardless**, because it depends on our own honesty, not on the web.
 - **B3** Triangulated identity signals replace mention-counting.
 - **B4** Content floor on probes; suffix-matched forge guard.
 
-### Phase C — discovery
+### Phase C — discovery · **done**
 
 - **C1** The map stage (§4.2). **C2** Reconcile against it. **C3** Strategy
   selection driven by the map.
 
-### Phase D — operate as a hub
+### Phase D — operate as a hub · **D3 done**
 
 - **D1** Non-blocking harvest: start a job, poll it. **D2** Staleness and
   re-harvest policy. **D3** Postgres suite in CI.
 
-### Phase E — reach the tail
+### Phase E — reach the tail · **open**
 
 - **E1** Curated index for multi-word names (`cloudflare workers`).
 - **E2** Optional LLM judgment at exactly two points — identity tie-break, and
@@ -382,6 +389,27 @@ achievable regardless**, because it depends on our own honesty, not on the web.
   stopping.
 - **E last** — every item costs a dependency or a key, and none is needed for
   correctness.
+
+### What is still open, and why
+
+**D1 — non-blocking harvest (F7).** A 703-page harvest still blocks the tool
+call for around twelve minutes, past most MCP client timeouts. This is the
+largest remaining defect and the only one that is an architectural change
+rather than a fix: it needs a job table, a start/poll tool pair, and a
+decision about what a client should see while a harvest runs. Deliberately not
+rushed in alongside the correctness work.
+
+**D2 — staleness.** Nothing in the store ages. Documentation moves, and a copy
+harvested six months ago currently presents itself exactly like one harvested
+this morning. Needs a policy before it needs code.
+
+**E1 — multi-word names (F6).** `cloudflare workers` still reports unresolved.
+That is the designed behaviour and the honest one, but a large class of real
+technologies — cloud platforms, databases, protocols — is unreachable by name.
+A small curated index is the pragmatic answer.
+
+**E2, E3 — optional intelligence and backends.** Unchanged: worth doing only
+after the above, and never as a requirement.
 
 ---
 

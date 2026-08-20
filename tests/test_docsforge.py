@@ -87,6 +87,97 @@ def test_detect_json_that_is_not_openapi_falls_back_to_raw():
     assert df.detect_source("https://x.com/data.json", f).kind == "raw_text"
 
 
+# ── llms.txt: index versus full dump ─────────────────────
+INDEX = "# Docs\n\n- [Full Docs](https://x.dev/llms-full.txt): everything\n"
+DUMP = "# x\n\n" + ("Real documentation. " * 200)
+
+
+def _fetcher(pages):
+    return FakeFetcher(pages, {url: 200 for url in pages})
+
+
+def test_an_index_is_not_taken_when_a_fuller_file_sits_beside_it():
+    """The measured F9 failure.
+
+    detect_source already preferred llms-full.txt — the probe just sat below an
+    early return that fired on any URL ending in llms.txt, which is exactly
+    what the resolver hands over. Two correct components, wrong together.
+    """
+    f = _fetcher({"https://x.dev/llms.txt": INDEX,
+                  "https://x.dev/llms-full.txt": DUMP})
+    det = df.detect_source("https://x.dev/llms.txt", f)
+    assert det.url == "https://x.dev/llms-full.txt"
+    assert det.body == DUMP
+
+
+def test_a_dump_beside_the_index_is_found_in_its_own_directory():
+    """Prisma publishes /docs/llms-full.txt, not /llms-full.txt."""
+    f = _fetcher({"https://x.dev/docs/llms.txt": INDEX,
+                  "https://x.dev/docs/llms-full.txt": DUMP})
+    det = df.detect_source("https://x.dev/docs/llms.txt", f)
+    assert det.url == "https://x.dev/docs/llms-full.txt"
+
+
+def test_an_index_with_no_fuller_file_is_still_used():
+    f = _fetcher({"https://x.dev/llms.txt": INDEX})
+    det = df.detect_source("https://x.dev/llms.txt", f)
+    assert det.kind == "llms_txt"
+    assert det.url == "https://x.dev/llms.txt"
+
+
+def test_a_full_dump_url_is_never_second_guessed():
+    f = _fetcher({"https://x.dev/llms-full.txt": DUMP})
+    det = df.detect_source("https://x.dev/llms-full.txt", f)
+    assert det.url == "https://x.dev/llms-full.txt"
+    assert f.calls == [], "it already had the answer; no probing needed"
+
+
+# ── splitting a dump into searchable pages ───────────────
+def test_a_large_dump_is_split_on_its_own_headings():
+    """5.7 MB stored as one page is unsearchable: every query matches page 1,
+    and ranking has nothing to choose between."""
+    body = "".join(f"## Section {i}\n\n{'text ' * 400}\n\n" for i in range(20))
+    parts = df._split_dump(body, above=0)
+    assert len(parts) == 20
+    assert parts[0][0] == "Section 0"
+
+
+def test_a_small_dump_is_left_whole():
+    assert df._split_dump("## A\n\ntiny\n\n## B\n\ntiny") == []
+
+
+def test_a_preamble_before_the_first_heading_is_kept():
+    body = "<SYSTEM>banner</SYSTEM>\n\n" + "".join(
+        f"## S{i}\n\n{'text ' * 400}\n\n" for i in range(10))
+    parts = df._split_dump(body, above=0)
+    assert len(parts) == 11
+    assert "<" not in parts[0][0], "a markup banner is not a page title"
+
+
+def test_splitting_loses_nothing():
+    body = "".join(f"## S{i}\n\n{'text ' * 400}\n\n" for i in range(15))
+    joined = "\n".join(chunk for _, chunk in df._split_dump(body, above=0))
+    assert body.split() == joined.split(), "every word survives the split"
+
+
+# ── completeness is measured, not assumed ────────────────
+def test_storing_an_index_reports_itself_incomplete():
+    stats = {}
+    det = df.Detection("llms_txt", "https://x.dev/llms.txt", INDEX)
+    docs = [df.Doc("https://x.dev/llms.txt", "llms.txt", INDEX)]
+    df._note_coverage(stats, det, docs)
+    assert stats["whole"] is False
+    assert "names a fuller file" in stats["reason"]
+
+
+def test_storing_a_full_dump_reports_itself_whole():
+    stats = {}
+    det = df.Detection("llms_txt", "https://x.dev/llms-full.txt", DUMP)
+    docs = [df.Doc("https://x.dev/llms-full.txt", "llms.txt", DUMP)]
+    df._note_coverage(stats, det, docs)
+    assert stats["whole"] is True
+
+
 def test_looks_like_openapi():
     assert df._looks_like_openapi('{"openapi": "3.1.0"}')
     assert df._looks_like_openapi("openapi: 3.0.0\ninfo:\n")

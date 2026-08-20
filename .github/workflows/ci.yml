@@ -1,0 +1,92 @@
+name: tests
+
+# The default `pytest` run skips every Postgres test, so the backend that
+# actually ships was the one never exercised: the schema migration, the
+# tsvector search, the ts_headline snippets and the COPY bulk load — the parts
+# most likely to break and least likely to break visibly. CI stands a database
+# up so those 22 tests run on every push.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Daily, for the live accuracy job below.
+    - cron: "17 6 * * *"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docsforge_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run the suite against both backends
+        env:
+          # Present, so the Postgres half of test_kb_store.py stops skipping.
+          DOCSFORGE_TEST_DB: postgresql://postgres:postgres@localhost:5432/docsforge_test
+        run: python -m pytest -q
+
+      - name: Fail if the Postgres tests were skipped
+        env:
+          DOCSFORGE_TEST_DB: postgresql://postgres:postgres@localhost:5432/docsforge_test
+        # A green run that quietly skipped the production backend is the exact
+        # situation this job exists to end, so assert the tests really ran.
+        run: |
+          python -m pytest tests/test_kb_store.py -q -rs 2>&1 | tee out.txt
+          if grep -qi "skipped" out.txt; then
+            echo "::error::Postgres tests skipped — the production store went untested"
+            exit 1
+          fi
+
+  # Resolution accuracy needs the live web, so it is not gated on every push:
+  # a third-party site being slow is not a reason to block a merge. It runs
+  # daily and on demand, and a failure here means the web moved under us or a
+  # change made resolution worse.
+  accuracy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Resolve ten technologies against the live web
+        env:
+          DOCSFORGE_TEST_NETWORK: "1"
+        run: python -m pytest tests/test_accuracy.py -v

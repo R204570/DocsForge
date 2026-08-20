@@ -281,6 +281,53 @@ def test_reading_without_a_version_gets_the_newest(store):
     assert store.entry("pytest-demo")["version"] == "new"
 
 
+def test_the_newest_version_is_not_the_newest_harvest(store):
+    """The measured F5 failure.
+
+    Pydantic 2.11 was crawled first and 1.10 second, so every unqualified read
+    returned the older major — 24 pages of 1.10 instead of 85 of 2.11 — while
+    this repository's own requirements.txt pins pydantic>=2.0. Both versions
+    were stored correctly; the last step picked the wrong one.
+    """
+    _save(store, version="2.11", pages=PAGES)                       # harvested first
+    _save(store, version="1.10", pages=[("Old", "https://x.dev/o", "old")])
+
+    assert store.entry("pytest-demo")["version"] == "2.11"
+    assert [v["version"] for v in store.versions("pytest-demo")] == ["2.11", "1.10"]
+
+    techs, _ = store.technologies()
+    assert [t for t in techs if t["name"] == "pytest-demo"][0]["latest"] == "2.11"
+
+    # The read path has its own version lookup, and it was the one that
+    # actually served read_knowledge_base.
+    _, _, blocks = store.read("pytest-demo")
+    assert blocks == len(PAGES)
+
+
+def test_a_release_number_outranks_a_harvest_date(store):
+    """A date label only appears when we failed to find a version, so it must
+    never outrank a version we did find."""
+    _save(store, version="2.11", pages=PAGES)
+    _save(store, version="2026-08-20", pages=[("Dated", "https://x.dev/d", "x")])
+    assert store.entry("pytest-demo")["version"] == "2.11"
+
+
+def test_completeness_can_be_unknown(store):
+    """`None` is not `True`. A copy nobody measured must not report itself
+    whole — that is the defect the flag existed to warn about."""
+    _save(store, version="v1", complete=None)
+    assert store.entry("pytest-demo")["complete"] is None
+    techs, _ = store.technologies()
+    assert [t for t in techs if t["name"] == "pytest-demo"][0]["complete"] is None
+
+
+def test_one_partial_version_makes_the_technology_partial(store):
+    _save(store, version="v1", complete=True)
+    _save(store, version="v2", complete=False)
+    techs, _ = store.technologies()
+    assert [t for t in techs if t["name"] == "pytest-demo"][0]["complete"] is False
+
+
 def test_an_unknown_version_is_refused(store):
     _save(store, version="v3")
     assert store.entry("pytest-demo", "v9") is None

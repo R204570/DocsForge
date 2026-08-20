@@ -54,6 +54,35 @@ def kind_of(result: str) -> str:
     return kind
 
 
+def _coverage_flag(complete: bool | None) -> str:
+    """The one-line marker beside a technology in a listing."""
+    if complete is False:
+        return "  **[INCOMPLETE]**"
+    if complete is None:
+        return "  **[COVERAGE UNKNOWN]**"
+    return ""
+
+
+def _coverage_note(complete: bool | None, expected=None, stored=None) -> str:
+    """The warning a model reading this documentation needs to see.
+
+    Three states, three different things to say. The distinction matters: a
+    model told nothing assumes it has everything, and then answers a question
+    about a page that was never harvested by inventing one.
+    """
+    if complete is False:
+        extent = (f" — {stored} of {expected} pages"
+                  if expected and stored and expected > stored else "")
+        return (f"\n> This copy is INCOMPLETE{extent}. Say so if the answer "
+                f"depends on it, and do not treat a missing topic as absent "
+                f"from the real documentation.\n")
+    if complete is None:
+        return ("\n> COVERAGE UNKNOWN — nothing established how much "
+                "documentation exists here, so this copy cannot be called "
+                "complete. Treat gaps as possible.\n")
+    return ""
+
+
 def _truncate(text: str, limit: int = MAX_CHARS) -> str:
     if len(text) <= limit:
         return text
@@ -231,6 +260,11 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
     # side by side rather than one overwriting the other.
     label = _kb_slug(version) if version else _version_label(url, docs)
     truncated = bool(stats.get("truncated"))
+    # Completeness is measured, not assumed. `None` means the harvest never
+    # established how much there was to get — which is not the same claim as
+    # "this is the whole thing", and must not be reported as one.
+    whole = False if truncated else stats.get("whole")
+    expected = stats.get("discovered")
 
     # Strip the per-page provenance comment: it is redundant once the page is
     # filed under its own title and URL.
@@ -238,7 +272,8 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
         (d.title, d.url, re.sub(r"^<!-- source:.*?-->\n+", "", d.markdown, count=1, flags=re.S))
         for d in docs
     ]
-    entry = store().save(slug, label, url, strategy, pages, complete=not truncated)
+    entry = store().save(slug, label, url, strategy, pages,
+                         complete=whole, expected=expected)
 
     listing = "\n".join(f"{i}. {d.title}" for i, d in enumerate(docs[:30], 1))
     more = f"\n… and {len(docs) - 30} more" if len(docs) > 30 else ""
@@ -251,6 +286,18 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
             f"{f', {left}+ pages still queued' if left else ''}.** "
             f"This is a partial copy of the documentation. Say so if you answer from it, "
             f"and re-run with a higher `max_pages` to finish the job."
+        )
+    elif whole is False:
+        warning = (
+            f"\n\n**INCOMPLETE — {stats.get('reason', 'this is a partial copy')}.** "
+            f"Say so if you answer from it, and prefer a direct URL to the full "
+            f"documentation if you can find one."
+        )
+    elif whole is None:
+        warning = (
+            "\n\n**COVERAGE UNKNOWN — nothing established how much documentation "
+            "exists here, so this copy cannot be called complete.** Treat gaps as "
+            "possible rather than assuming anything missing does not exist."
         )
 
     where = entry["file"]
@@ -280,7 +327,7 @@ def tool_list_knowledge_base() -> str:
     lines = [f"{len(techs)} technolog{'y' if len(techs) == 1 else 'ies'} "
              f"stored in {backend.kind} ({backend.location}):", ""]
     for tech in techs:
-        flag = "" if tech.get("complete", True) else "  **[INCOMPLETE — hit the page limit]**"
+        flag = _coverage_flag(tech.get("complete", True))
         try:
             versions = backend.versions(tech["name"])
         except StoreError:
@@ -296,7 +343,7 @@ def tool_list_knowledge_base() -> str:
         if labels:
             lines.append(f"    versions: {labels}")
     lines += ["", "Pass `version=` to read_knowledge_base to pick one; "
-                  "it defaults to the most recently harvested."]
+                  "it defaults to the newest version stored."]
     return "\n".join(lines)
 
 
@@ -378,11 +425,10 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
         f"# {slug} {label}: {found} page{'s' if found != 1 else ''} "
         f"matching {section!r} (by {how})\n"
     )
-    if not entry.get("complete", True):
-        header += (
-            "\n> This copy is INCOMPLETE — the harvest hit its page limit. "
-            "Say so if the answer depends on it.\n"
-        )
+    note = _coverage_note(entry.get("complete", True), entry.get("expected"),
+                          entry.get("pages"))
+    if note:
+        header += note
     return _truncate(header + "\n" + body)
 
 
@@ -772,7 +818,7 @@ TOOLS: list[Tool] = [
                             "description": "Optional phrase to match against page titles."},
                 "version": {"type": "string",
                             "description": "Which stored version to read, e.g. \"v3\". "
-                                           "Defaults to the most recently harvested one."},
+                                           "Defaults to the newest version stored — the highest release number, not the most recent download."},
             },
             "required": ["name"],
         },
