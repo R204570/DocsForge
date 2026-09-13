@@ -1427,6 +1427,22 @@ def _still_harvesting(job: harvest_jobs.Job) -> str:
     """
     where = f" from {job.progress.url}" if job.progress.url else ""
     slug = _kb_slug(_normalise(job.label) or job.label)
+    if harvest_jobs.EPHEMERAL:
+        # No background exists here. Saying "it continues" would be the same
+        # lie the detached case was built to stop telling — and the pages
+        # streamed so far are never published, so nothing partial is stored.
+        return (
+            f"**Learning {job.label}{where} did not finish within "
+            f"{harvest_jobs.DEADLINE:.0f}s — it was {job.progress.line()}, and "
+            f"this host cannot keep working after a request ends, so that "
+            f"harvest is discarded.** Nothing partial was stored.\n\n"
+            f"Large harvests need a long-lived DocsForge: run "
+            f"`python main.py --stdio` (or `--http`) on any machine with the same "
+            f"`DOCSFORGE_DB`, learn {job.label!r} there, and it is readable "
+            f"here immediately with `read_knowledge_base(name=\"{slug}\")`.\n\n"
+            f"Tell the user that; do not call learn_technology for "
+            f"{job.label!r} again here."
+        )
     return (
         f"**Learning {job.label}{where} - still running.** "
         f"Harvest id `{job.id}`.\n\n"

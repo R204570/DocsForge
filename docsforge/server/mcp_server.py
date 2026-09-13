@@ -200,9 +200,14 @@ async def connect_page(request: Request) -> Response:
 @server.custom_route("/health", methods=["GET"], include_in_schema=False)
 async def health(request: Request) -> Response:
     # `kind` only. `location` names the database host and that is nobody's
-    # business but the operator's.
-    return JSONResponse({"status": "ok", "version": __version__,
-                         "store": forge_tools.store().kind})
+    # business but the operator's. `degraded` is the one thing a platform
+    # check should see: a configured database that could not be reached,
+    # which on a stateless host means nothing harvested here will persist.
+    backend = forge_tools.store()
+    degraded = bool(getattr(backend, "degraded", ""))
+    return JSONResponse({"status": "degraded" if degraded else "ok",
+                         "version": __version__, "store": backend.kind,
+                         "degraded": degraded})
 
 
 class BearerGate:
@@ -258,15 +263,21 @@ def choose_http(http_flag: bool, stdio_flag: bool) -> bool:
         return False
 
 
-def build_http_app(host: str = "127.0.0.1", token: str | None = None):
+def build_http_app(host: str = "127.0.0.1", token: str | None = None,
+                   stateless: bool = False):
     """The ASGI app `--http` serves: `/`, `/health`, and a gated `/mcp`.
 
     Separate from `main()` so a test can drive it in-process. `token=None`
     leaves `/mcp` open, which is only acceptable on loopback — `main()` is
     where that rule is enforced, because it is the one place that knows the
     bind address.
+
+    `stateless` is for a host where no two requests are guaranteed the same
+    process: every request then carries everything, answers are plain JSON
+    rather than an event stream, and no session lives in memory between them.
     """
-    app = server.streamable_http_app(host=host)
+    app = server.streamable_http_app(host=host, stateless_http=stateless,
+                                     json_response=stateless)
     return BearerGate(app, token) if token else app
 
 

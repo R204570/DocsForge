@@ -832,40 +832,61 @@ Rendered Markdown is sanitized with `nh3` before it reaches the page, since it m
 
 ## Deploying
 
-The hosted process is `main.py --http`: one container, one port, the MCP
-surface at `/mcp` behind a bearer token, and the public site in front of it.
-The `Containerfile` in the repository root builds it from `pip install
-.[postgres]`; the web chat, tests, scripts and `.env` are excluded by
-`.dockerignore`.
-
-```bash
-podman build -t docsforge -f Containerfile .
-podman run -p 8765:8765   -e DOCSFORGE_MCP_TOKEN=$(openssl rand -hex 32)   -e DOCSFORGE_DB=postgresql://…?sslmode=require   docsforge
-```
+Two shapes. Both put the corpus in Postgres and serve the same routes: the
+site at `/`, `/tools`, `/connect`, a `/health` check, and the MCP endpoint at
+`/mcp` behind a bearer token. The web chat, tests, scripts and `.env` are
+never shipped.
 
 | Variable | Required | What it does |
 |---|---|---|
-| `DOCSFORGE_MCP_TOKEN` | yes, on a public bind | Clients send it as `Authorization: Bearer …`. Generate it; never reuse a database password. |
-| `DOCSFORGE_DB` or `DATABASE_URL` | yes, on a stateless host | The Postgres DSN. A file store would vanish on every redeploy. |
-| `PORT` | no | What the platform routes to; default 8765. |
+| `DOCSFORGE_MCP_TOKEN` | yes | Clients send it as `Authorization: Bearer …`. Generate it (`openssl rand -hex 32`); never reuse a database password. |
+| `DOCSFORGE_DB` or `DATABASE_URL` | yes | The Postgres DSN, `?sslmode=require` on Aiven. On a host with no persistent disk a file store would vanish. |
+| `DOCSFORGE_HARVEST_DEADLINE` | no | Seconds a harvest may take inside one tool call before it goes to the background (25). |
+| `PORT` | no | Container only: what the platform routes to (8765). |
 
-The runtime is stateless by design: the corpus is in Postgres, and what is left
-on local disk (harvest status records, the resolution cache, `logs/`) is cache.
-One consequence worth knowing: a redeploy kills a harvest in flight *and* its
-status record, so `list_knowledge_base` will not report it as stalled. Redeploy
-when nothing is harvesting. Run exactly one replica — streamable-HTTP sessions
-and running harvests live in the process.
+### Vercel (serverless)
 
-**On Aiven Apps.** Connect the GitHub repository, choose the `Containerfile`
-as the recipe, declare port `8765` as a public HTTP port, and connect your
-PostgreSQL service to the application — Aiven then injects `DATABASE_URL`,
-which DocsForge reads. Add `DOCSFORGE_MCP_TOKEN` under the application's
-environment variables (as a secret). Point clients at
-`https://<your-app-host>/mcp`:
+`docsforge/server/vercel.py` exposes the app; `pyproject.toml` names it under
+`[tool.vercel]` and `vercel.json` sets the function's `maxDuration`. Import
+the repository in Vercel, set the variables above in the project's
+Environment Variables (the token as sensitive), deploy. Then:
 
 ```bash
-claude mcp add --transport http docsforge https://<your-app-host>/mcp   --header "Authorization: Bearer <token>"
+claude mcp add --transport http docsforge https://<project>.vercel.app/mcp   --header "Authorization: Bearer <token>"
 ```
+
+What a serverless host changes, and the code says so rather than pretending:
+
+- **Stateless.** `/mcp` runs the SDK's stateless mode — every request carries
+  everything, answers are plain JSON. Nothing lives between requests.
+- **Ephemeral.** Nothing runs after a response. A harvest that finishes
+  inside `DOCSFORGE_HARVEST_DEADLINE` is stored as usual; one that does not
+  is *discarded*, and the result says exactly that instead of "it continues
+  in the background". Nothing partial is ever published. **Large harvests are
+  done from a long-lived DocsForge** — `python main.py` on your machine with
+  the same `DOCSFORGE_DB` — and are readable through Vercel at once. Raise the
+  deadline (to below `maxDuration`, 300 s by default here) if your client
+  waits that long on a tool call.
+- **Only `/tmp` is writable.** Caches (harvest status, resolution cache,
+  logs) go there and are lost between instances; that costs a repeat lookup,
+  nothing more.
+- **Misconfiguration is visible.** With no database or no token the site
+  still serves and `/mcp` answers `503` with the reason; `/health` reports
+  `degraded` when the configured database could not be reached.
+
+### A container (long-lived)
+
+For a host that keeps a process alive — where background harvests work as
+designed — the `Containerfile` builds `main.py --http` from `pip install .`:
+
+```bash
+podman build -t docsforge -f Containerfile .
+podman run -p 8765:8765 -e DOCSFORGE_MCP_TOKEN=… -e DOCSFORGE_DB=… docsforge
+```
+
+Run one replica: streamable-HTTP sessions and running harvests live in the
+process. Redeploy when nothing is harvesting — a redeploy kills a harvest in
+flight and its status record with it.
 
 The site pages under `docsforge/server/site/` were designed in Stitch from the
 web chat's palette. `scripts/site_exports/` holds Stitch's raw exports and

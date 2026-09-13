@@ -82,8 +82,9 @@ def test_health_is_public_and_names_no_host(gated):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok" and body["version"] == mcp_server.__version__
-    assert set(body) == {"status", "version", "store"}, \
+    assert set(body) == {"status", "version", "store", "degraded"}, \
         "health must not carry the store location — it names the database host"
+    assert body["degraded"] is False
 
 
 # ── the gate ─────────────────────────────────────────────
@@ -206,3 +207,14 @@ def test_a_flag_overrides_the_guess(flag, expect):
 def test_the_two_flags_exclude_each_other():
     with pytest.raises(SystemExit):
         mcp_server.main(["--http", "--stdio"])
+
+
+def test_health_reports_a_store_that_fell_back(gated, monkeypatch):
+    # A configured database that could not be reached: the store is files,
+    # and on a stateless host that means nothing persists. Health says so —
+    # still a 200, so the platform keeps the instance, but visibly degraded.
+    monkeypatch.setattr(mcp_server.forge_tools, "store", lambda: type(
+        "S", (), {"kind": "files", "location": "x", "degraded": "cannot reach db"})())
+    body = gated.get("/health").json()
+    assert body["status"] == "degraded" and body["degraded"] is True and body["store"] == "files"
+    assert "x" not in body.values() and "cannot reach" not in str(body)

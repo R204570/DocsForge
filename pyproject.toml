@@ -49,6 +49,10 @@ dependencies = [
     "mcp>=2.0,<3",                 # v2 API: mcp.server.MCPServer
     "anyio>=4.0",
     "pydantic>=2.0,<3",
+    # Core rather than an extra since the hosted server needs it unconditionally:
+    # a stateless host with a file store keeps nothing. Harvests still go to
+    # files unless DOCSFORGE_DB is set — the package is 3 MB, not a policy.
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -63,7 +67,7 @@ web = [
     "linkify-it-py>=2.0",          # auto-links bare URLs in rendered output
     "nh3>=0.2,<0.4",               # sanitises scraped HTML before it renders
 ]
-postgres = ["psycopg[binary]>=3.1"]          # else harvests are Markdown files
+postgres = ["psycopg[binary]>=3.1"]          # kept so `.[postgres]` keeps working; now in core
 js = ["playwright>=1.40"]                    # then: playwright install chromium
 
 # One SDK per provider. Each is imported lazily and reports a clear error when
@@ -88,6 +92,12 @@ Issues = "https://github.com/R204570/DocsForge/issues"
 
 [tool.setuptools.dynamic]
 version = { attr = "docsforge.__version__" }
+
+# Vercel loads this ASGI app as the one Vercel Function and routes every
+# request to it. The same routes as `python main.py`; see the module for the
+# three things a serverless host changes.
+[tool.vercel]
+entrypoint = "docsforge.server.vercel:app"
 
 # One package, `docsforge/`, with a subpackage per responsibility (core, store,
 # tools, server, providers). Naming it explicitly beats auto-discovery, which
