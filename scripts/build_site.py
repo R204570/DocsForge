@@ -75,6 +75,9 @@ def normalise(page: str, html: str) -> str:
     chip = re.compile(r'<div class="flex items-center">(\s*<span class="font-mono[^>]*>\s*v\d+\.\d+\.\d+)')
     assert len(chip.findall(html)) == 1, (page, "chip wrapper")
     html = chip.sub(r'<div class="hidden sm:flex items-center">\1', html)
+    # the server fills the base URL in from the request that asked for the page
+    html, n = re.subn(r"https://YOUR-HOST", "{{BASE_URL}}", html)
+    assert (n == 2) if page == "connect" else (n == 0), (page, "base url", n)
     # the server fills the version in from the package
     html, n = re.subn(r"(?<![\w.])v\d+\.\d+\.\d+(?![\w.])", "v{{VERSION}}", html)
     assert n == 1, (page, "version chip", n)

@@ -35,10 +35,13 @@ def client():
     return TestClient(vercel.build(ENV_OK), base_url="https://docsforge.vercel.app")
 
 
-def test_site_and_health_serve_without_lifespan_events(client):
+def test_site_and_health_serve_without_lifespan_events(client, monkeypatch):
+    monkeypatch.delenv("DOCSFORGE_PUBLIC_URL", raising=False)
     assert client.get("/").status_code == 200
     assert "Twelve tools" in client.get("/tools").text
     assert client.get("/health").json()["status"] == "ok"
+    # The Connect page names this deployment, not a placeholder.
+    assert "https://docsforge.vercel.app/mcp" in client.get("/connect").text
 
 
 def test_mcp_is_gated(client):
