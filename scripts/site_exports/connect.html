@@ -93,46 +93,45 @@
       </p>
     </section>
 
-    <!-- Section: Hosted server -->
-    <section class="space-y-4">
+    <!-- Section: Connect your client -->
+    <section class="space-y-4" id="clients">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white tracking-tight">Hosted server</h2>
+        <h2 class="text-lg font-semibold text-white tracking-tight">Pick your client. Paste your token. Copy.</h2>
+      </div>
+      <p class="text-sm text-muted">One command or one config block per client, already pointed at this server. The token is spliced in on this page only — it is never sent anywhere.</p>
+
+      <!-- client chips -->
+      <div class="flex flex-wrap gap-2" role="tablist" id="client-tabs">
+        <button type="button" role="tab" data-client="claude-code" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Claude Code</button>
+        <button type="button" role="tab" data-client="codex" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Codex</button>
+        <button type="button" role="tab" data-client="cursor" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Cursor</button>
+        <button type="button" role="tab" data-client="windsurf" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Windsurf</button>
+        <button type="button" role="tab" data-client="antigravity" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Antigravity</button>
+        <button type="button" role="tab" data-client="gemini" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Gemini CLI</button>
+        <button type="button" role="tab" data-client="vscode" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">VS Code</button>
+        <button type="button" role="tab" data-client="claude-desktop" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Claude Desktop</button>
+        <button type="button" role="tab" data-client="json" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Any client (JSON)</button>
       </div>
 
-      <!-- Two code cards side by side -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Claude Code -->
-        <div class="bg-surface rounded-custom border border-hairline overflow-hidden flex flex-col">
-          <div class="px-4 py-2.5 border-b border-hairline bg-soft/60 flex items-center justify-between">
-            <span class="text-xs font-mono text-muted">Claude Code</span>
-            <span class="text-[10px] font-mono text-muted/60">CLI</span>
-          </div>
-          <div class="p-4 flex-1 font-mono text-[13px] leading-relaxed text-text overflow-x-auto whitespace-pre">claude mcp add --transport http docsforge \
-  https://YOUR-HOST/mcp \
-  --header "Authorization: Bearer $DOCSFORGE_MCP_TOKEN"</div>
-        </div>
-
-        <!-- Any MCP client (JSON config) -->
-        <div class="bg-surface rounded-custom border border-hairline overflow-hidden flex flex-col">
-          <div class="px-4 py-2.5 border-b border-hairline bg-soft/60 flex items-center justify-between">
-            <span class="text-xs font-mono text-muted">Any MCP client (JSON config)</span>
-            <span class="text-[10px] font-mono text-muted/60">config.json</span>
-          </div>
-          <div class="p-4 flex-1 font-mono text-[13px] leading-relaxed text-text overflow-x-auto whitespace-pre">{
-  "mcpServers": {
-    "docsforge": {
-      "url": "https://YOUR-HOST/mcp",
-      "headers": { "Authorization": "Bearer …" }
-    }
-  }
-}</div>
-        </div>
+      <!-- token -->
+      <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label for="token" class="shrink-0 text-xs font-mono text-muted">Your token</label>
+        <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="paste DOCSFORGE_MCP_TOKEN — it stays in your browser" class="flex-1 min-w-0 bg-surface border border-hairline rounded-lg px-3 py-2 font-mono text-xs text-text placeholder:text-muted/60 focus:outline-none focus:border-accent">
+        <button type="button" id="token-eye" class="text-xs font-mono text-muted hover:text-text px-3 py-2 border border-hairline rounded-lg transition-colors">show</button>
       </div>
 
-      <!-- Small muted line under hosted server cards -->
-      <p class="text-xs text-muted font-sans pt-1">
-        Without the header the server answers 401. The token is set by the operator; it is never in the page.
-      </p>
+      <!-- the one code card -->
+      <div class="bg-surface rounded-custom border border-hairline overflow-hidden flex flex-col">
+        <div class="px-4 py-2.5 border-b border-hairline bg-soft/60 flex items-center justify-between gap-3">
+          <span class="text-xs font-mono text-muted" id="snippet-title">Claude Code</span>
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] font-mono text-muted/60" id="snippet-kind">terminal</span>
+            <button type="button" id="copy" class="text-xs font-mono font-medium px-3 py-1 rounded-lg bg-accent text-[#170b24] hover:opacity-90 transition-opacity">Copy</button>
+          </div>
+        </div>
+        <pre id="snippet" class="p-4 flex-1 font-mono text-[13px] leading-relaxed text-text overflow-x-auto whitespace-pre"></pre>
+      </div>
+      <p class="text-xs text-muted font-sans pt-1" id="snippet-note"></p>
     </section>
 
     <!-- Section: Run it yourself -->
@@ -333,5 +332,111 @@ python main.py --http --host 0.0.0.0 --port 8765</pre>
     </div>
   </footer>
 
+  <script>
+  (function () {
+    // The server fills BASE_URL in from the request that asked for this page.
+    var MCP = "{{BASE_URL}}/mcp";
+    var T = "__TOKEN__";
+    var CLIENTS = {
+      "claude-code": {
+        title: "Claude Code", kind: "terminal",
+        note: "One command. Scope defaults to the current project; add --scope user to have it everywhere.",
+        text: 'claude mcp add --transport http docsforge ' + MCP + ' --header "Authorization: Bearer ' + T + '"'
+      },
+      "codex": {
+        title: "Codex CLI", kind: "terminal",
+        note: "Codex reads the token from an environment variable rather than the command line, so export it in the shell that launches codex (PowerShell: $env:DOCSFORGE_MCP_TOKEN = \"…\").",
+        text: 'export DOCSFORGE_MCP_TOKEN=' + T + '\ncodex mcp add docsforge --url ' + MCP + ' --bearer-token-env-var DOCSFORGE_MCP_TOKEN'
+      },
+      "cursor": {
+        title: "Cursor", kind: "~/.cursor/mcp.json",
+        note: "Cursor Settings → MCP → Add new global MCP server opens this file; paste the block (merge into mcpServers if you already have one).",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "url": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "windsurf": {
+        title: "Windsurf", kind: "~/.codeium/windsurf/mcp_config.json",
+        note: "Windsurf uses serverUrl, not url. Cascade → MCP servers → Configure opens this file.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "serverUrl": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "antigravity": {
+        title: "Antigravity", kind: "mcp_config.json",
+        note: "Agent panel → ⋯ → MCP Servers → Manage → View raw config, paste, save. Same serverUrl shape as Windsurf.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "serverUrl": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "gemini": {
+        title: "Gemini CLI", kind: "terminal",
+        note: "Writes the server into ~/.gemini/settings.json for you.",
+        text: 'gemini mcp add --transport http docsforge ' + MCP + ' --header "Authorization: Bearer ' + T + '"'
+      },
+      "vscode": {
+        title: "VS Code (Copilot agent mode)", kind: "terminal",
+        note: "Registers the server in your user profile; VS Code asks to trust it the first time.",
+        text: "code --add-mcp '{\"name\":\"docsforge\",\"type\":\"http\",\"url\":\"" + MCP + "\",\"headers\":{\"Authorization\":\"Bearer " + T + "\"}}'"
+      },
+      "claude-desktop": {
+        title: "Claude Desktop", kind: "claude_desktop_config.json",
+        note: "Desktop speaks stdio only, so mcp-remote bridges to the HTTP server. Settings → Developer → Edit Config opens the file; restart Claude Desktop after saving.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "command": "npx",\n      "args": ["-y", "mcp-remote", "' + MCP + '", "--header", "Authorization:${AUTH_HEADER}"],\n      "env": { "AUTH_HEADER": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "json": {
+        title: "Any MCP client", kind: "JSON",
+        note: "The common shape: a streamable-HTTP URL plus one header. Some clients name the key serverUrl or httpUrl instead of url.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "url": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      }
+    };
+    var ON = ["border-accent", "text-text", "bg-accent/10"];
+    var current = "claude-code";
+    var tabs = document.querySelectorAll("#client-tabs .client-tab");
+    var tokenEl = document.getElementById("token");
+    var snippet = document.getElementById("snippet");
+    var copy = document.getElementById("copy");
+
+    function text() {
+      var tok = tokenEl.value.trim() || "<token>";
+      return CLIENTS[current].text.split(T).join(tok);
+    }
+    function render() {
+      var c = CLIENTS[current];
+      document.getElementById("snippet-title").textContent = c.title;
+      document.getElementById("snippet-kind").textContent = c.kind;
+      document.getElementById("snippet-note").textContent = c.note;
+      snippet.textContent = text();
+      tabs.forEach(function (b) {
+        var on = b.getAttribute("data-client") === current;
+        ON.forEach(function (k) { b.classList.toggle(k, on); });
+        b.classList.toggle("text-muted", !on);
+        b.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      copy.textContent = "Copy";
+    }
+    tabs.forEach(function (b) {
+      b.addEventListener("click", function () { current = b.getAttribute("data-client"); render(); });
+    });
+    tokenEl.addEventListener("input", render);
+    document.getElementById("token-eye").addEventListener("click", function () {
+      var hidden = tokenEl.type === "password";
+      tokenEl.type = hidden ? "text" : "password";
+      this.textContent = hidden ? "hide" : "show";
+    });
+    copy.addEventListener("click", function () {
+      var value = text();
+      var done = function () { copy.textContent = "Copied"; setTimeout(function () { copy.textContent = "Copy"; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(done, function () { fallback(value); done(); });
+      } else { fallback(value); done(); }
+    });
+    function fallback(value) {
+      var ta = document.createElement("textarea");
+      ta.value = value; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    // Deep link: /connect#cursor etc. opens on that client.
+    var want = (location.hash || "").slice(1);
+    if (CLIENTS[want]) current = want;
+    render();
+  })();
+  </script>
 </body>
 </html>
