@@ -77,7 +77,8 @@ def normalise(page: str, html: str) -> str:
     html = chip.sub(r'<div class="hidden sm:flex items-center">\1', html)
     # the server fills the base URL in from the request that asked for the page
     html, n = re.subn(r"https://YOUR-HOST", "{{BASE_URL}}", html)
-    assert (n == 2) if page == "connect" else (n == 0), (page, "base url", n)
+    assert n == 0, (page, "a YOUR-HOST placeholder survived", n)
+    assert ("{{BASE_URL}}" in html) == (page == "connect"), (page, "base url placeholder")
     # the server fills the version in from the package
     html, n = re.subn(r"(?<![\w.])v\d+\.\d+\.\d+(?![\w.])", "v{{VERSION}}", html)
     assert n == 1, (page, "version chip", n)
@@ -112,7 +113,9 @@ def compile_tailwind(page: str, html: str, work: pathlib.Path) -> str:
     html, n2 = re.subn(r"\s*<script>\s*tailwind\.config\s*=.*?</script>", "", html, flags=re.S)
     assert n1 == 1 and n2 == 1, (page, "cdn/config removal", n1, n2)
     html = html.replace("</head>", f"  <style>{css}</style>\n</head>", 1)
-    assert "<script" not in html, (page, "a script survived")
+    # Self-contained means nothing fetched from elsewhere: the page's own
+    # inline script (the client picker on /connect) is part of the page.
+    assert "<script src=" not in html, (page, "an external script survived")
     return html
 
 

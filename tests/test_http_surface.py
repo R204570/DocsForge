@@ -59,9 +59,10 @@ def test_site_pages_are_public_and_self_contained(gated, path, marker):
     # The version chip is the package's, not whatever the page was drawn with.
     assert f"v{mcp_server.__version__}" in r.text and "{{VERSION}}" not in r.text
     assert "{{BASE_URL}}" not in r.text and "YOUR-HOST" not in r.text
-    # Self-contained: no script from anywhere, and nothing from the local web
-    # chat — that surface is not part of the hosted process.
-    assert "<script" not in r.text
+    # Self-contained: nothing fetched from elsewhere (the client picker on
+    # /connect is the page's own inline script), and nothing from the local
+    # web chat — that surface is not part of the hosted process.
+    assert "<script src=" not in r.text
     assert "/api/" not in r.text and "app.js" not in r.text and "/static/" not in r.text
 
 
@@ -239,3 +240,26 @@ def test_connect_behind_a_tls_proxy_shows_https_and_the_public_host(gated, monke
 def test_a_configured_public_url_wins(gated, monkeypatch):
     monkeypatch.setenv("DOCSFORGE_PUBLIC_URL", "https://docs.example.com/")
     assert "https://docs.example.com/mcp" in gated.get("/connect").text
+
+
+# ── the client picker on /connect ────────────────────────
+CLIENTS = ("Claude Code", "Codex", "Cursor", "Windsurf", "Antigravity",
+           "Gemini CLI", "VS Code", "Claude Desktop", "Any client (JSON)")
+
+
+def test_connect_offers_every_client_with_the_servers_own_url(gated, monkeypatch):
+    monkeypatch.delenv("DOCSFORGE_PUBLIC_URL", raising=False)
+    html = gated.get("/connect", headers={"x-forwarded-proto": "https",
+                                          "x-forwarded-host": "temp-repo-murex.vercel.app"}).text
+    for name in CLIENTS:
+        assert f">{name}<" in html, name
+    # every snippet is built from the one filled-in URL; no placeholder leaks
+    assert 'var MCP = "https://temp-repo-murex.vercel.app/mcp"' in html
+    assert "YOUR-HOST" not in html and "{{BASE_URL}}" not in html
+    # the shapes the clients actually differ on
+    assert "--bearer-token-env-var DOCSFORGE_MCP_TOKEN" in html      # Codex: token via env
+    assert '"serverUrl": "' in html                                   # Windsurf / Antigravity
+    assert "mcp-remote" in html                                       # Claude Desktop bridge
+    assert "code --add-mcp" in html and "gemini mcp add" in html
+    # the token is never in the page: only the reader's input fills it in
+    assert 'id="token"' in html and 'type="password"' in html
