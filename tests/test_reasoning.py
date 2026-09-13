@@ -20,10 +20,10 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import forge_tools as ft
-import reasoning
-from reasoning import Budget, Reasoner
+from docsforge.core import engine as df
+from docsforge.tools import forge_tools as ft
+from docsforge.core import reasoning
+from docsforge.core.reasoning import Budget, Reasoner
 
 
 class Model:
@@ -53,7 +53,7 @@ def test_an_env_flag_alone_is_not_enough(monkeypatch):
     # Two independent switches: the operator says whether to spend anything,
     # the provider layer says whether there is anything to spend it on.
     monkeypatch.setenv("DOCSFORGE_REASONING", "on")
-    monkeypatch.setattr("providers.PROVIDERS", [])
+    monkeypatch.setattr("docsforge.providers.PROVIDERS", [])
     assert reasoning.configured() is False
 
 
@@ -270,13 +270,12 @@ def test_an_unreadable_page_is_never_vetoed():
 
 
 # ── the wiring ───────────────────────────────────────────
-def _source(name: str) -> str:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return open(os.path.join(root, name), encoding="utf-8").read()
+def _source(module) -> str:
+    return open(module.__file__, encoding="utf-8").read()
 
 
 def test_all_four_decision_points_are_reached():
-    tools, crawler = _source("forge_tools.py"), _source("docsforge.py")
+    tools, crawler = _source(ft), _source(df)
     assert "_ask_for_selector(" in crawler          # 1
     assert "_reason_about_kind(" in tools           # 2
     assert "_reason_about_identity(" in tools       # 3
@@ -286,10 +285,10 @@ def test_all_four_decision_points_are_reached():
 def test_a_harvest_opens_exactly_one_budget():
     # Twelve calls per harvest, not per corpus — a federation must not multiply
     # the cap by the thing it is meant to bound.
-    source = _source("forge_tools.py")
+    source = _source(ft)
     assert source.count("reasoning.Reasoner()") == 1
     assert "reasoning.active(reasoner)" in source
 
 
 def test_consultations_reach_the_stats():
-    assert 'stats["reasoning"]' in _source("forge_tools.py")
+    assert 'stats["reasoning"]' in _source(ft)

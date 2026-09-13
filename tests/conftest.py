@@ -59,7 +59,7 @@ def _isolate_storage_env():
 @pytest.fixture(autouse=True)
 def _reset_store_between_tests():
     """No test should inherit the backend another test installed."""
-    import forge_tools
+    from docsforge.tools import forge_tools
 
     forge_tools.reset_store(None)
     yield

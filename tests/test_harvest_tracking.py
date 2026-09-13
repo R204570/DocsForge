@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-import harvest_jobs
-from harvest_jobs import DONE, FAILED, RUNNING, STALLED, Job, Progress
+from docsforge.tools import harvest_jobs
+from docsforge.tools.harvest_jobs import DONE, FAILED, RUNNING, STALLED, Job, Progress
 
 
 @pytest.fixture(autouse=True)
@@ -187,7 +187,7 @@ def test_api_harvests_reports_running_and_recent():
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from starlette.testclient import TestClient
 
-    import app
+    from docsforge.server import app
 
     _write_record(id="live-1", label="langchain", pages=7, expected=20)
     _write_record(id="over-1", label="astro", state=DONE,
@@ -211,7 +211,7 @@ def test_api_harvests_sends_a_null_fraction_when_there_is_no_denominator():
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from starlette.testclient import TestClient
 
-    import app
+    from docsforge.server import app
 
     _write_record(id="crawl-1", label="effect", pages=120, expected=None)
     with TestClient(app.app) as client:
@@ -228,7 +228,7 @@ def test_a_second_learn_technology_does_not_crawl_the_same_site_twice():
     exactly as long as one process — and the provider runs each turn's tools
     in a fresh one.
     """
-    import forge_tools
+    from docsforge.tools import forge_tools
 
     _write_record(id="langchain-1", label="langchain", pages=3, expected=99)
     out = forge_tools.tool_learn_technology(name="langchain")
@@ -249,7 +249,7 @@ def test_a_different_technology_is_not_blocked_by_a_running_one():
     — published its next heartbeat into the developer's real state directory,
     where it sat as a stalled harvest for a name nobody had asked for.
     """
-    import forge_tools
+    from docsforge.tools import forge_tools
 
     _write_record(id="langchain-1", label="langchain")
     running = harvest_jobs.running()
@@ -325,7 +325,7 @@ def test_the_stdio_server_waits_before_it_exits():
     returning from main is what killed the harvest."""
     import inspect
 
-    import mcp_server
+    from docsforge.server import mcp_server
 
     source = inspect.getsource(mcp_server.main)
     assert "wait_for_all" in source

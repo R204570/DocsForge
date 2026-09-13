@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools as ft
-import mcp_server
+from docsforge.tools import forge_tools as ft
+from docsforge.server import mcp_server
 
 
 def tools():

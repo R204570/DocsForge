@@ -31,7 +31,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import resolver
+from docsforge.core import resolver
 
 LIVE = os.environ.get("DOCSFORGE_TEST_NETWORK", "")
 
@@ -71,8 +71,8 @@ def _host(url: str) -> str:
 
 @pytest.fixture(scope="module")
 def fetcher():
-    import docsforge
-    f = docsforge.Fetcher(docsforge.Options(delay=0.0))
+    from docsforge.core import engine
+    f = engine.Fetcher(engine.Options(delay=0.0))
     yield f
     f.close()
 

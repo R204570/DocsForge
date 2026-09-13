@@ -22,10 +22,10 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import federation as fed
-import forge_tools as ft
-from federation import Corpus, Federation
+from docsforge.core import engine as df
+from docsforge.core import federation as fed
+from docsforge.tools import forge_tools as ft
+from docsforge.core.federation import Corpus, Federation
 
 
 # ── the decision, given measurements ─────────────────────
@@ -117,18 +117,17 @@ def test_magnitude_prefers_the_sites_own_count():
 
 
 # ── wiring: something must actually call it ──────────────
-def _source(name: str) -> str:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return open(os.path.join(root, name), encoding="utf-8").read()
+def _source(module) -> str:
+    return open(module.__file__, encoding="utf-8").read()
 
 
 def test_classify_shape_has_a_production_caller():
     # The assertion that was missing for the whole of PROPOSAL-II.
-    assert "classify_shape(" in _source("forge_tools.py")
+    assert "classify_shape(" in _source(ft)
 
 
 def test_the_federation_measures_before_it_selects():
-    source = _source("forge_tools.py")
+    source = _source(ft)
     assert "_measure_corpora(" in source
     # Ordering matters: magnitude feeds the escalation question, so it has to
     # be known before selection runs, not after.

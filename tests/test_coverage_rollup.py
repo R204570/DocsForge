@@ -22,8 +22,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import selection as sel
-from federation import Corpus, Federation
+from docsforge.core import selection as sel
+from docsforge.core.federation import Corpus, Federation
 
 
 # ── W4: the entry corpus is never "not requested" ────────
@@ -72,8 +72,8 @@ def test_the_selection_result_agrees_with_the_marks():
 
 # ── W1: the roll-up is the headline ──────────────────────
 def _source() -> str:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return open(os.path.join(root, "forge_tools.py"), encoding="utf-8").read()
+    from docsforge.tools import forge_tools
+    return open(forge_tools.__file__, encoding="utf-8").read()
 
 
 def test_federation_completeness_reaches_the_headline():

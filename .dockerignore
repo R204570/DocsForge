@@ -1,0 +1,23 @@
+# Nothing here belongs in the hosted image. `.env` is the important one: the
+# container gets its configuration from the platform, never from a file.
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.github/
+.claude/
+.impeccable/
+knowledge_base/
+logs/
+measurements/
+docs_md/
+tests/
+scripts/
+Project Development/
+*.md.bak
+shot-*.png

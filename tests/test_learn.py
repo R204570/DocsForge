@@ -12,9 +12,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools as ft
-import resolver
-from kb_store import FileStore
+from docsforge.tools import forge_tools as ft
+from docsforge.core import resolver
+from docsforge.store.kb_store import FileStore
 
 PAGES = [
     ("Error Handling", "https://x.dev/docs/errors", "fail fast and recover"),

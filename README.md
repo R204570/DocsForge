@@ -29,21 +29,35 @@ It ships in three forms, all sharing one extraction engine:
 
 | Surface | File | What it's for |
 |---|---|---|
-| **CLI** | `docsforge.py` | One-shot scraping into `.md` files. |
-| **MCP server** | `mcp_server.py` | Give any MCP client (Claude Code, Claude Desktop, your agent) live docs-fetching tools. |
-| **Web chat** | `app.py` + `static/` | A chat UI over any of six providers that fetches docs and answers in rendered Markdown, plus DocsStore for browsing what has been harvested. |
+| **CLI** | `python -m docsforge` (`docsforge/core/engine.py`) | One-shot scraping into `.md` files. |
+| **MCP server** | `main.py` (`docsforge/server/mcp_server.py`) | Give any MCP client (Claude Code, Claude Desktop, your agent) live docs-fetching tools. |
+| **Web chat** | `python -m docsforge.server.app` + `docsforge/server/static/` | A chat UI over any of six providers that fetches docs and answers in rendered Markdown, plus DocsStore for browsing what has been harvested. |
 
 ```
                    ┌─────────────────┐
    CLI ───────────▶│                 │
-                   │   docsforge.py  │  detect → extract → Markdown
-   MCP client ────▶│   forge_tools   │
+                   │  core/engine.py │  detect → extract → Markdown
+   MCP client ────▶│ tools/forge_tools│
                    │                 │
    Web chat ──────▶│                 │
                    └─────────────────┘
 ```
 
-`forge_tools.py` defines each tool exactly once. `mcp_server.py` generates the MCP surface from those definitions; `app.py` hands the same schemas to whichever provider is selected. An MCP client and the web chat therefore run identical code, and neither can drift from the other.
+`docsforge/tools/forge_tools.py` defines each tool exactly once. `docsforge/server/mcp_server.py` generates the MCP surface from those definitions; `docsforge/server/app.py` hands the same schemas to whichever provider is selected. An MCP client and the web chat therefore run identical code, and neither can drift from the other.
+
+```
+main.py                 the only script in the root: starts the MCP server
+docsforge/              the package
+  core/                 engine (fetch/extract/crawl), resolver, llmsfinder, versions,
+                        manifests, federation, selection, passages, reasoning,
+                        observation, instrument
+  store/                kb_store — Markdown files or Postgres
+  tools/                forge_tools, harvest_jobs, tracing, applog
+  server/               mcp_server, app (+ static/)
+  providers/            one model backend per file
+scripts/                measurement harnesses and live smoke drivers
+tests/                  the offline suite
+```
 
 ## Features
 
@@ -96,27 +110,27 @@ sanitising with no code change of ours.
 ## 1. CLI
 
 ```bash
-python docsforge.py <URL> [options]
+python -m docsforge <URL> [options]
 ```
 
 ```bash
 # A docs site (auto-detected)
-python docsforge.py https://docs.stripe.com
+python -m docsforge https://docs.stripe.com
 
 # An OpenAPI / Swagger spec → API reference tables
-python docsforge.py https://petstore3.swagger.io/api/v3/openapi.json
+python -m docsforge https://petstore3.swagger.io/api/v3/openapi.json
 
 # A GitHub repo → README + /docs
-python docsforge.py https://github.com/tiangolo/fastapi
+python -m docsforge https://github.com/tiangolo/fastapi
 
 # Crawl a docs site, up to 50 pages
-python docsforge.py https://docs.example.com --crawl --max-pages 50
+python -m docsforge https://docs.example.com --crawl --max-pages 50
 
 # JS-rendered site
-python docsforge.py https://site.com --js
+python -m docsforge https://site.com --js
 
 # Combine everything into one Markdown file
-python docsforge.py https://site.com --single-file
+python -m docsforge https://site.com --single-file
 ```
 
 ### Options
@@ -136,7 +150,7 @@ python docsforge.py https://site.com --single-file
 ### As a library
 
 ```python
-from docsforge import forge, Options
+from docsforge.core.engine import forge, Options
 
 docs = forge("https://docs.example.com", Options(crawl=True, max_pages=10))
 for d in docs:
@@ -146,14 +160,25 @@ for d in docs:
 ## 2. MCP server
 
 ```bash
-python mcp_server.py                 # stdio — what MCP clients launch
-python mcp_server.py --http          # streamable HTTP on 127.0.0.1:8765
+python main.py                       # at a terminal: the site + /mcp on http://127.0.0.1:8765
+DOCSFORGE_MCP_TOKEN=… python main.py --http --host 0.0.0.0   # shared: token required
 ```
+
+One command, two callers. Typed at a terminal, `main.py` serves HTTP: the
+public site — `/` (what DocsForge is), `/tools` (the reference), `/connect`
+(client setup) — plus `/health` and the MCP endpoint at `/mcp`. Launched by an
+MCP client, which always talks over pipes, the same command speaks MCP on
+stdin/stdout instead; `--http` and `--stdio` force either (a service with no
+terminal, like the Containerfile, passes `--http`). Only `/mcp` is gated: clients send `Authorization: Bearer <DOCSFORGE_MCP_TOKEN>`,
+and without it the server answers 401. Binding a non-loopback address with no
+token is refused outright (`DOCSFORGE_MCP_INSECURE=1` overrides, for a network
+you own). The web chat in `docsforge/server/app.py` is not part of this
+process and nothing routes to it. See [Deploying](#deploying).
 
 Register with Claude Code:
 
 ```bash
-claude mcp add docsforge -- python /absolute/path/to/DocsForge/mcp_server.py
+claude mcp add docsforge -- python /absolute/path/to/DocsForge/main.py
 ```
 
 Or in an MCP client config file:
@@ -163,7 +188,7 @@ Or in an MCP client config file:
   "mcpServers": {
     "docsforge": {
       "command": "python",
-      "args": ["E:/DocsForge/mcp_server.py"]
+      "args": ["E:/DocsForge/main.py"]
     }
   }
 }
@@ -199,7 +224,7 @@ Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (60k default) with
 
 ```bash
 cp .env.example .env      # add a key for ONE provider — or none at all
-python app.py             # http://127.0.0.1:8000
+python -m docsforge.server.app   # http://127.0.0.1:8000
 ```
 
 Three surfaces, one window: the chat at `/`, **DocsStore** at `/library`, and
@@ -248,7 +273,7 @@ hits its daily cap you switch and keep going mid-conversation.
 | **ChatGPT** | `OPENAI_API_KEY` | `gpt-4.1` | Billed per token, no free tier. |
 | **Gemini** | `GEMINI_API_KEY` | `gemini-2.5-flash` | Large free tier. |
 
-Each provider is one file in `providers/`, and they all speak the same small
+Each provider is one file in `docsforge/providers/`, and they all speak the same small
 event stream (`text`, `tool_start`, `tool_end`, `notice`) so `app.py` never
 learns which one is running. What differs is the tool-calling shape, which is
 why each owns its own loop:
@@ -269,7 +294,7 @@ why each owns its own loop:
   **DocsForge's own MCP server attached**, so the tools run out of process over
   real MCP. `--strict-mcp-config` keeps your other MCP servers out of the session.
 
-Adding a provider means one file and one line in `providers/__init__.py`.
+Adding a provider means one file and one line in `docsforge/providers/__init__.py`.
 
 ### Configuration
 
@@ -302,9 +327,9 @@ acting.
 **From the command line**, which is the one to reach for when clearing several:
 
 ```bash
-python docsforge.py --forget pydantic@1.10     # one version
-python docsforge.py --forget astro             # every version of it
-python docsforge.py --forget a --forget b --yes  # several, no prompt
+python -m docsforge --forget pydantic@1.10     # one version
+python -m docsforge --forget astro             # every version of it
+python -m docsforge --forget a --forget b --yes  # several, no prompt
 ```
 
 It prints what it is about to remove — pages and characters — and does nothing
@@ -570,7 +595,7 @@ titles weighted above body text. Over 703 harvested Effect pages (6.3 MB):
 'retry with exponential backoff'  0.11s   6 pages  (by content, ranked)
 ```
 
-Already have a file store? `tests/migrate_kb.py` reads the combined Markdown
+Already have a file store? `scripts/migrate_kb.py` reads the combined Markdown
 back into Postgres, so a site that took ten minutes to crawl is not crawled
 again.
 
@@ -590,22 +615,56 @@ behaviour, or a literal prefix like `scope="/docs/v3/"` to pin it exactly.
 
 ## Measuring the crawler
 
-`instrument.py` measures what extraction actually does — which `CONTENT`
+`docsforge/core/instrument.py` measures what extraction actually does — which `CONTENT`
 selector won on each page, how often none did and `<body>` was stored whole,
 how many distinct templates a site really has, how much of the "documentation"
 is link text, and how many pages are JS shells. It decides nothing and no
 shipping module imports it; a test enforces both.
 
-`measure.py` drives it across real technologies and writes the numbers out:
+`scripts/measure.py` drives it across real technologies and writes the numbers out:
 
 ```bash
-python measure.py                     # the built-in 20, ~40 pages each
-python measure.py fastapi --pages 6   # one technology, quickly
+python scripts/measure.py             # the built-in 20, ~40 pages each
+python scripts/measure.py fastapi --pages 6   # one technology, quickly
 ```
 
 Results land in `measurements/` as JSON plus a readable table, and the run is
 resumable. This exists because every adaptive rule the crawler runs is a
 threshold over a number, and thresholds picked before the numbers are guesses.
+
+## Measuring whether any of it helps
+
+`scripts/measure_answers.py` asks the only question that matters: does a harvested
+corpus change what a model can answer? The same questions are put three ways —
+the model alone, the model with the documentation retrieved for it, and the
+model given DocsForge's tools and left to use them.
+
+```bash
+python scripts/measure_answers.py --provider ollama --model llama3.2:latest
+python scripts/measure_answers.py --phases closed,passages --out answers.json
+```
+
+Every expected answer is checked against the stored corpus before a question is
+asked, so a fixture whose answer is not in the documentation fails the run
+rather than quietly measuring nothing. Grading is a string match on an exact
+identifier, not one model judging another.
+
+Measured 2026-09-10, twelve questions across six technologies:
+
+```
+phase             all   unknown tech   known tech
+closed           0/12            0/7          0/5     llama3.2 (3B), alone
+passages         8/12            6/7          2/5     with the corpus retrieved
+tools            1/12            1/7          0/5     llama3.2 driving the tools
+tools             3/4            3/4            -     qwen3.5 (9B), 4 questions
+```
+
+Closed-book the model answered none of the twelve and said so only once —
+`useEffect` for Effect, `agentkit` for `google-adk`, `hydrate` for
+`model_validate`. Confident inventions, which is the failure this exists to
+prevent. With the documentation in front of it: 6 of 7 on technologies it did
+not know. A model too small to call tools cannot reach the corpus by itself; one
+that can, does.
 
 ## Serving a purpose
 
@@ -701,20 +760,28 @@ whose pitch is calibrated confidence cannot be selective about its own.
   portal that no name shape reaches. Refusing beats guessing.
 - **A resolved name is not always the right project.** Verification confirms a
   page is *about something with that name*, which is not the same as confirming
-  the project. A new `repo-identity` signal fixed the worst cases — `django` no
-  longer reaches an npm placeholder and `serde` no longer reaches a same-named
-  Python package — but a domain that owns the word and repeats it is still
-  enough. `flask` reaches an unrelated to-do app at flask.io, `polars` reaches a
-  third-party site, and `github actions` reaches a parked page at
-  githubactions.com. Check the URL in the result before trusting a harvest, pass
-  `ecosystem=` when you know it, and use `forget_resolution` when it is wrong.
-  Two routes to a confidently wrong answer have since been closed: a domain
-  probe no longer keeps its ownership claim when it redirects onto a code host
-  (`mojo.dev` lands on a Java library's repository), and a language can now claim
-  the `lang` domain it publishes from, so `zig` reaches `ziglang.org` and `nim`
-  reaches `nim-lang.org` instead of same-named npm packages. The four cases named
-  above have not been re-measured since.
-  See `Project Development/FINDINGS-B.md` and `Project Development/FINDINGS-C.md`.
+  the project. Measured over 25 judged names, cold: **23 correct**, up from 19.
+  Check the URL in the result before trusting a harvest, pass `ecosystem=` when
+  you know it, and use `forget_resolution` when it is wrong.
+
+  What still fails: `flask` reaches an unrelated to-do app at flask.io and
+  `polars` a third-party site. Both are the same remaining case — a domain that
+  genuinely owns the word and repeats it — and closing it means raising the
+  identity gate itself, which is a decision about a stated invariant rather than
+  a fix.
+
+  What was closed, each after being caught live: a domain probe no longer keeps
+  its ownership claim when it redirects onto a code host (`mojo.dev` lands on a
+  Java library); a language can claim the `lang` domain it publishes from
+  (`ziglang.org`, `nim-lang.org`); the claim a host makes on a name is now
+  *graded* rather than counted, so a first-come `<name>.github.io` label and a
+  country-code community mirror no longer outrank the project's own domain
+  (`tensorflow` reached the Rust bindings' rustdoc and `pytorch` the Korean user
+  group before this); a sub-project documented on its parent's host can be
+  identified at all, through a registry-nominated URL whose path names it
+  (`langgraph`); and `djangoproject.com` counts as Django's own domain, so
+  `django` reaches `docs.djangoproject.com` rather than the weblog.
+  See `Project Development/Resolved.md`, `FINDINGS-B.md` and `FINDINGS-C.md`.
 - **A page under an unrecognised template is refused, not stored.** Extraction
   tries nine selectors and then scores the page by text-to-link density; where
   nothing reads like documentation it stores nothing and says so, rather than
@@ -761,12 +828,56 @@ DocsForge fetches URLs chosen by whoever is talking to it, which in the MCP and 
 - **SSRF** — requests to private, loopback, link-local, and reserved addresses are refused. Set `DOCSFORGE_ALLOW_PRIVATE=1` (or pass `--allow-private`) to scrape docs on your own network.
 - **Path traversal** — `save_docs` cannot write outside `DOCSFORGE_OUT_ROOT`.
 
-Rendered Markdown is sanitized with `nh3` before it reaches the page, since it mixes model output with scraped HTML. Bind `app.py` to `127.0.0.1` (the default) unless you have put authentication in front of it.
+Rendered Markdown is sanitized with `nh3` before it reaches the page, since it mixes model output with scraped HTML. Bind the web chat to `127.0.0.1` (the default) unless you have put authentication in front of it.
+
+## Deploying
+
+The hosted process is `main.py --http`: one container, one port, the MCP
+surface at `/mcp` behind a bearer token, and the public site in front of it.
+The `Containerfile` in the repository root builds it from `pip install
+.[postgres]`; the web chat, tests, scripts and `.env` are excluded by
+`.dockerignore`.
+
+```bash
+podman build -t docsforge -f Containerfile .
+podman run -p 8765:8765   -e DOCSFORGE_MCP_TOKEN=$(openssl rand -hex 32)   -e DOCSFORGE_DB=postgresql://…?sslmode=require   docsforge
+```
+
+| Variable | Required | What it does |
+|---|---|---|
+| `DOCSFORGE_MCP_TOKEN` | yes, on a public bind | Clients send it as `Authorization: Bearer …`. Generate it; never reuse a database password. |
+| `DOCSFORGE_DB` or `DATABASE_URL` | yes, on a stateless host | The Postgres DSN. A file store would vanish on every redeploy. |
+| `PORT` | no | What the platform routes to; default 8765. |
+
+The runtime is stateless by design: the corpus is in Postgres, and what is left
+on local disk (harvest status records, the resolution cache, `logs/`) is cache.
+One consequence worth knowing: a redeploy kills a harvest in flight *and* its
+status record, so `list_knowledge_base` will not report it as stalled. Redeploy
+when nothing is harvesting. Run exactly one replica — streamable-HTTP sessions
+and running harvests live in the process.
+
+**On Aiven Apps.** Connect the GitHub repository, choose the `Containerfile`
+as the recipe, declare port `8765` as a public HTTP port, and connect your
+PostgreSQL service to the application — Aiven then injects `DATABASE_URL`,
+which DocsForge reads. Add `DOCSFORGE_MCP_TOKEN` under the application's
+environment variables (as a secret). Point clients at
+`https://<your-app-host>/mcp`:
+
+```bash
+claude mcp add --transport http docsforge https://<your-app-host>/mcp   --header "Authorization: Bearer <token>"
+```
+
+The site pages under `docsforge/server/site/` were designed in Stitch from the
+web chat's palette. `scripts/site_exports/` holds Stitch's raw exports and
+`python scripts/build_site.py scripts/site_exports` turns them into the served
+pages — one nav, real links, Tailwind compiled to a static stylesheet, the
+version chip filled in from the package at request time. Needs Node for the
+compiler. Edit in Stitch, download, re-run.
 
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 611 offline unit tests, no network
+python -m pytest tests/ -q          # 860 offline unit tests, no network
 
 # The 37 Postgres tests skip unless you point them at a throwaway database,
 # which makes a green run look more complete than it is — set this before
@@ -779,11 +890,11 @@ DOCSFORGE_TEST_DB=postgresql://postgres:pw@127.0.0.1:5432/DocsForgeTest python -
 The live checks need the network, and the last two need `GROQ_API_KEY`:
 
 ```bash
-python tests/smoke_mcp.py           # spawns the MCP server over stdio
-python app.py --port 8123 &
-python tests/smoke_web.py 8123      # one real Groq turn, end to end
-python tests/smoke_multiturn.py 8123
-python tests/shoot_ui.py 8123       # screenshots every UI state
+python scripts/smoke_mcp.py         # spawns main.py, the MCP server, over stdio
+python -m docsforge.server.app --port 8123 &
+python scripts/smoke_web.py 8123    # one real Groq turn, end to end
+python scripts/smoke_multiturn.py 8123
+python scripts/shoot_ui.py 8123     # screenshots every UI state
 ```
 
 `shoot_ui.py` stubs the model stream by default, so it costs no tokens and is

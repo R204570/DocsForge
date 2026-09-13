@@ -1,835 +1,588 @@
 # Open issues
 
-Difficulties and deferred decisions hit while building PROPOSAL-II. All seven
-phases are now built; what is left here is judgement calls and calibration, not
-unbuilt machinery. Items resolved along the way are kept at the bottom rather
-than deleted, because what a list like this stops saying matters too.
+Rebuilt on **2026-09-10** from a live five-technology run, not from the previous
+list. The runs are recorded verbatim in `EVALUATION-2026-09-10.log`; the
+reasoning is in `AUDIT.md`. Where an entry repeats one from the old ledger it
+says so, because a defect that comes back after being called fixed is a
+different fact from one that was never closed.
+
+What was asked for, exactly as a caller would ask:
+
+| Request | Resolved to | Stored |
+|---|---|---|
+| Langchain, current | `docs.langchain.com` (from cache) | see `AUDIT.md` §3 |
+| Langgraph, current | `github.com/langchain-ai/langgraph/tree/main/libs/langgraph` | 1 page, 6,350 chars, **complete** |
+| Django 5.2 | `www.djangoproject.com` | 232 pages, 214 of them `/weblog/` |
+| Tensorflow, recent | `tensorflow.github.io/rust/tensorflow` | 1 page, 11,339 chars, **complete** |
+| Pytorch, LTS | `pytorch.kr` | 66 pages, Korean, labelled `lts` |
+
+Run against 817 passing tests, 59 skipped behind opt-in gates. Every defect
+below was green in that suite.
 
 Each entry says what is wrong, how it was found, and what it would take to fix.
-Entries marked **DECISION** need a human answer, not just work — they change
-something PROPOSAL-II declares fixed.
+Entries marked **DECISION** need a human answer, not just work.
 
 Status key: `open` · `deferred` (deliberate, revisit later) · `wontfix` ·
 `fixed` (with the change that closed it, so the entry still teaches something)
 
 ---
 
-## PROPOSAL-3 acceptance gaps
+## Configuration
 
-Two of PROPOSAL-3 §6's own acceptance criteria were **not** met by the four
-phases. §6 also asks that `ISSUES.md` gain no entries across the four phases,
-so writing these down breaks that rule — deliberately. A criterion met by not
-recording a known gap is met dishonestly, and this file exists precisely so
-that what a project has not done stays as visible as what it has.
+### S1 — the MCP surface reads a different store than the rest of the product · **correctness** · fixed
 
-P2 is now fixed, and it is worth noting *how* it was found: not by anyone
-re-reading this file, but by a user watching a langchain harvest disappear.
-An entry sitting here open for weeks is a gap the project knows about and has
-stopped seeing.
+`app.py` calls `load_dotenv()`. `mcp_server.py` does not, and neither does
+`forge_tools`. An MCP client launches `python mcp_server.py`, which inherits an
+environment with no `DOCSFORGE_DB` in it, so `build_store()` sees no DSN and
+returns a `FileStore`. Measured in one process each way:
 
-### P1 — an interrupted harvest leaves nothing readable, not 60% · **DECISION** · open
+```
+no .env (what an MCP client launches)   store().kind = files
+                                        stored_name("effect") -> None
+.env loaded (what app.py does)          store().kind = postgres
+                                        stored_name("effect") -> "effect"
+```
 
-§6 asks that "a harvest interrupted at 60% leaves 60% of its pages readable and
-the previous version intact". Only the second half is true. Blue/green writes
-put a harvest in `state = 'harvesting'`, which every read path filters out, so
-an interrupted harvest is durable on disk and invisible to readers until it
-settles.
+Over MCP, `list_knowledge_base` answered **"Nothing is stored yet"** against a
+Postgres store holding 23 technologies, 703-page `effect` among them.
 
-This is not an oversight in the implementation; it is a contradiction inside
-§6. The same section, and Invariant 17, require that the previously stored
-version stay intact and that an in-flight harvest never be mistaken for a
-finished one — and a partial version that readers can see is exactly the
-"undisclosed subset" the whole product refuses. `test_a_harvest_in_progress_is_
-not_visible_to_readers` pins the behaviour that was chosen.
+Three consequences, in increasing order of cost:
 
-**The decision to make:** whether a partial harvest should be readable at all,
-and if so how a reader is stopped from mistaking 60% of a manual for the whole
-of one. A `state = 'partial'` that reads only through an explicitly opted-in
-call would satisfy both halves; nothing weaker does.
+- `list_knowledge_base`, `read_knowledge_base` and `search_knowledge_base`
+  cannot see the user's knowledge base at all.
+- `learn_technology`'s "already stored?" short-circuit reads the empty store, so
+  **every** technology re-harvests, every time. The one guarantee that stops a
+  site being crawled twice does not hold on the surface the README calls the
+  headline entry point.
+- The storage chip in the UI names Postgres while the MCP surface reads a
+  folder. `ARCHITECTURE.md` §7 says hiding which backend answered "would be a
+  lie about the quality of the answer"; here two surfaces disagree and neither
+  says so.
 
-### P2 — harvest progress does not survive the process · **correctness** · fixed
+**The guard for this exists and cannot fire.** `build_store()` records
+`degraded` and `wanted_dsn` precisely so that a silent fallback is impossible —
+its comment reads *"Falling back silently means everything you ever harvested
+appears to have vanished, with the interface calmly reporting an empty store."*
+Both fields are only set when a DSN was **present and unreachable**. When the
+DSN is simply absent, `degraded` is `""`, `wanted_dsn` is `""`, the 15-second
+retry never arms, and the store reports itself healthy. Measured above: exactly
+those two empty strings.
 
-§6 asks that "`list_knowledge_base` reports progress that survives killing the
-process". `harvest_jobs._JOBS` was an in-process dictionary, so it did not.
-
-**This was filed as a restart problem and that undersold it.** The damage did
-not need a restart, because there was never one process to begin with. The
-`claudecode` provider launches the CLI, which launches `mcp_server.py` itself,
-so every turn runs its tools in a *fresh subprocess*. So:
-
-- `learn_technology("langchain")` started a harvest in one process and told the
-  user that `list_knowledge_base()` would report it. The next turn's
-  `list_knowledge_base` ran somewhere else, had never heard of the job, and
-  listed 23 technologies with no mention of it. The instruction pointed at a
-  progress line that could not exist.
-- `_still_harvesting` asks the model not to call again, and that request was
-  the *only* thing preventing a duplicate crawl. It held for exactly as long as
-  one process. langchain was crawled twice.
-- `_new_id`'s counter restarted at 1 in each subprocess, so both harvests were
-  `langchain-1` and their records would have collided.
-
-Reported as: *"the harvest is too long that its running in background and there
-is no way to track it or see that it is running neither in terminal, logs nor
-on the web."*
-
-**Fixed** by publishing a status record per job under `~/.docsforge/harvests/`,
-refreshed on a two-second heartbeat and read by every process. Explicitly *not*
-a job queue: nothing is resumed from a record, and the module docstring still
-says so. A harvest still dies with its process — what changed is that we now
-notice. A record still claiming to run whose heartbeat stopped is reported
-**stalled**, never "running", because a daemon thread dies with its process and
-continuing to call that "working" is the lie the whole mechanism exists to
-avoid.
-
-Around it: `/api/harvests`, a tracker card on both pages, an
-`applog.harvest` line and a console line on every phase transition, and
-`learn_technology` now *checking* for a running harvest of the same name
-instead of politely asking the model not to start one.
-
-The phase hook is worth keeping in mind: a phase shorter than the heartbeat was
-invisible entirely — a two-second `resolving` never appeared anywhere — so
-`Progress.__setattr__` publishes a phase change at once, while page counts are
-left to the beat because they tick hundreds of times.
-
-### P3 — a background harvest cannot finish under the `claudecode` provider · **DECISION** · partly fixed
-
-Found immediately after P2 shipped, by the tracker P2 added: a langchain
-harvest reported **stopped reporting after 59/561 pages, 34s elapsed**. The
-tracker's first act was to expose a feature that had never worked on that path.
-
-The crawl is not failing. It is being killed:
-
-1. `learn_technology` hands back at the 25s deadline saying the harvest
-   "continues in the background while this server runs".
-2. Under `claudecode` there is no server. The provider spawns the `claude` CLI
-   **per turn** — `Popen`, `proc.wait()`, `proc.kill()` in a `finally` — and
-   the CLI spawns `mcp_server.py` as a child of its own.
-3. The turn ends, the CLI exits, `mcp_server.py` exits.
-4. The harvest runs on a **daemon** thread, and a daemon thread dies with its
-   process. No settle, nothing stored.
-
-25s deadline, plus the model writing its answer, is the 34s. Reproduced in
-isolation with the same harvest and only the daemon flag differing:
-
-    daemon=True    process lived 1.1s   harvest completed: NO
-    daemon=False   process lived 4.0s   harvest completed: YES
-
-Backgrounding has therefore **never** worked on this path. It works in the web
-UI because `app.py` outlives any turn. The 13-page `mojo` in the production
-store is the same death, earlier.
-
-**Partly fixed:** `mcp_server.py` now waits for its own harvests after the
-client hangs up, bounded by `DOCSFORGE_HARVEST_LINGER` (900s). Threads stay
-daemons underneath, so nothing orphans the process forever.
-
-Verified over real stdio, driving `mcp_server.py` as an MCP client does:
-`learn_technology("mojo")` handed back at 3s, stdin was closed — the hang-up —
-and the process lived a further 154s, finished all 213 pages and stored
-3,557,070 bytes as `1.0.0.md`. The console showed the lifecycle it had never
-reached before:
-
-    DocsForge: waiting for 1 harvest(s) to finish before exiting
-    [docsforge] harvest mojo-1: storing
-    [docsforge] harvest mojo-1: done after 155s
-
-**Why this stays a DECISION.** Two gaps the linger does not close:
-
-- ~~**It assumes the client closes stdin and waits.**~~ **Measured, and it
-  does not.** Driving the real server over stdio with a harvest in flight and
-  tearing it down two ways:
-
-      close-stdin   process lived a further 232s   stored: 1.0.0.md
-      kill          process lived a further   2s   stored: NOTHING
-
-  A client teardown kills. The linger handles the case that does not happen.
-
-  ~~**Fixed** by `harvest_worker.py`: a process of its own, launched
-  detached.~~ **That was wrong, and it shipped.** It survives the parent being
-  killed and *not* the parent's **job object**, which is how a client actually
-  tears its children down. Windows kills every process in a job with
-  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, detached or not:
-
-      detached only          tick 4 -> 4      DIED
-      detached + breakaway   never started    DIED
-
-  `CREATE_BREAKAWAY_FROM_JOB` is not an escape either: it is refused unless the
-  job grants it, and the child then fails to start at all.
-
-  The test that passed it killed the immediate parent, which is not the same
-  event. A fix verified against the wrong mechanism is a fix nobody has tested.
-  (The first version of the job-object measurement above was *also* wrong —
-  `AssignProcessToJobObject` was failing with `ERROR_INVALID_HANDLE` because
-  ctypes truncates a 64-bit `HANDLE` to `c_int`, so both arms "survived" a job
-  that had never been applied. Checking the return codes is what turned an
-  encouraging result into a real one.)
-
-  **Fixed** by handing the work to a process that was never in that job. The
-  DocsForge server is long-lived, outside the CLI entirely, and already the
-  host where background harvests have always worked: `POST /api/harvests`
-  reserves a record, starts the harvest there, and returns the id, which every
-  other process watches exactly as before.
-
-  Verified with the MCP server inside a real kill-on-close job object, the job
-  closed fifteen seconds in: the harvest ran **417 seconds** and stored
-  **3,563,589 bytes**.
-
-  When no server answers, the harvest runs locally as before **and the result
-  says so** — "this harvest will stop when this turn ends" — because the silent
-  version of that is what killed three langchain harvests without a word.
-
-  `harvest_worker.py` and `spawn_detached` are deleted rather than kept as a
-  fallback. Code a measurement disproved is how the next person rediscovers
-  this the hard way.
-
-  Five bugs on the way there, every one of them silent:
-
-  1. `Event.wait(float("inf"))` raises `OverflowError: timestamp out of range
-     for platform time_t` on Windows. The worker sets the deadline that way,
-     having nobody to hand back to early, so every harvest it ran died
-     instantly. `wait` now treats a non-finite limit as no argument.
-  2. `harvest_docs` never calls `start` — it is synchronous and publishes no
-     record. Detaching it would have harvested correctly while leaving the
-     launcher's record to go stale. It is off the worker's allow-list.
-  3. The worker called `load_dotenv`, which walked up from the repo, found the
-     developer's `.env`, and **resurrected `DOCSFORGE_DB` that the caller had
-     deliberately unset** — reconnecting to a real database and returning in
-     one second having harvested nothing. A detached process that re-acquires
-     config its parent dropped cannot be pointed at a test store. It now takes
-     configuration only from the environment it is handed.
-  4. The launcher publishes the record *before* the worker exists, so the
-     worker's own duplicate-harvest guard read that record and concluded the
-     work was already in hand. The worker refused the job it was spawned for.
-  5. All of the above failed **silently**, because the worker's output went to
-     `DEVNULL` — three runs showed only a record stuck at "starting". Each
-     worker now writes `<job>.log` beside its record, swept with it.
-
-  Still not a queue: nothing is resumed, nothing is retried, and a worker that
-  dies leaves a record whose heartbeat stops and which is reported stalled.
-  What changed is only *whose* death takes the harvest with it.
-- **Hitting the bound loses everything.** Measured, with a deliberately short
-  bound: ~180 of 213 pages fetched, abandoned, **0 bytes stored**. That is P1
-  again, and it is P1's decision to make — but note that the store already
-  records `complete=False` and an `expected` count, so settling a partial
-  corpus *marked incomplete* would not be presenting it as whole. The choice is
-  whether to serve it at all, not whether it can be labelled honestly.
-
-  **The bound itself is gone.** `DOCSFORGE_HARVEST_LINGER` now defaults to `0`,
-  meaning no ceiling. A documentation set is of unknown size until it has been
-  read — measuring coverage is the whole point — so a wall-clock bound was a
-  guess about someone else's site, and one that discarded every page it was
-  supposed to protect. The orphan it guarded against does not need a timer:
-  the wait covers only this process's own harvests, every fetch carries its own
-  timeout, and the page cap bounds the loop, so the wait ends when the work
-  does. A positive value still reimposes a ceiling for anyone who wants one.
+**To fix:** load the same `.env` from every entry point rather than only
+`app.py` — `mcp_server.py` and the `docsforge` CLI both need it, and putting it
+in `forge_tools` covers all three at once. Separately, treat "no DSN configured"
+as a state worth naming: a `FileStore` that was never offered a DSN is fine, but
+it should be distinguishable from one that reached for a database and missed.
+Both surfaces should print which store answered on startup.
 
 ---
+
+
+**Fixed**: `forge_tools._load_env()` reads `.env` in the module every surface
+imports, so there is one copy and nothing to forget. It never overrides a
+variable already set, so `app.py` and the suite's isolation are unaffected, and
+a missing `python-dotenv` is a no-op rather than a new dependency for a core
+install. `mcp_server` now also names its store on startup — `location`, never
+`dsn`, which carries the password. The second half stands: a `FileStore` that
+was never offered a DSN is still not distinguishable in the store object from
+one that reached for a database and missed.
 
 ## Resolution
 
-### R1 — `own-domain + names-it` lets a name-squatter through · **DECISION** · open
+### R1 — a second strong signal outranks the project's own documentation site · **correctness** · fixed
 
-**Mitigated, not closed, by PROPOSAL-3 Phase 4.** Decision point 3 asks a
-model whether a page documents *this project* or a different one sharing the
-name — the distinction arithmetic cannot draw, because the evidence it counts
-is identical either way. The consultation may only **veto**: a host the
-algorithmic gate refused is never re-admitted by asking, so reasoning makes
-the gate stricter and never looser, and turning it on cannot make this worse.
-Cached per host, so a 40-page corpus costs one call.
+`evidence()` orders candidates by what signals *mean* before it counts them —
+forge below documentation, `docs-host` above the rest, then `own-domain`. Once
+two candidates tie on all three, it falls through to a **raw count of strong
+signals**, and the signals are not equally strong. A site that happens to carry
+an install command, or whose repository path names the project, collects two;
+the project's own documentation site typically has exactly one, `own-domain`.
 
-It stays open and stays a **DECISION**, for two reasons. Reasoning is off by
-default, so the default path is unchanged and still admits the parked domain.
-And the underlying question — whether Invariant 1 should require project
-identity rather than name evidence — is a human's to answer, not something a
-consultation settles.
+Both wrong answers in this run came out of that tie-break. Measured, with the
+`evidence()` key each candidate produced:
 
-The one remaining path by which a wrong project is confidently identified. A
-hostname containing the name, plus the name appearing three times, is enough.
+```
+tensorflow
+  tensorflow.github.io/rust/tensorflow  own-domain, repo-identity, names-it:14
+      -> (1, 0, 1, 1, 2, 14, 0.92)   WON
+  www.tensorflow.org/guide/             own-domain, names-it:17
+      -> (1, 0, 1, 1, 1, 17, 0.70)
+  www.tensorflow.org/                   own-domain, names-it:20
+      -> (1, 0, 1, 1, 1, 20, 0.55)
 
-Measured survivors: `flask` → **flask.io** (an unrelated to-do app, "Flask
-Lists"), `polars` → **polars.dev** (a third-party PySpark site), `github
-actions` → **githubactions.com** (an 8 KB parked page). The last only became
-reachable once L3's concatenation shape started working — reaching further finds
-wrong answers as readily as right ones.
+pytorch
+  pytorch.kr/                           own-domain, install:pypi, names-it:37
+      -> (1, 0, 1, 1, 2, 37, 0.75)   WON
+  pytorch.org/llms.txt/                 own-domain, names-it:129
+      -> (1, 0, 1, 1, 1, 129, 0.97)
+```
 
-Closing it means changing `is_identified()`, which **Invariant 1 declares
-unchanged**. The invariant forbids a *lower* bar; raising it is not forbidden but
-is a deliberate change to a stated invariant, so it needs an explicit decision.
-Options, in increasing blast radius, are in `FINDINGS-C.md`.
+`www.tensorflow.org` was fetched, read and **verified**. It lost by one signal
+to a page titled *"tensorflow - Rust"* whose own description reads *"This crate
+provides Rust bindings for the TensorFlow machine learning library."*
+`pytorch.org` lost to the Korean user group's site, which qualified because it
+carries a `pip install` line.
 
-**Two feeder paths closed, without touching `is_identified()`.** Both were bugs
-in what counted as `own-domain`, not changes to how many signals are required,
-so Invariant 1 is untouched:
+This is the same failure `evidence()` was written to prevent — its docstring
+names `github.com/langchain-ai/langchainjs/tree/main/libs/langchain/` beating
+`docs.langchain.com` — reached by a route the fix does not cover. See R2.
 
-- A domain probe that **redirected onto a code host** kept its ownership claim.
-  `mojo.dev` redirects to `github.com/gdejohn/procrastination` — a Java library,
-  since Maven plugins are also called "mojos" — and that plus a registry package
-  named `mojo` was two strong signals. The gate stamped `verified` on a page
-  that never says the word. `_owns_the_name` already refused forges outright;
-  arriving by redirect does not change who owns the host.
-- A language was refused a claim on the **`lang` domain it publishes from**.
-  Names that are common words take the suffix for exactly that reason, and
-  nothing probed them, so `zig` resolved to an npm templating library and `nim`
-  to an unrelated repository — both *verified*, each on a registry package that
-  agreed with itself.
+**To fix**, in increasing blast radius: weight the signals rather than counting
+them, so `own-domain` on the bare project domain is not one unit alongside
+`install:`; or treat `names-it` as a magnitude rather than a tiebreak, since
+129 mentions against 37 is not a close call; or add a rung above `strong` that
+asks whether the host is the project's *primary* domain rather than any host
+carrying its name. Each needs a measurement run — R1 is exactly where widening
+recall has previously multiplied looseness.
 
-Measured after: `zig` → `ziglang.org`, `nim` → `nim-lang.org/documentation.html`,
-`mojo` → `mojolang.org`, each on `own-domain` plus mentions. **R1's own four
-survivors have not been re-measured**, and this does not claim them.
 
-What remains is what R1 has always been: a squatter that genuinely owns a
-hostname carrying the name, and says the name enough times. Neither fix reaches
-that.
+**Fixed**: `name_authority()` grades the claim a host makes on a name — apex,
+local, shared — above the strong-signal count in `evidence()`. Graded, not
+gated: `is_identified` is untouched, and a mirror or a pages label still wins
+when it is the only answer. `tensorflow` -> `www.tensorflow.org`, `pytorch` ->
+`docs.pytorch.org/docs/stable/index.html`.
 
-### R2 — `_looks_like_software` is satisfied by a single footer forge link · open
+### R2 — `*.github.io` is treated as the project's own domain · fixed
 
-The gate meant to stop `astro` resolving to an astrology site. Almost every
-parked and marketing page now carries a GitHub link, so the gate passes them.
-Cheaper than R1 and probably fixes most of R1's cases: require more than one
-software marker, or discount a page whose only marker is a footer link.
+`is_forge()` lists `github.com`, `gitlab.com`, `bitbucket.org`,
+`sourceforge.net`. `tensorflow.github.io` is none of them, so:
 
-### R3 — `resolve()` returns the first verified candidate, not the best-evidenced · **correctness** · fixed
+- `_owns_the_name()` sees the label `tensorflow` and grants **`own-domain`**;
+- `evidence()`'s first key — *a forge never outranks a docs site* — never
+  engages, because the host is not a forge by that list.
 
-The verify loop broke on the first candidate that passed, walking in
-`confidence` order — and confidence there is a prior about the **source type**,
-decided before anything has been read. `pypi:Documentation` outranks
-`pypi:Homepage`, so `langchain` resolved to `reference.langchain.com` and
-`docs.langchain.com` sat second at 0.78 and was **never checked at all**. The
-winner was not better, it was earlier.
+`github.io` is a shared, first-come namespace: the label belongs to whoever
+registered the GitHub organisation. That is the same class of claim
+`_owns_the_name`'s own docstring dismisses for registries — *"one package in
+one namespaced, first-come registry"* — and it is being counted as the
+strongest kind of evidence.
 
-Found by auditing a stored corpus rather than by reading this entry: the
-langchain harvest was 560 pages and only 669,048 characters — a median page of
-490 characters, because every page is one API symbol. `docs.langchain.com`
-samples at a median of 5,023.
+Careful: many real projects publish on `<name>.github.io`, so refusing it
+outright would lose documentation. This is about *rank*, not admission.
 
-**Fixed** by `best_verified()`: read every candidate, then compare.
+**To fix:** recognise the pages namespaces — `github.io`, `gitlab.io`,
+`pages.dev`, `netlify.app`, `vercel.app` — and either drop them a rung in
+`evidence()` below a true apex domain, or keep `own-domain` but stop the "not a
+forge" key from rewarding them.
 
-**Counting signals was tried first and was worse.** A GitHub repository page is
-dense with the project's name and carries a backlink and a registry agreement —
-two strong signals and eighteen mentions — so `langchain` then resolved to
-`github.com/langchain-ai/langchainjs/tree/main/libs/langchain/`, a source tree.
-Caught by measuring rather than by assuming.
 
-So `evidence()` ranks on what the signals *mean* before it counts them:
-source-or-documentation first (a forge loses to a docs site, but still wins when
-it is all there is — plenty of small libraries genuinely document themselves in
-a README), then `docs-host` (owns the name *and* is a docs host), then
-`own-domain`, and only then strong count, mentions, and confidence as a tiebreak.
+**Fixed**: `SHARED_NAMESPACES` recognises the pages namespaces, and
+`name_authority` ranks them below a real apex domain. Admission is unchanged —
+this was about rank, as the entry said.
 
-Measured over ten names, one fixed and one improved, no regressions:
+### R3 — a sub-project documented on its parent's domain cannot pass the gate · fixed
 
-    langchain   reference.langchain.com  ->  docs.langchain.com
-    astro       astro.build              ->  docs.astro.build
-    mojo, zig, nim, fastapi, pydantic, htmx      unchanged
+`langgraph` is documented at `docs.langchain.com`. The identity gate asks
+whether the *host* carries the asked-for name, and that host carries
+`langchain`. So the real documentation earns no `own-domain` and no
+`docs-host`, and the source repository — whose path does name it — wins by
+default. Every candidate, from a cleared cache:
 
-`astro` is the instructive one: `astro.build` carries **five** strong signals
-and sixty mentions against `docs.astro.build`'s two, and still loses. That is
-R5's class of failure — landing on a marketing homepage rather than the docs
-root — falling out of ranking by meaning.
+```
+reference.langchain.com/python/langgraph/       names-it:11
+    refused: only names-it:11
+docs.langchain.com/oss/python/langgraph/overview  registry-agreement
+    refused: only registry-agreement
+github.com/langchain-ai/langgraph/tree/main/libs/langgraph
+    repo-identity, names-it:10                  VERIFIED, chosen
+github.com/Onelevenvy/langgraph-rust             names-it:6
+    refused
+```
 
-Reading every candidate costs more requests than stopping at the first. The
-ladder's own budget still bounds it, and a resolution that cannot compare
-cannot be said to have chosen.
+Both real documentation sites were fetched and refused; the source tree passed.
+The harvest that followed stored the README — one page, 6,350 characters — and
+recorded it **complete**.
 
-**Not closed by this:** `effect` still resolves to `effect.website` rather than
-its `/docs/` root, and `polars` still reaches `polars.dev` with a single
-candidate — R5 and R1 respectively, both untouched here.
+Note the second line especially: PyPI names `docs.langchain.com/...` as
+langgraph's Homepage, which is `registry-agreement`, one strong signal. It
+needed `names-it` to clear the gate and did not get it, because the page renders
+client-side and the raw HTML does not say the word three times inside the 40,000
+character window.
 
-### R4 — nine multi-word names still refuse · deferred
+This is not a squatter problem and R1's remedies do not reach it. It is
+structural: monorepos and umbrella projects document children on the parent's
+domain, and that is the normal arrangement, not an edge case.
 
-`spring boot`, `next auth`, `framer motion`, `argo cd`, `elastic search`,
-`azure blob storage`, `google cloud storage`, `aws lambda`,
-`hugging face transformers`, `postgres full text search`, `unreal engine`.
+**To fix:** accept a docs host that the registry itself nominates. If PyPI says
+langgraph's homepage is `docs.langchain.com/oss/python/langgraph/overview`, the
+registry has vouched for the *URL*, and the path names the project even though
+the host does not. A `path-identity` signal — the asked-for name as a whole
+segment of the path on a registry-nominated URL — would close this without
+touching `is_identified()`'s arithmetic. It needs a precision run: paths are
+easier to satisfy than hosts.
 
-Several are honest refusals: `framer motion` renamed to motion.dev and no longer
-names Framer; the cloud-provider names live under deep paths on enormous portals
-(`learn.microsoft.com/azure/storage/blobs`) that no name shape reaches. Would
-need a vendor-portal map or a real search backend (L5's `DOCSFORGE_SEARCH` hook
-exists for exactly this and is unconfigured).
 
-### R5 — resolution can land on a marketing homepage rather than the docs root · open
+**Fixed**: `path-identity` — a registry nominated *this URL* and the name is a
+whole path segment of it. Two independent sources agreeing, which is the bar
+`is_identified` has always held; refused on package hosts, where the path names
+the project and the host names nobody. `langgraph` ->
+`docs.langchain.com/oss/python/langgraph/overview`, 35 pages.
 
-`numpy` → `numpy.org` rather than `numpy.org/doc/stable/`; `tanstack query` →
-`tanstack.com` rather than the Query docs. `probe_docs_root` looks for a small
-set of conventional paths and `/doc/stable/` is not among them. Related to R3:
-the homepage verifies first and the loop stops.
+### R4 — resolution lands on the marketing homepage, not the docs root · fixed for the measured case
 
-### R6 — a refusal this machine caused was filed as a fact about the name · **correctness** · fixed
+Carried over unchanged from the previous ledger, now with a measured cost.
+`django` resolved to `https://www.djangoproject.com/` — *"The web framework for
+perfectionists with deadlines"* — on `repo-identity, names-it:47`.
+`docs.djangoproject.com` was never reached. What that cost is E1.
 
-**Fixed** by `learned_nothing()`. `verify()` distinguishes two refusals and the
-cache did not: a candidate whose page was *read* and found to document something
-else is a real finding about the name; a candidate that could not be **fetched**
-says only that the network could not answer.
 
-Found by running a real resolution and getting `best: None, via: memory,
-candidates: 0` in one second. The cache held `mojo resolved=False age=12.1h
-"Found 6 candidate(s) but none could be confirmed"` — written during the NAT64
-outage, when every fetch was refused as a private address. `REJECT_TTL` is seven
-days; the cause was fixed within one. Six days of confident wrong answers, from
-one bad afternoon of networking.
+**Fixed for django**: `project` joined `lang` as a name suffix, so
+`djangoproject.com` is Django's own domain and `docs.djangoproject.com` earns
+`docs-host`, which outranks the homepage. The general risk — a project whose
+docs host does not carry its name at all — is R3's territory and is only
+closed where a registry nominates the URL.
 
-`remember()` now files nothing when every candidate was refused with
-`could not be read`. A partly-unreachable refusal is still remembered, because
-something was learned.
+### R5 — a wrong resolution is remembered for 30 days · open
 
-### R7 — a fix could not reach the cache · **correctness** · fixed
+All five answers, right and wrong, were filed with `rules=3` and a 30-day TTL.
+The next `learn_technology("tensorflow")` returns the Rust crate with **zero
+requests** and no opportunity to do better. The cache is working exactly as
+designed; the point is that R1–R4 are therefore not one bad afternoon but a
+month of them, and `forget_resolution` has to be run by someone who already
+knows the answer is wrong.
 
-The sharper version of R6, and it bites *successes*. When R1's forge bug
-resolved `mojo` to a Java library, that answer was filed as a **success** — so
-`CACHE_TTL` would have served it for thirty days, outliving its own fix by four
-weeks, on the very name whose failure prompted the fix. `learn_technology`
-returned it in one second without a request.
-
-Found the same way both times: by looking at what a live run actually did rather
-than at whether the tests were green. They were.
-
-**Fixed** with a `RULES` stamp. An entry records which set of identity rules
-decided it, `recall` discards anything else, and entries written before the
-stamp existed carry no `rules` key and are discarded on sight — which is the
-intended effect, since every one of them predates two changes to those rules.
-Bump `RULES` whenever the gate changes.
-
-The general lesson, worth more than either fix: **a cache is a claim with a
-provenance, and code is part of that provenance.** Any TTL long enough to be
-useful is long enough to outlive the bug that wrote the entry.
+**To fix:** nothing here, until R1–R3 are settled. Then bump `RULES`, which is
+what that mechanism is for — it discards entries decided under rules the build
+no longer applies. Worth deciding whether a resolution that was never
+*harvested* successfully should get the full TTL.
 
 ---
 
-## Extraction
+## Coverage
 
-### E1 — the template signature was too fine to cluster on · RESOLVED in Phase D
+### C1 — `whole` defaults to True when nothing established a denominator · **correctness** · fixed
 
-PROPOSAL-II §2.2 argues a rule should be learned per template because "sites
-have a handful of layouts". Measured with the proposal's own signature
-(three-level ancestry + coarse shape): **0.42 distinct templates per page** —
-22 signatures across 40 pages for both pydantic and terraform. That is nearly
-per-page, the cost the design set out to avoid.
+`_note_coverage()` ends with:
 
-**Cause found:** the shape half. All 22 Terraform signatures shared an
-*identical* ancestry; the heading and code buckets were splitting them. Those
-describe what a page says, not how it is built.
+```python
+else:
+    stats["whole"] = True
+...
+    stats.setdefault("expected", len(docs))
+stats.setdefault("acquired", len(docs))
+```
 
-**Fixed:** the signature is now the layout ancestry alone, with CSS-module build
-hashes stripped so it survives a redeploy. The shape is still recorded, just not
-as part of the template's identity. Re-measured over the same 452 pages:
-**0.46 → 0.08 templates per page**, with most sites collapsing to one or two.
-The design's premise was right; the implementation was wrong.
+For any strategy other than `llms_txt` that did not set `whole` itself, the
+harvest is declared complete, and `expected` is set to the number of pages that
+happened to come back. `acquired == expected` is then true by construction.
 
-### E4 — the adaptive yield map · RESOLVED in the second pass
+Measured:
 
-PROPOSAL-II §2.2's revision rule R5 refreshes a "yield map — mean score per path
-neighbourhood" and reprioritises the frontier mid-crawl. The first pass built a
-static frontier only — chaff last, documentation first, shallow before deep.
+```
+langgraph   pages=1  expected=1  complete=True   (strategy: github)
+tensorflow  pages=1  expected=1  complete=True   (strategy: crawl)
+```
 
-**Built in the second pass.** `Plan.refresh_yield` computes mean readability per path
-neighbourhood over the whole crawl, and `_Frontier.reprioritise` rescores the
-queue on it — bounded to fifteen steps, so a well-written changelog can never
-outrank the manual. A test pins that bound, and another pins that reprioritising
-drops nothing.
+Both of these are the product's core promise inverted. `PRODUCT.md` principle 3
+is *"Never report unearned confidence"*; `ARCHITECTURE.md` §5 says `expected` is
+*"measured against what the site says exists, not against the slice a page limit
+left behind"*. That holds on the manifest and sitemap paths — django reported
+232 of 991, pytorch 66 of 72, both correctly `complete=False`. It does not hold
+where no denominator was ever established, and there the answer is `True`
+rather than `unknown`.
 
-The *thresholds* remain provisional; see F2.
+The `COVERAGE UNKNOWN` branch exists in `forge_tools` and reads well. It is
+close to unreachable, because `_note_coverage` never yields `None`.
 
-### E2 — `<meta name="generator">` is present on only 25% of sites · open
+**To fix:** default `whole` to `None`, not `True`, and let each strategy that
+genuinely measured something say so. That makes `unknown` the resting state,
+which is what the three-state design was for. Expect fallout: several currently
+"complete" corpora become "unknown", which is the correct answer and will look
+like a regression.
 
-Declared by 5 of 20: zensical (FastAPI), Astro, VitePress ×2, Docutils. §2.2
-leans on "about ten generators, each identifiable from `<meta name=generator>`
-or a two-marker class fingerprint". The meta half is a bonus, not a mechanism —
-the class-fingerprint half has to carry it, and it has no design detail yet.
 
-### E3 — a *soft* 404 was stored as documentation · open
+**Fixed**: `whole` is `True` only where the source states its own size —
+`github`, `openapi`, `raw_text`, a manifest or a sitemap. A crawl that drained
+its frontier now records `unknown` with the reason attached, because pages
+nothing links to are invisible to it either way. `unknown` was always in the
+design and was simply unreachable.
 
-Observed on `numpy`: a sampled page titled "NumPy - 404" was extracted and would
-have been stored.
+### C2 — the density note is computed from documents whose bodies were dropped · **correctness** · fixed
 
-Recorded originally as "nothing checks HTTP status", which was wrong —
-`Fetcher.html` already raises on any status ≥ 400. The real problem is the soft
-404: the site answers **HTTP 200** and renders an error page, which no status
-check can catch. Detecting it means looking at the content (a title that is
-mostly "404" or "not found", a body with no headings and little text), and that
-is a heuristic with a false-positive cost, so it wants measuring before it
-ships. A soft 404 counts toward `expected` and toward `complete`, so it inflates
-exactly the figure the product is built on.
+`forge_tools.py:931`:
 
-### E5 — the manifest path ignored the politeness delay · fixed
+```python
+shape_note = llmsfinder.density_note([len(d.markdown) for d in docs])
+```
 
-`_crawl_html` has honoured `opts.delay` and `HOST_CONCURRENCY` since the
-beginning. `_acquire_manifest_links` honoured neither, so the 211-page Mojo
-harvest went out as 211 back-to-back requests to one host.
+`docs` at that point has been through `_drain()`, which returns
+`Doc(doc.url, doc.title, "")` — bodies deliberately released so peak memory
+stays proportional to page count rather than corpus size. That was the fix for
+the old S5. Every `len(d.markdown)` is therefore `0`.
 
-Nothing failed, which is why it survived: the site tolerated it. That is not the
-same as it being acceptable, and a manifest is a crawl in everything but name.
+`reads_as_stubs()` fires when a corpus has at least 20 pages and a median under
+1,200 characters. A median of zero satisfies that always, so **every harvest of
+20 or more pages is told it is a set of stubs**:
 
-**Fixed** by giving the loop its own `_Pace(opts.delay)`. Acquisition there is
-sequential, so spacing the starts is the whole of the politeness — there is
-never more than one request open — and at the default 0.4s the two paths now
-cost a host the same. Costs the suite about 12s, all of it in tests that harvest
-a manifest with the default delay rather than an explicit zero.
+```
+django   "these 232 pages have a median of 0 characters and 232 under 500"
+pytorch  "these 66 pages have a median of 0 characters and 66 under 500"
+```
 
-Worth noting as a class: **the ladder's rungs were built at different times and
-did not inherit each other's manners.** Anything the crawl learned about being a
-good citizen is worth re-checking on rungs 1–5.
+Against the stored rows, pytorch's real numbers are a median of **2,865**
+characters with **5** pages under 500. Run on the true sizes,
+`reads_as_stubs()` returns `False` and `density_note()` returns `""`.
+
+So the note is not merely inaccurate, it is inverted: it tells a caller that
+prose documentation is an API symbol index. The one signal the product has for
+"this corpus is the wrong shape" currently fires on everything, which is the
+same as not having it.
+
+The tests did not catch it because they call `density_note(sizes)` with
+hand-built lists, and those lists agree with the assumption the function was
+written under.
+
+**To fix:** measure at the sink, where the body is still in hand — `_StripSink`
+sees every page's real length on its way to the store — or read the sizes back
+from the writer's settled entry. Then pin it with a test that harvests through
+a real sink rather than calling `density_note` directly.
+
+
+**Fixed**: `_StripSink` keeps an integer per stored page — it is the last place
+that ever sees a body — and the note is computed from those. It still fires on
+a corpus that really is stubs; a test pins that, because fixing a broken signal
+by removing it is not fixing it.
+
+### C3 — a version label is applied without anything confirming it · partly fixed
+
+`django 5.2` and `pytorch lts` are both stored under labels the caller supplied
+and nothing verified.
+
+- The django corpus is 214 weblog posts and 18 other pages from
+  `www.djangoproject.com`, none of it version-scoped. It is filed as **5.2**.
+- `pytorch.kr` is a community site with no LTS scoping at all. It is filed as
+  **lts** — and PyTorch's LTS programme ended after 1.8.2, so the label names
+  something that no longer exists.
+
+`versions.py` is careful about *ordering* labels and `same_release()` is strict
+about a release answering a request. Neither is consulted about whether the
+pages actually came from the release that was asked for; `_version_label` takes
+`opts.version` when it has one.
+
+**To fix:** distinguish a *requested* label from a *confirmed* one. Where the
+harvest cannot show the pages came from the named release, store it under what
+was actually found and record the request separately — or refuse, which is the
+house answer everywhere else. Storing an unverified label is the version
+equivalent of stamping a corpus `complete`.
 
 ---
 
-## Federation
-
-### F1 — the corpus is not a first-class store column · RESOLVED enough · open
-
-`Corpus.key` produces the `corpus/version` fragment PROPOSAL-II asks for, and
-the accounting that depends on it (Invariants 8 and 9) is built and tested.
-
-**Filing is done, by a different route.** `forge_tools.corpus_key()` files each corpus as
-`{tech}--{corpus}`, which is isomorphic to the three-part key and needs no
-migration of a store that already holds harvests. Selected corpora are now
-genuinely fetched and filed separately, each settling its own count.
 
-**Still open:** a real column would let `list_knowledge_base` group corpora
-under their technology instead of listing them beside it. Cosmetic today,
-awkward once a technology has four corpora.
-
-### F2 — the tuned numbers are all still guesses · open
-
-PROPOSAL-II's own open question — "What is `BREADTH_LIMIT`? Eight is a guess" —
-and it still is, along with `MIN_KIND_CONFIDENCE` (0.5) and the revision
-thresholds in `Plan` (window of 12, three wins to pin, 40% shells).
-
-**`DENSITY_FLOOR` is no longer among them.** It is now fitted per template from
-the site's own distribution (rule R6): `min(median - 1.5*MAD, median/2)`,
-clamped to [0.05, 0.60]. The constant survives only as the value used until a
-template has been seen five times. Measured live on docs.astro.build, that moves
-the floor from 0.30 to 0.46 with no page lost.
-
-**`BREADTH_LIMIT` should not be fitted the same way — the count is the wrong
-variable.** What makes a platform hard is not how many peer corpora it has but
-how *evenly* the magnitude is spread: if one corpus is most of the mass, intent
-has effectively chosen; if twenty service manuals are all the same size, nothing
-has. Replace the count with a concentration measure (top-corpus share, or
-entropy over magnitudes) and the constant disappears rather than being tuned.
-
-Every one of them is a starting point rather than a finding. `measure.py`
-collects what is needed and `measurements/` already holds 452 observations. Fit
-them before treating any of them as measured, and expect at least one to be
-wrong — that expectation is why Phase B exists.
-
-## Storage — from the Go harvest failure
-
-Found in use, not by reading: `go.dev` crawled for 16 minutes and stored
-nothing. `AUDIT.md` §11 has the full trace. S1-S3 are one defect seen from three
-distances.
-
-### S1 — an oversized page cannot be stored at all · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3, in two steps. Phase 1 made a refused page cost one page
-rather than the harvest. Phase 2 removed the refusal: `page.search` is a
-GENERATED column, so an unbounded index expression made the 1 MB tsvector
-ceiling a *storage* limit rather than an indexing one. It is now generated over
-`left(content, 300_000)` (`_upgrade_v4`), the page is stored whole, and anything
-past the bound is indexed section by section so none of it drops out of search.
-
-`page.search` is a generated `tsvector` column, so `to_tsvector` runs during the
-write and Postgres's 1 MB tsvector ceiling makes the row un-insertable. Measured:
-1,189,416 bytes against a 1,048,575 limit.
-
-**Fix, one line, loses nothing:** the limit is on the tsvector, not the column.
-Index a bounded prefix and keep the full content —
-`to_tsvector('english', left(coalesce(content,''), 1000000))`. Only the tail of
-a very large page becomes unsearchable; it is still stored and still readable.
-
-Needs a `_upgrade_v3` to rebuild the generated column on existing databases.
-
-### S2 — one bad page discards every good one · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3 Phase 1. The single-`COPY`-in-one-transaction write is
-gone; `save()` now delegates to `writer()` in both stores, so there is one write
-path and the batch case cannot rot separately. Regression test: a harvest with a
-deliberately oversized page (150,000 distinct lexemes) stores the other two.
-
-`PostgresStore.save` writes the whole harvest in a single `COPY` in one
-transaction. ~1,200 extractable Go pages were thrown away because one row was
-rejected. Extraction already honours "one dead page must never end a run"
-(`stats["unextractable"]`); storage does not.
-
-**Fix:** write pages in batches and collect per-row rejections into the same
-`unextractable` channel that extraction failures already use, so a harvest
-reports "1,212 of 1,213 stored, one page too large to index" instead of failing.
-
-*Not* a data-loss bug: the `delete from doc_version` is inside the same
-transaction, so a failed harvest leaves the previously stored version intact.
-
-### S3 — nothing bounds a single page, anywhere · open
-
-**Still open after Phase 3.** Concurrency was the phase this was waiting
-for, and it makes the memory side slightly worse rather than better: peak
-memory is now up to `workers` pages in flight rather than one. Still
-bounded, still small against a whole corpus, and still nothing that caps a
-single pathological page.
-
-**Narrowed** by PROPOSAL-3 Phase 2, not closed. The *consequence* that made
-this urgent is gone — an unbounded page no longer costs a harvest, because
-the index it feeds is bounded. What remains is the original problem: nothing
-bounds what is fetched or extracted, so a pathological page is still held in
-memory whole. That belongs with Phase 3's concurrency work, where peak memory
-stops being one page and becomes as many as there are workers.
-
-`FETCH_PAGE_CAP` and `HARVEST_PAGE_CAP` bound the page *count*; `MAX_CHARS`
-bounds what a model is handed. Nothing bounds what is fetched, extracted or
-stored. A page is unbounded from socket to database, and S1 is merely the first
-hard limit that unboundedness has met.
-
-**Fix:** a per-page ceiling with a stated default, applied at extraction, with
-the overflow disclosed rather than silently trimmed.
-
-### S4 — the two backends accept different things · fixed
-
-**Fixed** in PROPOSAL-3 Phase 2. The divergence was entirely the tsvector
-ceiling: `FileStore` took any page and `PostgresStore` refused large ones.
-With the index bounded, Postgres accepts every page the file store does.
-
-The same harvest succeeds on `FileStore` and fails on `PostgresStore`. The
-product claims one engine and byte-identical results across surfaces; storage
-breaks that silently, so `DOCSFORGE_DB` changes *what can be stored*, not only
-where it goes. Fixing S1 mostly closes this.
-
-### S5 — the whole harvest is resident in memory · fixed
-
-**Fixed** in PROPOSAL-3 Phase 1, earlier than planned, because streaming made it
-nearly free. The crawl hands each body to the sink and appends `Doc(url, title,
-"")`, so peak memory is the page *count*, not their total size.
-
-`harvest()` returns `list[Doc]` and `save()` takes the full list. Peak memory is
-the whole corpus. Irrelevant for most sites; the same class as S3 for something
-the size of `pkg.go.dev`.
-
-### S6 — a storage failure is reported as a size problem · fixed
-
-**Fixed** in PROPOSAL-3 Phase 1. `_PgWriter._why` translates the driver's
-"string is too long for tsvector" into "too large for the full-text index (a
-single page over Postgres's 1 MB tsvector ceiling)". The distinction is the whole
-point: the first sends a reader looking for a smaller subset to harvest, which
-violates Invariant 4; the second names one page.
-
-The raw Postgres message propagated, and the calling model concluded "too large
-for the current database format" and offered to harvest a subset — a curated
-subset presented as a success, which is what Invariant 4 exists to prevent. A
-storage error needs a diagnosis naming the real constraint and the real remedy,
-or callers route around the guarantee.
-
-### S7 — W2 is load-bearing, and this proves it · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3 Phase 2, from both ends. `classify_shape` now has a
-caller (`_measure_corpora`), so a specification discovered as its own corpus is
-fetched once and split on its headings rather than crawled as a site. And the
-storage half no longer depends on getting that classification right: a huge page
-met *inside* a tree crawl is now storable too. The second is what makes this
-properly closed — the first alone would have left one classification mistake
-standing between a harvest and losing a page.
-
-`classify_shape` being unwired (W2) is what made S1 reachable. `go.dev/ref/spec`
-is a `page`-shape corpus by §2.3's own test: fetch once, split on `h2`/`h3`,
-`expected` becomes the section count. Split that way, no row approaches 1 MB.
-
-Raise W2's priority accordingly — it is not tidying, it is the difference
-between storing a large single-document corpus and being unable to.
-
-## Wiring — from the 2026-08-24 audit
-
-Four things that are built, tested, and never called. `AUDIT.md` §10 has the
-verification for each. They share a shape, and it is worth naming: a unit test
-proves a function behaves, not that anything invokes it, so the suite grew from
-349 to 536 without noticing any of these.
-
-### W1 — federation-level completeness never reaches the user · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3 Phase 2, by reordering. `_federate` is what discovers,
-admits and harvests the other corpora, so until it has run there is no
-federation-level completeness to report — and a headline written before it can
-only ever describe the entry corpus. It now runs first, records the roll-up in
-`stats['federation']`, and the headline uses it whenever more than one corpus is
-in play. A harvest that got all of one corpus and half of another no longer
-announces itself complete with the shortfall buried in a note at the bottom.
-
-`Federation.complete` implements Invariant 9 and is tested. Nothing calls it.
-The headline coverage of a harvest still comes from the entry corpus's `stats`,
-so a federation where the manual is complete and the API reference came back
-2 of 50 reports the manual's `complete` at the top.
-
-This is the defect PROPOSAL-II opens with, one level above where it was fixed.
-
-**Fix:** have `tool_harvest_docs` take its top-line `complete` from
-`Federation.complete` when a federation exists, rather than from `stats["whole"]`
-alone. Guard it with a wiring test.
-
-### W2 — `classify_shape` is never called · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3 Phase 2. `_measure_corpora` probes each admitted corpus
-with one GET and classifies it against its peers. Two things found by wiring it:
-`has_manifest` had been accepted and never read for the whole of PROPOSAL-II
-(it now rules out `page`, which is what a site publishing its own page list
-means), and a corpus was being compared against a median it was itself in —
-with two or three corpora the one enormous document dominates that median and so
-can never be six times it, leaving the `page` branch unreachable in exactly the
-case it exists for. The median is now over peers. Same mistake `_neighbourhood`
-made counting a URL as its own neighbour.
-
-Every corpus is `tree`, so the `page` branch of `_harvest_corpus` is unreachable
-and a specification published as one huge document is crawled as a tree, yielding
-about one page instead of an exact section count.
-
-**Fix:** classify in `_federate`, after admission and after any render decision —
-the ordering matters, because a JS-driven API reference measures as a 2 KB shell
-and would classify as a tree. Needs the corpus's median page size, which means
-sampling a page or two.
-
-### W3 — `Corpus.magnitude` is never set · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3 Phase 2, by the same probe that fixed W2 — they need one
-measurement, so they were wired together. Magnitude is the site's own page count
-where it publishes one, and the in-scope link count otherwise. The entry corpus
-is measured from the crawl that already happened rather than re-fetched.
-
-It is `0` everywhere, so every option in an escalation question reads
-**"size unknown"** and "options ordered by magnitude" orders by zero.
-
-This lands squarely on the platform-scale case the escalation exists for: the
-question put to a human is a list of URLs with no sizes, which is most of what
-makes such a question answerable.
-
-**Fix:** a cheap estimate at admission — the corpus's sitemap or generator
-manifest length where one is reachable, otherwise the count of distinct
-in-scope links already seen for that host in `Federation._votes`. The second
-costs nothing.
-
-### W4 — an already-harvested corpus can be reported `not requested` · **correctness** · fixed
-
-**Fixed** in PROPOSAL-3 Phase 2. `Corpus.entry` marks the URL the caller handed
-in, and `_mark` never deselects it: it was requested by name and it is already
-in the store by the time selection runs, so "not requested" is false twice over.
-Invariant 5 still applies to every other corpus — a peer that genuinely was not
-requested still says so, with its magnitude.
-
-`classify_kind` returns `("", 0.0)` for a docs root with no kind token in its
-path, which is most of them. Under a kind-specific intent, `_wanted()` then
-excludes it — so the entry corpus, already crawled and stored, is printed as
-`**not requested**`.
-
-**Fix:** the corpus that was actually harvested is never a candidate for
-deselection. Either pin it as selected before `select()` runs, or treat an
-unclassified kind as optional rather than excluded. The first is narrower.
-
-### W5 — `needs_selection` is prose, not machine-readable · open
-
-§2.4 promises automated callers a machine-readable result. `Selection.as_dict()`
-produces one and is never called; the tool returns formatted text. A model can
-parse it; FlowIT gating on a string is not the stated contract.
-
-### W6 — six dead symbols, and two ways to name a corpus · fixed
-
-**Fixed** in PROPOSAL-3 Phase 1, five of six. `_federated_note`,
-`passages.passages` and `Corpus.key` are deleted; `Federation.single` and
-`Federation.note` are now called by `_federate`, which had been rendering its own
-coverage note. That second renderer had drifted into saying the coverage
-described "only the corpus that was crawled" long after selection began
-harvesting the others — the drift this issue predicted, found by deleting it.
-`Selection.as_dict` remains dead; it is W5, not a stray symbol.
-
-Deleting `Corpus.key` also removed the only expression of "an unversioned corpus
-files under `undated`", which turned out to live *only* in dead code — the live
-path labelled such corpora with today's date, a claim about when the content is
-from that an undated corpus cannot make. Now `forge_tools.corpus_label()`.
-
-`_federated_note`, `Federation.single`, `Federation.note`, `passages.passages`,
-`Selection.as_dict`, and `Corpus.key` — the last duplicating
-`forge_tools.corpus_key()` in a different format. All referenced only by tests.
-
-The duplicated key is the one that matters: it is exactly the drift the
-`pick_main` refactor existed to prevent, reintroduced.
-
-### W7 — the suite has no wiring tests · fixed
-
-**Fixed** across PROPOSAL-3 Phases 1 and 2, which is the only reason W1–W4 and
-W6 could be closed with any confidence that they stay closed. There are now
-wiring assertions for: the harvest opening a writer rather than batching into
-`save()`; both harvest paths streaming; page bodies being released rather than
-carried; `classify_shape` having a production caller; measurement running before
-selection; the coverage note having exactly one renderer; and the federation
-roll-up reaching the headline.
-
-Two of them earned their place immediately by failing for real reasons rather
-than cosmetic ones — the one-renderer assertion caught `_federate` still
-building its own note, and the bounded-index assertion caught a migration guard
-that would have rebuilt a table on every startup.
-
-The root cause of W1-W4. `test_selection.py` already demonstrates the fix —
-it greps `selection.py` and asserts no page-level filter exists. Three
-equivalent assertions would have caught W1, W2 and W3 on the day each landed.
-
-## Measurement
-
-### M1 — `measure.py` treats every page as HTML · open
-
-Six of twenty names resolve to an `llms.txt`, which the real pipeline handles via
-`detect_source` but the driver fetches and measures as HTML. Their extraction
-numbers are meaningless and were excluded by hand from the 2.8% figure. The
-driver should branch on source kind the way `harvest()` does.
-
-### M2 — `requests` lost 14 of 15 fetches · open
-
-`https://requests.readthedocs.io` (no trailing slash) enumerated 15 URLs and
-fetched one. Probably a redirect or scope interaction in `candidate_pages`.
-Small sample sizes elsewhere (polars 1 page, tokio 4) may share the cause.
-
-### M3 — correctness is judged by hand · deferred
-
-Whether a resolution is *right* cannot be measured automatically, so
-`FINDINGS-B.md` and `FINDINGS-C.md` list every judgement so it can be disputed.
-A fixture of known-correct docs roots would make regressions catchable in CI.
+**Partly fixed**: `_urls_for_release` records `release_confirmed` when the
+pages themselves name the release, and `harvest_docs` now says plainly when a
+requested version is *the label you asked for, not a finding*. The label is
+still applied either way, because storing a corpus under a name the caller
+cannot then read it back by is its own defect. Recording confirmation in the
+store — a schema change on both backends — is not done.
+
+## Scope
+
+### E1 — the marketing filter is a spelling-matched deny-list · fixed
+
+**This is the old F12 returning.** F12 was recorded fixed: *"narrowing a
+whole-host sitemap to its documentation: prefer `/docs`, `/guide`, `/reference`
+and friends where enough exist, and otherwise drop `/blog`, `/careers`,
+`/pricing` and the rest."*
+
+Django spells it `/weblog/`.
+
+```
+_NOT_DOCS matches /blog     -> True
+_NOT_DOCS matches /weblog/  -> False
+```
+
+Both halves of `_focus_on_docs` then fail together. The allow-list branch needs
+five or more `/docs`-shaped URLs and finds none, because Django's documentation
+is on a different host entirely. The deny-list branch does not recognise
+`weblog`. So the whole weblog passes:
+
+```
+django 5.2   232 pages stored
+             214 of them under /weblog/          (92%)
+               8 /foundation/, 3 /conduct/, 2 /start/, 1 /screencasts/,
+               1 /trademarks/, 1 /diversity/, 1 root
+```
+
+A caller who asked for Django 5.2 documentation received *"DSF member of the
+month"*, *"2026 DSF Board Election Results"* and *"PyCharm & Django Fall
+Fundraiser"*, filed as version 5.2 and reported only as incomplete — never as
+the wrong material.
+
+**To fix:** the deny-list is the wrong shape for this. Word-boundary matching
+would catch `weblog`, but the next site will spell it `/journal/` or `/updates/`
+and the list will lose again. A positive test is more robust: a page whose URL
+is dated (`/2026/aug/20/`) is an article, not a manual, on every site that has
+ever published one. Combine that with the existing allow-list and only fall back
+to the deny-list.
+
+
+**Fixed**: `looks_like_article` adds a dated-path test, which is what does not
+depend on guessing the noun, and `weblog` joined the list besides. Two further
+findings came out of the same investigation and are fixed with it: the filter
+no longer runs at all on a dedicated documentation host — it was cutting
+`docs.djangoproject.com` from 11,209 URLs to 66 — and a per-language sitemap
+*index* now picks the default language, which is where the choice still
+exists.
+
+### E3 — a locale in a query parameter is not recognised as a locale · open
+
+`_locale_of` reads a language from a leading path segment (`/ko/`) and, since
+this round, from a sitemap child's filename (`sitemap-ko.xml`). Google's sites
+put it in a query parameter instead, and nothing looks there.
+
+Measured on the 2026-09-10 re-harvest of `www.tensorflow.org` — 700 pages
+stored of the 705 the sitemap lists, and every one of the five that failed:
+
+```
+https://www.tensorflow.org/tfx/guide/tft?hl=ko
+https://www.tensorflow.org/lite/guide/ops_select?hl=ko
+https://www.tensorflow.org/lite/guide/build_cmake_arm?hl=zh-CN
+https://www.tensorflow.org/learn?hl=fr
+https://www.tensorflow.org/versions/r2.0/api_docs/java/reference
+```
+
+Four of five are `?hl=` translations of pages the harvest already has in
+English. They are not a coverage gap — they are the same documentation twice —
+but they are counted as one, so the corpus reports 700/705 when it holds
+everything that matters. Harmless here; on a site that lists every translation
+this way it would multiply the denominator instead of the corpus.
+
+**To fix:** `_prefer_default_locale` should read `?hl=` alongside the path
+segment, and drop non-default variants before they are counted. The curated
+locale list is already the right vocabulary for it.
+
+### E2 — federation did not discover the documentation subdomain · open
+
+`www.djangoproject.com` links to `docs.djangoproject.com` from its primary
+navigation. Federation exists exactly to notice that a technology is several
+corpora, admits hosts from link evidence gathered while crawling, and marks
+unselected ones `not requested`. It surfaced nothing for django: the result
+carries no corpus list, and no second corpus was stored.
+
+Not diagnosed further in this run — it needs its own investigation into whether
+the link evidence was gathered, whether the candidate was refused at the
+identity gate (which would make it R3 in another costume), or whether intent
+deselected it silently.
+
+**To fix:** first establish which of the three it is. The interesting case is
+the second, because `docs.djangoproject.com` should pass a host-ownership test
+easily, and if it did not, R3 is broader than langgraph.
 
 ---
 
-## Packaging and platform
+## Providers
 
-### P1 — Phase A's "gitignore `.impeccable/`" was deliberately skipped · wontfix
+### P1 — the read cap assumes a window one shipped provider does not have · open
 
-`.gitignore` already ignores `.impeccable/refs/` and `.impeccable/typetest/`
-under the comment *"keep the decision record, drop the scratch"*. The proposal's
-version would discard a record kept on purpose. Left alone deliberately.
+`MAX_CHARS` is 200,000 characters, and its comment is explicit about why:
+*"the binding constraint is not DocsForge but the provider's context window,
+and this project speaks to six of them... 200,000 characters is roughly 50-65k
+tokens, which sits comfortably inside a 200k-token window."*
 
-### P2 — the web UI is a checkout-only surface · deferred
+One of those six is Ollama, and Ollama's default context is whatever the
+model's Modelfile says. Measured 2026-09-10, `qwen3.5:9b` as served locally:
 
-`app.py` resolves `static/` beside itself, and a wheel does not install it. The
-`web` extra pulls the right packages but `pip install docsforge` does not give a
-working web chat. Fixing it means making `static/` package data, which means
-making the flat modules a real package — a larger refactor than Phase A wanted.
+```
+/api/ps  ->  "context_length": 4096
+MAX_CHARS ->  200,000 characters  (~50,000 tokens)
+```
 
-### P3 — background harvests do not survive a restart · deferred
+Twelve times the window. Ollama silently truncates the prompt, so a
+`read_knowledge_base` result arrives as a fragment with no indication that it
+was cut, and the model loops — one question in `measure_answers.py`'s `tools`
+phase ran for twenty minutes without settling. Nothing in DocsForge says the
+result did not fit, because from its side it did: the cap was honoured.
 
-Jobs are in-process and daemon-threaded by design, so a server restart loses
-in-flight harvests. Documented, not hidden. Anything better needs a real
-scheduler, which a documentation tool does not obviously need.
+`providers/ollama.py` never asks for a larger context, and cannot easily: the
+OpenAI-compatible endpoint does not carry `num_ctx`, and `OLLAMA_CONTEXT_LENGTH`
+belongs to the user's daemon.
 
-### P4 — cosmetic: wrong type annotation in `_probe_origins` · open
+**To fix:** give the cap a per-provider budget rather than one global number —
+`Provider` already knows which model it is running, and `run_tool` is the only
+place that truncates. A provider that declares a small window should get a
+result sized for it, and the truncation marker already exists to say so. Until
+then a local-model user has to set `DOCSFORGE_MAX_CHARS` by hand, and nothing
+tells them to.
 
-`live` is annotated `list[tuple[int, int, str, str, str]]` and the sort relies on
-tuple ordering. It was `list[tuple[int, str, str]]` before Phase C and wrong
-then too. Harmless, but it is the kind of thing that misleads the next reader.
+## Storage
 
+### S2 — an abandoned harvest leaves a row nobody ever clears · open
 
-## Resolved in the second pass
+Found by querying the live store during a re-harvest on 2026-09-10:
 
-Kept for the record, because what a list like this *stops* saying matters as
-much as what it says.
+```
+technology  version      state        pages
+django      5.2          harvesting     274   <- in flight, correct
+langchain   2026-09-07   harvesting       0   <- abandoned days ago
+langchain   2026-09-06   harvesting       0   <- abandoned days ago
+mojo        1.0.0        failed           0   <- abandoned
+```
 
-- **The crawl did not revise its own plan.** `Plan.revise` now re-derives from a
-  rolling window of twelve every twelfth page, emitting all five rules of §2.2;
-  `Frontier.reprioritise` rescores the queue; pinned selectors and density
-  routing re-extract pages the CONTENT order got wrong. Revisions land in
-  `stats["revisions"]`.
-- **L4 did not exist.** `from_evidence` reads back the repository backlinks,
-  outbound documentation links and canonical URLs that `ResolveState` had been
-  recording all along — and `verify()` now records the page of a candidate it is
-  about to fail, which is the one most likely to say where to look next.
-- **Federation reported corpora but harvested one.** `_harvest_corpus` fetches
-  each selected corpus per its shape and files it separately.
-- **Selection could refuse but not ask.** `selection.set_asker` takes any
-  channel; the CLI uses the terminal; over MCP the model relays the question and
-  answers with `corpora=`.
-- **`adk` was not a kind.** It is now, and distinct from `sdk`.
+Readers never see them — every read path filters on `state = 'ready'`, which is
+the blue/green write doing exactly its job, and the previous version of each
+technology stayed intact throughout. So this is not a correctness problem.
+
+It is an accumulation problem. A harvest that dies with its process leaves its
+row behind permanently, and nothing sweeps them: three here after a few weeks of
+ordinary use, two of them for a technology that has since been harvested
+successfully twice. Over a year of real use that is a table of dead versions
+nobody can distinguish from the merely slow.
+
+**To fix:** the harvest tracker already knows the difference between running and
+stalled — a heartbeat that stopped — and applies it to job records. The same
+judgement belongs to storage: a version in `harvesting` whose write has not
+advanced for well past any plausible harvest is abandoned, and should be swept
+on the next `settle` for that technology. Deleting on read would be wrong; a
+harvest genuinely in flight looks identical for as long as it is in flight.
+
+## Reporting
+
+### T1 — the tracker reports `pages=0` for a harvest that stored a page · open
+
+`langgraph` finished `state=done pages=0` in `/api/harvests` and in the JSONL
+log, having stored one page. The counter is ticked by `_CountingFetcher` on the
+crawl and manifest paths; the `github` strategy does not go through it. Cosmetic
+against C1 and R3, but it is the number a watching user sees, and zero reads as
+failure.
+
+### T2 — `starting` is published twice for every job · open
+
+Every harvest logs `phase=starting` twice — once from `reserve()` and once as
+the adopted job begins. Harmless, and noise in a log whose value is that each
+line means something happened.
+
+---
+
+## Documentation
+
+### D1 — the stated test count is stale in three places, three different ways · fixed
+
+```
+README.md            "611 offline unit tests"
+ARCHITECTURE.md      "740 passing tests"
+PRODUCT.md           "757 passing offline unit tests"
+measured             817 passed, 59 skipped
+```
+
+The skip count is right in both places it appears. `AUDIT.md` recorded this once
+before, as F20, for `PRODUCT.md` alone; it has since drifted in two more
+documents. For a project whose thesis is calibrated numbers, the numbers about
+itself are the ones to keep honest.
+
+**Fixed**: all three now read 860, the count after this round of work. It will
+drift again — the durable fix is to quote it in one place, or have CI write it,
+and that is still not done.
+
+**To fix:** have CI write the count, or stop quoting it in three places and
+quote it in one.
+
+---
+
+## What this list does not contain
+
+The previous ledger's entries were not carried over wholesale. Several are
+plainly still live — the identity gate's tolerance for a host that owns a name
+(R1's ancestor), soft 404s, provisional thresholds — but they were not measured
+in this run and this file is now built only from what was. The old list is at
+`git show dce0f0b:"Project Development/ISSUES.md"` and is worth reading beside
+this one, particularly for the entries it recorded as fixed.

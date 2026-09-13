@@ -14,8 +14,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import resolver
-from resolver import Candidate, normalise
+from docsforge.core import resolver
+from docsforge.core.resolver import Candidate, normalise
 
 
 class FakeResponse:
@@ -655,3 +655,154 @@ def test_a_reference_still_wins_when_it_is_the_only_thing_verified():
     you need a signature."""
     only = _cand("https://reference.thing.dev/", ["own-domain", "names-it:9"])
     assert resolver.best_verified([only]) is only
+
+
+# --- graded authority over the name: the 2026-09-10 five ---------------------
+#
+# Every case below is a measured resolution from that run, with the signals
+# each candidate actually produced. All of them lost to a page that was not the
+# project's documentation, and they lost the same way: `own-domain` was one
+# bit, so ranking fell through to counting strong signals and a second signal
+# outweighed being the project's own site.
+
+def test_a_github_pages_label_never_outranks_the_projects_own_domain():
+    """Measured: `tensorflow` resolved to `tensorflow.github.io/rust/tensorflow`
+    -- a page titled "tensorflow - Rust" whose description reads "Rust bindings
+    for the TensorFlow machine learning library". `www.tensorflow.org/guide/`
+    was fetched, verified, and lost 2 strong signals to 1."""
+    bindings = _cand("https://tensorflow.github.io/rust/tensorflow",
+                     ["own-domain", "repo-identity", "names-it:14"], 0.92,
+                     "crates:documentation")
+    official = _cand("https://www.tensorflow.org/guide/",
+                     ["own-domain", "names-it:17"], 0.70, "probe:/guide/")
+
+    assert resolver.best_verified([bindings, official]) is official
+    assert resolver.name_authority(bindings) == resolver.SHARED_LABEL
+    assert resolver.name_authority(official) == resolver.APEX_DOMAIN
+
+
+def test_a_country_code_mirror_never_outranks_the_projects_own_domain():
+    """Measured: `pytorch` resolved to `pytorch.kr`, the Korean user group, and
+    stored 66 pages of Korean. It qualified because it carries a `pip install`
+    line; `pytorch.org` names PyTorch 129 times and had one strong signal."""
+    korean = _cand("https://pytorch.kr/",
+                   ["own-domain", "install:pypi", "names-it:37"], 0.75, "domain:io")
+    official = _cand("https://pytorch.org/llms.txt/",
+                     ["own-domain", "names-it:129"], 0.97,
+                     "domain:dev/probe:llms.txt")
+
+    assert resolver.best_verified([korean, official]) is official
+    assert resolver.name_authority(korean) == resolver.LOCAL_DOMAIN
+    assert resolver.name_authority(official) == resolver.APEX_DOMAIN
+
+
+def test_a_local_mirror_is_still_an_answer_when_it_is_the_only_one():
+    """Demotion must not become refusal -- the same rule the repository case
+    already holds to. A national community site is real documentation when the
+    project's own domain produced nothing at all."""
+    korean = _cand("https://pytorch.kr/", ["own-domain", "install:pypi"], 0.75)
+    assert resolver.best_verified([korean]) is korean
+
+
+def test_a_shared_namespace_label_is_still_an_answer_on_its_own():
+    """Plenty of real projects publish their documentation on `<name>.github.io`
+    and must keep resolving there."""
+    pages = _cand("https://someproject.github.io/", ["own-domain", "names-it:20"])
+    assert resolver.best_verified([pages]) is pages
+    assert resolver.name_authority(pages) == resolver.SHARED_LABEL
+
+
+def test_a_host_a_name_domain_redirected_onto_keeps_apex_authority():
+    """`terraform.io` redirects to `developer.hashicorp.com/terraform`, which is
+    somebody consolidating their documentation. The host does not carry the
+    name and does not need to: `own-domain` is granted by the arrival."""
+    landed = _cand("https://developer.hashicorp.com/terraform",
+                   ["own-domain", "names-it:40"], 0.75, "domain:io")
+    assert resolver.name_authority(landed) == resolver.APEX_DOMAIN
+
+
+def test_a_package_host_makes_no_claim_on_the_name():
+    """`docs.rs/htmx` carries the name in its path and is a registry serving
+    somebody else's crate -- the same reason `_owns_the_name` refuses it a
+    hostname claim."""
+    hosted = _cand("https://docs.rs/htmx", ["names-it:12"], 0.9,
+                   "crates:documentation")
+    assert resolver.name_authority(hosted) == resolver.NO_CLAIM
+    assert resolver._path_identity(hosted, "htmx") == ""
+
+
+# --- a sub-project documented on its parent's domain -------------------------
+
+def test_a_registry_nominated_path_identifies_a_sub_project():
+    """Measured: `langgraph` is documented at
+    `docs.langchain.com/oss/python/langgraph/overview`. The host carries
+    `langchain`, so the page earned neither `own-domain` nor `docs-host` and was
+    refused with "only registry-agreement" -- while the source tree passed on
+    `repo-identity` and the harvest stored a 6,350-character README."""
+    nominated = Candidate("https://docs.langchain.com/oss/python/langgraph/overview",
+                          "pypi:Homepage", 0.78)
+    assert resolver._path_identity(nominated, "langgraph") == "langgraph"
+    assert resolver.is_identified(["registry-agreement", "path-identity"])
+
+
+def test_a_path_name_alone_identifies_nothing():
+    """The signal is the registry nomination *and* the path together. A name in
+    a path with nobody vouching for the URL is what makes
+    `github.com/sintaxi/terraform` look like Terraform."""
+    unvouched = Candidate("https://someblog.example/langgraph/tutorial",
+                          "probe:/docs/", 0.5)
+    assert resolver._path_identity(unvouched, "langgraph") == ""
+
+
+def test_a_project_suffix_domain_is_the_projects_own():
+    """`djangoproject.com` is Django's own domain. Refusing it the claim meant
+    `docs.djangoproject.com` earned no `docs-host`, so `django` resolved to
+    `www.djangoproject.com` and harvested 214 weblog posts as version 5.2."""
+    assert resolver._owns_the_name("https://docs.djangoproject.com/", "django")
+    assert resolver._owns_the_name("https://www.djangoproject.com/", "django")
+    # The suffix list stays short on purpose.
+    assert not resolver._owns_the_name("https://mojoportal.org/", "mojo")
+
+
+def test_the_django_docs_host_outranks_the_django_homepage():
+    docs = _cand("https://docs.djangoproject.com/",
+                 ["own-domain", "docs-host"], 0.92, "pypi:Documentation")
+    home = _cand("https://www.djangoproject.com/",
+                 ["own-domain", "repo-identity", "names-it:47"], 0.78,
+                 "pypi:Homepage")
+    assert resolver.best_verified([docs, home]) is docs
+
+
+# --- a published llms.txt that is a newsroom ---------------------------------
+
+def test_an_llms_txt_of_articles_is_not_a_documentation_root():
+    """`pytorch.org/llms.txt` is 8 KB under a `## Posts` heading: conference
+    announcements, newsletters, venues and organisers -- 52% of its 60 links are
+    articles and none is documentation. Taking it as the docs root also stopped
+    `/docs/` ever being probed, because that loop breaks on a 0.95."""
+    body = "# PyTorch\n\n## Posts\n" + "\n".join(
+        f"- [Announcement {i}](https://pytorch.org/blog/announcement-{i}/): news"
+        for i in range(20))
+    assert resolver._indexes_only_articles(body, "https://pytorch.org/llms.txt")
+
+
+def test_a_documentation_manifest_without_docs_paths_is_still_documentation():
+    """Measured against the manifests actually in use: Prisma and LangChain both
+    publish real documentation manifests with *no* `/docs/` paths, because they
+    are already on a documentation host. Asking whether a manifest links to
+    docs-shaped paths rejects both; asking whether it links to articles does
+    not."""
+    body = "# Prisma\n\n" + "\n".join(
+        f"- [ORM page {i}](https://www.prisma.io/orm/page-{i}): guide"
+        for i in range(14))
+    assert not resolver._indexes_only_articles(body, "https://www.prisma.io/llms.txt")
+
+
+def test_a_manifest_with_a_few_posts_is_still_a_documentation_manifest():
+    """0.3, not 0. A documentation manifest that also lists a changelog and two
+    blog posts is still a documentation manifest."""
+    body = "# Docs\n\n" + "\n".join(
+        f"- [Guide {i}](https://x.dev/guide/{i})" for i in range(9)
+    ) + "\n" + "\n".join(
+        f"- [Post {i}](https://x.dev/blog/{i})" for i in range(2))
+    assert not resolver._indexes_only_articles(body, "https://x.dev/llms.txt")

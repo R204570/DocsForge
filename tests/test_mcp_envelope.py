@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from providers.claudecode import _unwrap_mcp_result
+from docsforge.providers.claudecode import _unwrap_mcp_result
 
 
 def test_the_envelope_is_removed_and_the_newlines_come_back():

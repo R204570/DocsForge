@@ -25,7 +25,7 @@ import textwrap
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import resolver
+from docsforge.core import resolver
 
 #: Everything that can change *which URL comes back* for a name.
 DECIDERS = (
@@ -35,6 +35,15 @@ DECIDERS = (
     "best_verified",        # which one is returned
     "_owns_the_name",       # whether a host counts as the project's own
     "is_forge",             # whether it is a code host rather than a site
+    # The list above named only the functions that existed when it was
+    # written, and `_behaviour` reads one function's own source -- not its
+    # callees. So decision logic moved *into* a helper leaves the tripwire
+    # silent: changing `name_authority` without touching `evidence` would
+    # alter which URL every name resolves to and match the old fingerprint.
+    "name_authority",       # how strong a claim the host makes on the name
+    "_path_identity",       # whether a registry-nominated path names it
+    "probe_docs_root",      # which URLs are offered as a docs root at all
+    "_indexes_only_articles",   # whether a published llms.txt is a newsroom
 )
 
 
@@ -76,8 +85,16 @@ def fingerprint() -> str:
 
 
 #: Bump `RULES` and update this together, never one without the other.
-FINGERPRINT = "c3c9a8d65e74a9eb"
-EXPECTED_RULES = 3
+#:
+#: One exception on record: 2026-09-13 the modules moved into the `docsforge`
+#: package and the two local imports inside `_indexes_only_articles` were
+#: re-spelled (`import docsforge` -> `from docsforge.core import engine`).
+#: The pre-move source hashed to ccb75e075c7c0454; nothing about which URL
+#: a name resolves to changed, so the fingerprint was re-pinned and RULES
+#: was not bumped — a bump would have thrown away every cached resolution
+#: for a change that made no decision differently.
+FINGERPRINT = "3f2b9744ec1462ea"
+EXPECTED_RULES = 4
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

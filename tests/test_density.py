@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import llmsfinder as lf
+from docsforge.core import llmsfinder as lf
 
 
 def _corpus(median: int, n: int = 60) -> list[int]:
