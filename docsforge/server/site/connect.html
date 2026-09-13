@@ -77,6 +77,7 @@
       <div class="flex flex-wrap gap-2" role="tablist" id="client-tabs">
         <button type="button" role="tab" data-client="claude-code" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Claude Code</button>
         <button type="button" role="tab" data-client="codex" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Codex</button>
+        <button type="button" role="tab" data-client="chatgpt" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">ChatGPT</button>
         <button type="button" role="tab" data-client="cursor" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Cursor</button>
         <button type="button" role="tab" data-client="windsurf" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Windsurf</button>
         <button type="button" role="tab" data-client="antigravity" class="client-tab font-mono text-xs px-3 py-1.5 rounded-lg border border-hairline text-muted hover:text-text transition-colors">Antigravity</button>
@@ -320,6 +321,11 @@ python main.py --http --host 0.0.0.0 --port 8765</pre>
         title: "Codex CLI", kind: "terminal",
         note: "Codex reads the token from an environment variable rather than the command line, so export it in the shell that launches codex (PowerShell: $env:DOCSFORGE_MCP_TOKEN = \"…\").",
         text: 'export DOCSFORGE_MCP_TOKEN=' + T + '\ncodex mcp add docsforge --url ' + MCP + ' --bearer-token-env-var DOCSFORGE_MCP_TOKEN'
+      },
+      "chatgpt": {
+        title: "ChatGPT", kind: "Settings → Apps & Connectors",
+        note: "Plus, Pro, Business, Enterprise or Edu. Profile → Settings → Apps & Connectors → Advanced settings → turn Developer Mode on → back in Apps & Connectors, Create → fill these in → Create. Then in a chat: + → Developer Mode → tick DocsForge and ask, e.g. “use DocsForge to learn pydantic, then answer…”. Reopen the chat after adding it so the tool list refreshes.",
+        text: 'Name             DocsForge\nDescription      Documentation for technologies the model was not trained on\nConnector URL    ' + MCP + '\nAuthentication   Token\nToken            ' + T
       },
       "cursor": {
         title: "Cursor", kind: "~/.cursor/mcp.json",
