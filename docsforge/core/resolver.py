@@ -61,6 +61,10 @@ class Candidate:
     #: Recorded on the candidate rather than recomputed inside `evidence` so
     #: that a caller comparing two answers can see the grade that decided it.
     authority: int = 0
+    #: The registry's current release, when the candidate came from one.
+    #: What a site that publishes one version at a time is documenting.
+    #: Last, so the positional construction the tests use stays valid.
+    release: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -68,6 +72,7 @@ class Candidate:
             "confidence": round(self.confidence, 2), "evidence": self.evidence,
             "verified": self.verified, "reason": self.reason,
             "signals": list(self.signals), "authority": self.authority,
+            "release": self.release,
         }
 
 
@@ -81,6 +86,10 @@ class Resolution:
     #: "domain", "registry", or "" when nothing resolved. Part of the honesty
     #: contract: how an answer was reached bears on how much to trust it.
     resolved_via: str = ""
+    #: The registry's current release of this name, if a registry answered.
+    #: Not a claim about the documentation — the harvest decides what to do
+    #: with it, and says so.
+    release: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -88,6 +97,7 @@ class Resolution:
             "best": self.best.as_dict() if self.best else None,
             "candidates": [c.as_dict() for c in self.candidates],
             "note": self.note, "resolved_via": self.resolved_via,
+            "release": self.release,
         }
 
 
@@ -375,15 +385,16 @@ def _npm(name: str, fetcher: Fetcher) -> list[Candidate]:
     if not data:
         return []
     out = []
+    release = str(((data.get("dist-tags") or {}).get("latest")) or "")
     home = (data.get("homepage") or "").strip()
     if home.startswith("http"):
         out.append(Candidate(home, "npm:homepage", _score(home, "homepage"),
-                             f"npm registry homepage for {name}"))
+                             f"npm registry homepage for {name}", release=release))
     repo = data.get("repository")
     repo_url = _clean_repo(repo.get("url") if isinstance(repo, dict) else repo or "")
     if repo_url:
         out.append(Candidate(repo_url, "npm:repository", _score(repo_url, "repository"),
-                             f"npm registry repository for {name}"))
+                             f"npm registry repository for {name}", release=release))
     return out
 
 
@@ -393,6 +404,7 @@ def _pypi(name: str, fetcher: Fetcher) -> list[Candidate]:
         return []
     info = data.get("info") or {}
     out = []
+    release = str(info.get("version") or "")
 
     # project_urls is where modern packages actually declare their docs.
     for label, url in (info.get("project_urls") or {}).items():
@@ -401,18 +413,18 @@ def _pypi(name: str, fetcher: Fetcher) -> list[Candidate]:
         low = label.lower()
         if "doc" in low:
             out.append(Candidate(url, f"pypi:{label}", _score(url, "documentation"),
-                                 f"PyPI project_urls[{label}] for {name}"))
+                                 f"PyPI project_urls[{label}] for {name}", release=release))
         elif "home" in low:
             out.append(Candidate(url, f"pypi:{label}", _score(url, "homepage"),
-                                 f"PyPI project_urls[{label}] for {name}"))
+                                 f"PyPI project_urls[{label}] for {name}", release=release))
         elif "source" in low or "repo" in low:
             out.append(Candidate(url, f"pypi:{label}", _score(url, "repository"),
-                                 f"PyPI project_urls[{label}] for {name}"))
+                                 f"PyPI project_urls[{label}] for {name}", release=release))
 
     home = (info.get("home_page") or "").strip()
     if home.startswith("http"):
         out.append(Candidate(home, "pypi:home_page", _score(home, "homepage"),
-                             f"PyPI home_page for {name}"))
+                             f"PyPI home_page for {name}", release=release))
     return out
 
 
@@ -420,13 +432,14 @@ def _crates(name: str, fetcher: Fetcher) -> list[Candidate]:
     data = _json(fetcher, f"https://crates.io/api/v1/crates/{name}")
     crate = (data or {}).get("crate") or {}
     out = []
+    release = str(crate.get("max_stable_version") or crate.get("max_version") or "")
     for key, kind in (("documentation", "documentation"),
                       ("homepage", "homepage"),
                       ("repository", "repository")):
         url = (crate.get(key) or "").strip()
         if url.startswith("http"):
             out.append(Candidate(url, f"crates:{key}", _score(url, kind),
-                                 f"crates.io {key} for {name}"))
+                                 f"crates.io {key} for {name}", release=release))
     return out
 
 
@@ -1684,6 +1697,7 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
         found, hit = from_registries(name, result.ecosystem, fetcher)
         if hit:
             result.ecosystem = result.ecosystem or hit
+            result.release = next((c.release for c in found if c.release), "")
         if not found:
             # No registry knows it. That used to end the search, which is what
             # made every multi-word name unreachable — no registry knows

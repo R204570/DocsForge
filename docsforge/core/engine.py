@@ -1137,8 +1137,11 @@ def _acquire_manifest_links(links: list[tuple[str, str]], fetcher: Fetcher,
                     # which such a fetcher already counts for itself.
                     note_page()
             else:
+                # `_extract_page` returns the page with its provenance comment
+                # already on it; prepending another here put `<!-- source: … -->`
+                # twice on every HTML page an llms.txt index pointed at.
                 doc_title, md = _extract_page(link_url, fetcher, opts)
-                docs.append(Doc(link_url, doc_title or title, _meta_header(link_url, "html") + md))
+                docs.append(Doc(link_url, doc_title or title, md))
         except Exception as e:
             failed.append({
                 "url": _normalize(link_url),

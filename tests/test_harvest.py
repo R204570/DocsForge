@@ -784,6 +784,7 @@ class _Resolved:
         reason = "identified by own-domain, docs-host"
 
     best = _Best()
+    release = ""            # what the registry said is current; nothing here
     candidates: list = []
     note = ""
     resolved_via = "domain"

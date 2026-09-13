@@ -47,6 +47,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from docsforge.core.engine import ForgeError
+
 # Long enough to swallow the great majority of harvests whole, short enough to
 # sit inside the shortest MCP client timeout. Both bounds matter, so this is
 # tunable but not per-call: a caller who could pick it would pick "forever".
@@ -379,6 +381,24 @@ def _prune() -> None:
         _JOBS.pop(job.id, None)
 
 
+def origin_of(e: BaseException, skip: str = "") -> str:
+    """` (at file.py:123 in func)`: the deepest frame inside this package —
+    not counting `skip`, a dispatcher's own file — or, failing that, wherever
+    the exception was raised. A worker's exception keeps the worker's frames,
+    so a failure inside a harvest thread still names its real line.
+    """
+    import traceback as _tb
+    frames = _tb.extract_tb(e.__traceback__)
+    if not frames:
+        return ""
+    package = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ours = [f for f in frames
+            if os.path.abspath(f.filename).startswith(package)
+            and os.path.abspath(f.filename) != skip]
+    f = (ours or frames)[-1]
+    return f" (at {os.path.basename(f.filename)}:{f.lineno} in {f.name})"
+
+
 def start(label: str, work: Callable[[Progress], str],
           job_id: str = "") -> Job:
     """Run `work` on its own thread. Returns immediately.
@@ -420,7 +440,15 @@ def start(label: str, work: Callable[[Progress], str],
             # that reports nothing is the failure mode this module exists to
             # prevent.
             job.exc = e
-            job.error = str(e) or type(e).__name__
+            # A ForgeError explains itself. Anything else is a crash, and a
+            # record that says only "[Errno 16] Device or resource busy" —
+            # what one Vercel harvest left behind — cannot be acted on
+            # without the type and the line it came from.
+            if isinstance(e, ForgeError):
+                job.error = str(e)
+            else:
+                job.error = (f"{type(e).__name__}: {e}".rstrip(": ")
+                             + origin_of(e, skip=os.path.abspath(__file__)))
             job.state = FAILED
         finally:
             job.finished = time.time()

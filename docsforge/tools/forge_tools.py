@@ -816,8 +816,16 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
                       version: str | None = None, intent: str = "",
                       corpora: list | None = None, strict: bool = False,
                       progress=None,
-                      trace: "tracing.TraceContext | None" = None) -> str:
+                      trace: "tracing.TraceContext | None" = None,
+                      release_hint: str = "") -> str:
     """Harvest a WHOLE documentation set and store it in the knowledge base.
+
+    `release_hint` is not in the tool schema either: it is the registry's
+    current release, handed down by `learn_technology`. A site that names no
+    version in its URLs publishes one version at a time — the current one —
+    and "2026-09-13" is a poorer label for that than the release the registry
+    says is current. It ranks below a version the site declares for itself,
+    and the result says where the label came from.
 
     `progress` is not in the tool schema and no model passes it: it is how a
     background harvest reports itself to `list_knowledge_base`. `trace` is
@@ -883,7 +891,17 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
         # v3 and v2 of the same library contradict each other, so they are
         # stored side by side rather than one overwriting the other.
         label = (_kb_slug(version) if version
-                 else _version_label(url, docs, stats.get("declared_version", "")))
+                 else _version_label(url, docs,
+                                     stats.get("declared_version", "") or release_hint))
+        inferred_release = ""
+        if (not version and release_hint and not stats.get("declared_version")
+                and label == _kb_slug(release_hint)):
+            inferred_release = (
+                f"\n\nVersion **{label}** is the registry's current release, not "
+                f"something the site said: its URLs name no version, so it is "
+                f"taken to document the current one. Pass `version=` to file it "
+                f"under something else."
+            )
 
         # Did anything actually show these pages are that release, or is the
         # label just the request repeated back? `versions.same_release` is
@@ -994,7 +1012,7 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
             + (f"\n… and {len(unreadable) - 10} more" if len(unreadable) > 10 else "")
         )
 
-    warning += note + release_claim
+    warning += note + release_claim + inferred_release
 
     # What shape is this corpus? A caller who asked for "the documentation" and
     # received 560 pages averaging 490 characters -- one API symbol each -- has
@@ -1305,7 +1323,8 @@ def tool_learn_technology(name: str, version: str | None = None,
             harvested = tool_harvest_docs(url=found.best.url, name=slug,
                                           max_pages=max_pages, js=js, version=version,
                                           intent=intent, corpora=corpora,
-                                          strict=strict, progress=progress, trace=trace)
+                                          strict=strict, progress=progress, trace=trace,
+                                          release_hint=found.release)
             return (
                 f"{note}Resolved **{name}** to {found.best.url}\n"
                 f"({found.best.evidence}; {found.best.reason})\n\n{harvested}"
@@ -2051,6 +2070,15 @@ def run_tool(name: str, arguments: dict[str, Any]) -> str:
     """Dispatch a tool call. Errors come back as text so a model can recover
     from them rather than the whole turn dying.
 
+    `run_tool_checked` is the same call with a flag saying whether that text
+    is an error, for a caller (the MCP surface) that has a way to mark one.
+    """
+    return run_tool_checked(name, arguments)[0]
+
+
+def run_tool_checked(name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
+    """`(text, ok)`: what the model is handed, and whether the call succeeded.
+
     Every call is wrapped in one root trace stage recording what was asked
     (the arguments, sanitized) and what came back (the tool's own returned
     text, bounded). That happens for *every* tool, not only the handful
@@ -2062,7 +2090,7 @@ def run_tool(name: str, arguments: dict[str, Any]) -> str:
     """
     tool = BY_NAME.get(name)
     if tool is None:
-        return f"Error: unknown tool {name!r}. Available: {', '.join(BY_NAME)}"
+        return f"Error: unknown tool {name!r}. Available: {', '.join(BY_NAME)}", False
 
     ctx = tracing.start(name)
     _last_trace.value = ctx.trace_id
@@ -2096,15 +2124,19 @@ def run_tool(name: str, arguments: dict[str, Any]) -> str:
                              trace_id=ctx.trace_id, chars=len(result))
         except Exception:
             pass
-        return result
+        return result, True
     except ForgeError as e:
-        return _tool_error(name, ctx, call, started, f"Error: {e}", str(e))
+        return _tool_error(name, ctx, call, started, f"Error: {e}", str(e)), False
     except TypeError as e:
         return _tool_error(name, ctx, call, started,
-                          f"Error: bad arguments for {name}: {e}", str(e))
+                          f"Error: bad arguments for {name}: {e}", str(e)), False
     except Exception as e:  # a scrape can fail in a hundred ways
+        # Not one of ours, so the type, the text, and the line it came from —
+        # a bare "Error executing tool" reaching a client is what this exists
+        # to prevent. The full traceback goes to the server log.
+        detail = f"{type(e).__name__}: {e}".rstrip(": ")
         return _tool_error(name, ctx, call, started,
-                          f"Error: {type(e).__name__}: {e}", str(e))
+                          f"Error: {detail}{_origin(e)}", detail, traceback=True), False
     finally:
         # A tool whose real work continues past this call (a harvest still
         # running on a background thread) calls `ctx.detach()` before
@@ -2115,8 +2147,13 @@ def run_tool(name: str, arguments: dict[str, Any]) -> str:
             ctx.close()
 
 
+def _origin(e: BaseException) -> str:
+    return harvest_jobs.origin_of(e, skip=os.path.abspath(__file__))
+
+
 def _tool_error(name: str, ctx: "tracing.TraceContext", call: "tracing.Stage",
-                started: float, message: str, detail: str) -> str:
+                started: float, message: str, detail: str,
+                traceback: bool = False) -> str:
     # The failure is recorded against the call that actually failed, and the
     # text the model was handed is stored as its output -- a failed tool
     # call still produced a result, and hiding it would leave the detail
@@ -2127,6 +2164,9 @@ def _tool_error(name: str, ctx: "tracing.TraceContext", call: "tracing.Stage",
     try:
         applog.tool_call(name, ok=False, duration_ms=duration_ms,
                          trace_id=ctx.trace_id, error=detail)
+        if traceback:
+            import traceback as _tb
+            applog.error(f"tool:{name}", _tb.format_exc())
     except Exception:
         pass
     return message

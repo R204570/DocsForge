@@ -116,7 +116,7 @@ def test_unset_optionals_do_not_override_a_tools_own_defaults(monkeypatch):
     # straight through would silently overwrite what the tool itself chose.
     seen = {}
 
-    def fake(url, name=None, max_pages=0, js=False, scope="section", version=None):
+    def fake(url, name=None, max_pages=0, js=False, scope="section", version=None, trace=None):
         seen.update(scope=scope, max_pages=max_pages)
         return "ok"
 
@@ -137,3 +137,56 @@ def test_the_server_tells_clients_they_do_not_need_a_url():
     instructions = mcp_server.server.instructions or ""
     assert "learn_technology" in instructions
     assert "not need a documentation URL" in instructions
+
+
+# ── errors keep their text over MCP ──────────────────────
+def _call_over_http(name, arguments):
+    """One tools/call over streamable HTTP, the way a client does it."""
+    from starlette.testclient import TestClient
+    app = mcp_server.build_http_app(token=None, stateless=True)
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        r = c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                 "params": {"name": name, "arguments": arguments}},
+                   headers={"Accept": "application/json, text/event-stream",
+                            "Content-Type": "application/json"})
+    assert r.status_code == 200, r.text
+    result = r.json()["result"]
+    return result.get("isError", False), " ".join(c.get("text", "") for c in result["content"])
+
+
+def test_an_anticipated_failure_reaches_the_client_with_its_reason(monkeypatch):
+    """From SDK 2.1 an exception the tool did not raise *as* a ToolError is a
+    crash whose text stays on the server. A registry lookup that found
+    nothing is not a crash, and a client told only "Error executing tool
+    find_docs" cannot act on it."""
+    from docsforge.core.engine import ForgeError
+
+    def fake(url):
+        raise ForgeError("nothing on https://x.dev reads like documentation")
+    monkeypatch.setattr(ft.BY_NAME["detect_source_type"], "fn", fake)
+    is_error, text = _call_over_http("detect_source_type", {"url": "https://x.dev"})
+    assert is_error and "reads like documentation" in text, text
+
+
+def test_an_unexpected_exception_names_its_type_and_origin(monkeypatch):
+    def fake(url):
+        raise OSError(16, "Device or resource busy")
+    monkeypatch.setattr(ft.BY_NAME["detect_source_type"], "fn", fake)
+    is_error, text = _call_over_http("detect_source_type", {"url": "https://x.dev"})
+    assert is_error and "OSError" in text and "Device or resource busy" in text, text
+    assert "(at test_mcp.py:" in text and "in fake)" in text, text
+
+
+def test_a_message_less_exception_still_says_what_it_was(monkeypatch):
+    # `TimeoutError()` and friends stringify to nothing; the type is the message.
+    def fake(url):
+        raise TimeoutError()
+    monkeypatch.setattr(ft.BY_NAME["detect_source_type"], "fn", fake)
+    is_error, text = _call_over_http("detect_source_type", {"url": "https://x.dev"})
+    assert is_error and "TimeoutError" in text and "(at test_mcp.py:" in text, text
+
+
+def test_a_successful_call_is_not_marked_as_an_error(monkeypatch):
+    monkeypatch.setattr(ft.BY_NAME["detect_source_type"], "fn", lambda url: "html")
+    is_error, text = _call_over_http("detect_source_type", {"url": "https://x.dev"})
+    assert not is_error and text == "html"
