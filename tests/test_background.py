@@ -38,8 +38,8 @@ def kb(tmp_path):
     ft.reset_store(None)
 
 
-def resolution(url="https://x.dev/docs/", verified=True, name="effect"):
-    got = resolver.Resolution(name=name, ecosystem="npm")
+def resolution(url="https://x.dev/docs/", verified=True, name="effect", release=""):
+    got = resolver.Resolution(name=name, ecosystem="npm", release=release)
     cand = resolver.Candidate(url, "npm:homepage", 0.8, "stubbed", verified,
                               "names it 9 times" if verified else "never mentions it")
     got.candidates = [cand]
@@ -201,3 +201,56 @@ def test_a_background_harvest_counts_the_pages_it_fetches(kb, monkeypatch):
     assert progress.pages == 3
     assert progress.phase == "storing"
     assert "3 pages" in out
+
+
+# ── the version label when the site names none ───────────
+def _unversioned_harvest(declared: str = ""):
+    def fake_harvest(url, opts, fetcher=None, stats=None, sink=None):
+        stats["discovered"] = 1
+        stats["whole"] = True
+        if declared:
+            stats["declared_version"] = declared
+        return [ft.Doc(f"{url}overview", "Overview", "body")], "llms_txt"
+    return fake_harvest
+
+
+def test_the_registrys_release_labels_an_unversioned_site_and_says_so(kb, monkeypatch):
+    monkeypatch.setattr(ft, "harvest", _unversioned_harvest())
+    out = ft.tool_harvest_docs(url="https://angular.dev/", name="angular", release_hint="20.2.1")
+    assert "20.2.1" in out
+    assert "registry's current release" in out and "URLs name no version" in out
+    assert any(v.get("version") == "20.2.1" for v in ft.store().versions("angular"))
+
+
+def test_the_sites_own_declaration_outranks_the_registry(kb, monkeypatch):
+    monkeypatch.setattr(ft, "harvest", _unversioned_harvest(declared="19.0.0"))
+    out = ft.tool_harvest_docs(url="https://angular.dev/", name="angular", release_hint="20.2.1")
+    assert "19.0.0" in out and "20.2.1" not in out
+    assert "registry's current release" not in out
+
+
+def test_a_version_in_the_url_outranks_the_registry(kb, monkeypatch):
+    def fake_harvest(url, opts, fetcher=None, stats=None, sink=None):
+        stats["discovered"] = 1; stats["whole"] = True
+        return [ft.Doc("https://docs.pydantic.dev/2.11/overview", "Overview", "body")], "sitemap"
+    monkeypatch.setattr(ft, "harvest", fake_harvest)
+    out = ft.tool_harvest_docs(url="https://docs.pydantic.dev/2.11/", name="pydantic", release_hint="2.12.0")
+    assert "2.11" in out and "2.12.0" not in out
+
+
+def test_without_a_hint_the_date_still_stands_in(kb, monkeypatch):
+    import time
+    monkeypatch.setattr(ft, "harvest", _unversioned_harvest())
+    out = ft.tool_harvest_docs(url="https://angular.dev/", name="angular")
+    assert time.strftime("%Y-%m-%d") in out and "registry's current release" not in out
+
+
+def test_learn_technology_hands_the_release_to_the_harvest(kb, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution(release="20.2.1"))
+    def fake_tool_harvest(url, **kw):
+        seen.update(kw); return "harvested"
+    monkeypatch.setattr(ft, "tool_harvest_docs", fake_tool_harvest)
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 5)
+    ft.tool_learn_technology(name="angular")
+    assert seen.get("release_hint") == "20.2.1"

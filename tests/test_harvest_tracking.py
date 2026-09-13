@@ -363,3 +363,26 @@ def test_a_positive_bound_still_caps_the_wait():
         assert job.state == RUNNING
     finally:
         gate.set()
+
+
+def test_a_crash_inside_the_harvest_thread_is_recorded_with_its_origin():
+    """A record that said only "[Errno 16] Device or resource busy" — what one
+    hosted harvest left behind — cannot be acted on. The type and the line
+    it came from are what make it a bug report."""
+    def work(progress):
+        raise OSError(16, "Device or resource busy")
+    job = harvest_jobs.start("busy", work)
+    harvest_jobs.wait(job, seconds=5)
+    assert job.state == FAILED
+    assert job.error.startswith("OSError: [Errno 16] Device or resource busy")
+    assert "(at test_harvest_tracking.py:" in job.error and "in work)" in job.error
+
+
+def test_a_forge_error_inside_the_harvest_thread_keeps_its_own_words():
+    from docsforge.core.engine import ForgeError
+
+    def work(progress):
+        raise ForgeError("nothing verified for 'x'")
+    job = harvest_jobs.start("x", work)
+    harvest_jobs.wait(job, seconds=5)
+    assert job.state == FAILED and job.error == "nothing verified for 'x'"

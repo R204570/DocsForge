@@ -381,3 +381,15 @@ def test_a_whole_host_sitemap_drops_the_weblog():
     kept = df._focus_on_docs(urls, "/")
     assert not [u for u in kept if "/weblog/" in u]
     assert "https://d.dev/start/" in kept
+
+
+def test_an_html_page_reached_through_an_index_carries_one_source_comment(monkeypatch):
+    """`_extract_page` returns the page with its provenance comment already on
+    it; the index walk prepended a second one, so every HTML page an llms.txt
+    index pointed at opened with `<!-- source: … -->` twice."""
+    monkeypatch.setattr(df, "_extract_page",
+                        lambda link, fetcher, opts: ("Defer", df._meta_header(link, "html") + "# Defer\n\nbody"))
+    docs, failed = df._acquire_manifest_links([("Defer", "https://angular.dev/guide/defer")],
+                                              fetcher=object(), opts=df.Options())
+    assert not failed and len(docs) == 1
+    assert docs[0].markdown.count("<!-- source:") == 1, docs[0].markdown[:200]

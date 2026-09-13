@@ -806,3 +806,31 @@ def test_a_manifest_with_a_few_posts_is_still_a_documentation_manifest():
     ) + "\n" + "\n".join(
         f"- [Post {i}](https://x.dev/blog/{i})" for i in range(2))
     assert not resolver._indexes_only_articles(body, "https://x.dev/llms.txt")
+
+
+# ── the registry's current release rides along ───────────
+class _Scripted:
+    """A fetcher whose one JSON answer is scripted."""
+
+    def __init__(self, body):
+        self.body = body
+
+    def get(self, url, **kw):
+        import json
+        return type("R", (), {"status_code": 200, "text": json.dumps(self.body)})()
+
+
+def test_each_registry_reports_its_current_release():
+    npm = resolver._npm("angular", _Scripted({"dist-tags": {"latest": "20.2.1"}, "homepage": "https://angular.dev/"}))
+    pypi = resolver._pypi("pydantic", _Scripted({"info": {"version": "2.11.7",
+                                                          "project_urls": {"Documentation": "https://docs.pydantic.dev/"}}}))
+    crates = resolver._crates("serde", _Scripted({"crate": {"max_stable_version": "1.0.219",
+                                                           "documentation": "https://docs.rs/serde"}}))
+    assert [c.release for c in npm] == ["20.2.1"]
+    assert [c.release for c in pypi] == ["2.11.7"]
+    assert [c.release for c in crates] == ["1.0.219"]
+
+
+def test_a_registry_without_a_release_leaves_it_blank():
+    npm = resolver._npm("x", _Scripted({"homepage": "https://x.dev/"}))
+    assert npm and npm[0].release == ""

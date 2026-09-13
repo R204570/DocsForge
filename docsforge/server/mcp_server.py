@@ -43,6 +43,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from docsforge.tools import forge_tools
 from docsforge.tools import harvest_jobs
@@ -131,7 +132,18 @@ def _build(tool: forge_tools.Tool):
         # Drop unset optionals so each tool's own defaults stay authoritative.
         given = {k: v for k, v in kwargs.items()
                  if v is not None or k in required}
-        return await anyio.to_thread.run_sync(lambda: tool.fn(**given))
+        # Through the library's runner, as the web chat goes: the call is
+        # traced and logged, and a failure comes back as text a model can act
+        # on. Raised as the SDK's *deliberate* error so the result is marked
+        # `isError` and keeps its text — from SDK 2.1 any other exception is
+        # a "crash" whose message stays on the server, which is how a client
+        # came to see a bare "Error executing tool find_docs" and nothing
+        # else for a registry lookup that had a perfectly good reason.
+        text, ok = await anyio.to_thread.run_sync(
+            lambda: forge_tools.run_tool_checked(tool.name, given))
+        if not ok:
+            raise ToolError(text[len("Error: "):] if text.startswith("Error: ") else text)
+        return text
 
     run.__name__ = tool.name
     run.__doc__ = tool.description
