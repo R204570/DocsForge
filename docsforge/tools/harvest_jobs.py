@@ -478,6 +478,14 @@ def start(label: str, work: Callable[[Progress], str],
 #: begin somewhere the job never reached.
 DETACHED = False
 
+#: Set by a host that cannot keep a thread alive past the request that started
+#: it — a serverless function. There is nobody to hand the harvest to and no
+#: background to continue it in, so a harvest that outlives the deadline is
+#: simply lost, and the result must say that instead of promising it will
+#: finish. Distinct from DETACHED: that is "someone else will run it", this is
+#: "nobody can".
+EPHEMERAL = False
+
 #: Where the long-lived server listens. A harvest is handed to it rather than
 #: started here; `app.py`'s own default port, overridable for a server on
 #: another port or host.
