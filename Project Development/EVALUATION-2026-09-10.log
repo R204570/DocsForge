@@ -1,0 +1,558 @@
+
+2026-09-10 01:06:53  [     0.0s]  ==============================================================================
+2026-09-10 01:06:53  [     0.0s]  DocsForge evaluation -- five technologies over the MCP stdio surface
+2026-09-10 01:06:53  [     0.0s]  ==============================================================================
+2026-09-10 01:06:53  [     0.0s]  log file      : E:\DocsForge - TEMP\Project Development\EVALUATION-2026-09-10.log
+2026-09-10 01:06:53  [     0.0s]  root          : E:\DocsForge - TEMP
+2026-09-10 01:06:53  [     0.0s]  python        : C:\Users\ACER\AppData\Local\Python\pythoncore-3.14-64\python.exe
+2026-09-10 01:06:53  [     0.0s]  handoff server: http://127.0.0.1:8000
+2026-09-10 01:06:53  [     0.0s]  DOCSFORGE_DB in this client's env: NOT SET
+2026-09-10 01:06:55  [     2.1s]  server /api/config -> {"providers": [{"name": "claude", "label": "Claude", "model": "claude-opus-5", "available": false, "env_key": "ANTHROPIC_API_KEY", "docs": "https://console.anthropic.com/settings/keys", "notes": "Strongest on long documents and tool use. $5/$25 per Mtok."}, {"name": "claudecode", "label": "Claude Code", "model": "claude-sonnet-5", "available": true, "env_key": null, "docs": "https://claude.com/cla
+
+2026-09-10 01:06:57  [     3.7s]  ==============================================================================
+2026-09-10 01:06:57  [     3.7s]  1. MCP session
+2026-09-10 01:06:57  [     3.7s]  ==============================================================================
+2026-09-10 01:06:57  [     3.7s]  connected: docsforge v1.1.0
+2026-09-10 01:06:57  [     3.7s]  12 tools exposed:
+2026-09-10 01:06:57  [     3.7s]    - detect_source_type(url)
+2026-09-10 01:06:57  [     3.7s]    - fetch_docs(url, crawl, max_pages, js, force)
+2026-09-10 01:06:57  [     3.7s]    - save_docs(url, out_dir, crawl, max_pages, js, force, single_file)
+2026-09-10 01:06:57  [     3.7s]    - harvest_docs(url, name, max_pages, js, scope, version)
+2026-09-10 01:06:57  [     3.7s]    - learn_technology(name, version, ecosystem, max_pages, js, intent, corpora, strict)
+2026-09-10 01:06:57  [     3.7s]    - find_docs(name, ecosystem)
+2026-09-10 01:06:57  [     3.7s]    - search_knowledge_base(query, technology, version, limit, kind)
+2026-09-10 01:06:57  [     3.7s]    - scan_project(path, unknown_only)
+2026-09-10 01:06:57  [     3.7s]    - list_knowledge_base()
+2026-09-10 01:06:57  [     3.7s]    - read_knowledge_base(name, section, version)
+2026-09-10 01:06:57  [     3.7s]    - forget_resolution(name)
+2026-09-10 01:06:57  [     3.7s]    - forget_selection(name)
+
+2026-09-10 01:06:57  [     3.7s]  ==============================================================================
+2026-09-10 01:06:57  [     3.7s]  2. What the store held before any of this
+2026-09-10 01:06:57  [     3.7s]  ==============================================================================
+2026-09-10 01:06:58  [     4.2s]  ground-truth backend: PostgresStore
+2026-09-10 01:06:58  [     4.2s]  technologies: 23
+2026-09-10 01:06:58  [     4.2s]    ai-sdk           v=2026-08-14   pages=    1 chars=     2216 complete=True
+2026-09-10 01:06:58  [     4.2s]    astro            v=2026-08-20   pages=  385 chars=  2865282 complete=True
+2026-09-10 01:06:58  [     4.2s]    better-auth      v=2026-08-14   pages=    1 chars=    22440 complete=True
+2026-09-10 01:06:58  [     4.2s]    convex           v=2026-08-14   pages=    1 chars=    44750 complete=True
+2026-09-10 01:06:58  [     4.2s]    drizzle          v=2026-08-14   pages=    1 chars=    37370 complete=True
+2026-09-10 01:06:58  [     4.2s]    effect           v=v3           pages=  703 chars=  6322993 complete=True
+2026-09-10 01:06:58  [     4.2s]    elysia           v=2026-08-14   pages=    1 chars=     7418 complete=True
+2026-09-10 01:06:58  [     4.2s]    gin-gonic        v=2026-08-25   pages=   87 chars=   254778 complete=True
+2026-09-10 01:06:58  [     4.2s]    go-net-http      v=2026-08-25   pages=   16 chars=   588492 complete=True
+2026-09-10 01:06:58  [     4.2s]    google-adk       v=2026-08-31   pages= 1799 chars=  3449078 complete=True
+2026-09-10 01:06:58  [     4.2s]    hono             v=2026-08-14   pages=    1 chars=     5649 complete=True
+2026-09-10 01:06:58  [     4.2s]    mojo             v=1.0.0        pages=   17 chars=  1278483 complete=False
+2026-09-10 01:06:58  [     4.2s]    nuxt             v=2026-08-14   pages=    1 chars=    56614 complete=True
+2026-09-10 01:06:58  [     4.2s]    perplexity       v=2026-08-14   pages=    1 chars=    42478 complete=True
+2026-09-10 01:06:58  [     4.2s]    prisma           v=2026-08-14   pages=    1 chars=     7086 complete=True
+2026-09-10 01:06:58  [     4.2s]    pydantic         v=2.11         pages=  109 chars=  1414402 complete=True
+2026-09-10 01:06:58  [     4.2s]    railway          v=2026-08-14   pages=    1 chars=    70612 complete=True
+2026-09-10 01:06:58  [     4.2s]    stripe           v=2026-08-14   pages=    1 chars=    89843 complete=True
+2026-09-10 01:06:58  [     4.2s]    svelte           v=2026-08-14   pages=    1 chars=     1673 complete=True
+2026-09-10 01:06:58  [     4.2s]    tanstack         v=2026-08-14   pages=    1 chars=    11592 complete=True
+2026-09-10 01:06:58  [     4.2s]    turso            v=2026-08-14   pages=    1 chars=    11092 complete=True
+2026-09-10 01:06:58  [     4.2s]    vitest           v=2026-08-14   pages=    1 chars=     9986 complete=True
+2026-09-10 01:06:58  [     4.2s]    zod              v=2026-08-14   pages=    1 chars=   266084 complete=True
+
+2026-09-10 01:06:58  [     4.2s]  ==============================================================================
+2026-09-10 01:06:58  [     4.2s]  3. list_knowledge_base, as the MCP client sees it
+2026-09-10 01:06:58  [     4.2s]  ==============================================================================
+2026-09-10 01:06:58  [     4.2s]  (the MCP process has its own store; this is the comparison)
+2026-09-10 01:06:58  [     4.5s]      | Nothing is stored yet. Learn a technology with `learn_technology(name="...")` — you do not need a URL.
+
+2026-09-10 01:06:58  [     4.5s]  ==============================================================================
+2026-09-10 01:06:58  [     4.5s]  4. The five requests
+2026-09-10 01:06:58  [     4.5s]  ==============================================================================
+
+2026-09-10 01:06:58  [     4.5s]  ------------------------------------------------------------------------------
+2026-09-10 01:06:58  [     4.5s]  REQUEST: Langchain - current version
+2026-09-10 01:06:58  [     4.5s]    learn_technology({"name": "langchain", "max_pages": 0})
+2026-09-10 01:06:58  [     4.5s]  ------------------------------------------------------------------------------
+2026-09-10 01:07:23  [    29.8s]    returned after 25.3s  ok=True
+2026-09-10 01:07:23  [    29.8s]      | **Learning langchain from https://docs.langchain.com/ - still running.** Harvest id `langchain-1`.
+2026-09-10 01:07:23  [    29.8s]      | 
+2026-09-10 01:07:23  [    29.8s]      | Currently harvesting 36/813 pages, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.
+2026-09-10 01:07:23  [    29.8s]      | 
+2026-09-10 01:07:23  [    29.8s]      | - `list_knowledge_base()` reports it, and every other harvest in flight.
+2026-09-10 01:07:23  [    29.8s]      | - When it finishes, read it with `read_knowledge_base(name="langchain")`.
+2026-09-10 01:07:23  [    29.8s]      | - **Do not call learn_technology for 'langchain' again** - it is already running, and a second call would crawl the same site twice.
+2026-09-10 01:07:23  [    29.8s]      | 
+2026-09-10 01:07:23  [    29.8s]      | Tell the user it is being fetched now rather than reporting a failure.
+
+2026-09-10 01:07:23  [    29.8s]  ------------------------------------------------------------------------------
+2026-09-10 01:07:23  [    29.8s]  REQUEST: Langgraph - current version
+2026-09-10 01:07:23  [    29.8s]    learn_technology({"name": "langgraph", "max_pages": 0})
+2026-09-10 01:07:23  [    29.8s]  ------------------------------------------------------------------------------
+2026-09-10 01:07:36  [    42.2s]    returned after 12.4s  ok=True
+2026-09-10 01:07:36  [    42.2s]      | Resolved **langgraph** to https://github.com/langchain-ai/langgraph/tree/main/libs/langgraph
+2026-09-10 01:07:36  [    42.2s]      | (PyPI project_urls[Source] for langgraph; identified by repo-identity, names-it:10)
+2026-09-10 01:07:36  [    42.2s]      | 
+2026-09-10 01:07:36  [    42.2s]      | Harvested **langgraph** 2026-09-10 — 1 pages, 6,350 characters, via github, in 1s.
+2026-09-10 01:07:36  [    42.2s]      | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (langgraph 2026-09-10)`.
+2026-09-10 01:07:36  [    42.2s]      | 
+2026-09-10 01:07:36  [    42.2s]      | Read it back with `read_knowledge_base(name="langgraph", version="2026-09-10")` — do NOT re-harvest to answer questions about it.
+2026-09-10 01:07:36  [    42.2s]      | 
+2026-09-10 01:07:36  [    42.2s]      | Pages:
+2026-09-10 01:07:36  [    42.2s]      | 1. langgraph — README
+
+2026-09-10 01:07:36  [    42.2s]  ------------------------------------------------------------------------------
+2026-09-10 01:07:36  [    42.2s]  REQUEST: Django - version 5.2
+2026-09-10 01:07:36  [    42.2s]    learn_technology({"name": "django", "version": "5.2", "max_pages": 0})
+2026-09-10 01:07:36  [    42.2s]  ------------------------------------------------------------------------------
+2026-09-10 01:08:01  [    67.3s]    returned after 25.1s  ok=True
+2026-09-10 01:08:01  [    67.3s]      | **Learning django - still running.** Harvest id `django-3`.
+2026-09-10 01:08:01  [    67.3s]      | 
+2026-09-10 01:08:01  [    67.3s]      | Currently resolving, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.
+2026-09-10 01:08:01  [    67.3s]      | 
+2026-09-10 01:08:01  [    67.3s]      | - `list_knowledge_base()` reports it, and every other harvest in flight.
+2026-09-10 01:08:01  [    67.3s]      | - When it finishes, read it with `read_knowledge_base(name="django")`.
+2026-09-10 01:08:01  [    67.3s]      | - **Do not call learn_technology for 'django' again** - it is already running, and a second call would crawl the same site twice.
+2026-09-10 01:08:01  [    67.3s]      | 
+2026-09-10 01:08:01  [    67.3s]      | Tell the user it is being fetched now rather than reporting a failure.
+
+2026-09-10 01:08:01  [    67.3s]  ------------------------------------------------------------------------------
+2026-09-10 01:08:01  [    67.3s]  REQUEST: Tensorflow - recent version
+2026-09-10 01:08:01  [    67.3s]    learn_technology({"name": "tensorflow", "max_pages": 0})
+2026-09-10 01:08:01  [    67.3s]  ------------------------------------------------------------------------------
+2026-09-10 01:08:26  [    92.4s]    returned after 25.1s  ok=True
+2026-09-10 01:08:26  [    92.4s]      | **Learning tensorflow - still running.** Harvest id `tensorflow-4`.
+2026-09-10 01:08:26  [    92.4s]      | 
+2026-09-10 01:08:26  [    92.4s]      | Currently resolving, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.
+2026-09-10 01:08:26  [    92.4s]      | 
+2026-09-10 01:08:26  [    92.4s]      | - `list_knowledge_base()` reports it, and every other harvest in flight.
+2026-09-10 01:08:26  [    92.4s]      | - When it finishes, read it with `read_knowledge_base(name="tensorflow")`.
+2026-09-10 01:08:26  [    92.4s]      | - **Do not call learn_technology for 'tensorflow' again** - it is already running, and a second call would crawl the same site twice.
+2026-09-10 01:08:26  [    92.4s]      | 
+2026-09-10 01:08:26  [    92.4s]      | Tell the user it is being fetched now rather than reporting a failure.
+
+2026-09-10 01:08:26  [    92.4s]  ------------------------------------------------------------------------------
+2026-09-10 01:08:26  [    92.4s]  REQUEST: Pytorch - LTS version
+2026-09-10 01:08:26  [    92.4s]    learn_technology({"name": "pytorch", "version": "LTS", "max_pages": 0})
+2026-09-10 01:08:26  [    92.4s]  ------------------------------------------------------------------------------
+2026-09-10 01:08:51  [   117.6s]    returned after 25.2s  ok=True
+2026-09-10 01:08:51  [   117.6s]      | **Learning pytorch from https://pytorch.kr/ - still running.** Harvest id `pytorch-5`.
+2026-09-10 01:08:51  [   117.6s]      | 
+2026-09-10 01:08:51  [   117.6s]      | Currently harvesting 12/72 pages, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.
+2026-09-10 01:08:51  [   117.6s]      | 
+2026-09-10 01:08:51  [   117.6s]      | - `list_knowledge_base()` reports it, and every other harvest in flight.
+2026-09-10 01:08:51  [   117.6s]      | - When it finishes, read it with `read_knowledge_base(name="pytorch")`.
+2026-09-10 01:08:51  [   117.6s]      | - **Do not call learn_technology for 'pytorch' again** - it is already running, and a second call would crawl the same site twice.
+2026-09-10 01:08:51  [   117.6s]      | 
+2026-09-10 01:08:51  [   117.6s]      | Tell the user it is being fetched now rather than reporting a failure.
+
+2026-09-10 01:08:51  [   117.6s]  ==============================================================================
+2026-09-10 01:08:51  [   117.6s]  5. Harvests in flight, watched until they settle
+2026-09-10 01:08:51  [   117.6s]  ==============================================================================
+2026-09-10 01:08:51  [   117.9s]    [langchain-1] langchain: harvesting pages=131 expected=813
+2026-09-10 01:08:51  [   117.9s]    [django-3] django: harvesting pages=30 expected=991
+2026-09-10 01:08:51  [   117.9s]    [tensorflow-4] tensorflow: harvesting pages=1 expected=None
+2026-09-10 01:08:51  [   117.9s]    [pytorch-5] pytorch: harvesting pages=13 expected=72
+2026-09-10 01:09:11  [   138.0s]    [langchain-1] langchain: harvesting pages=164 expected=813
+2026-09-10 01:09:11  [   138.0s]    [django-3] django: harvesting pages=44 expected=991
+2026-09-10 01:09:11  [   138.0s]    [pytorch-5] pytorch: harvesting pages=33 expected=72
+2026-09-10 01:09:31  [   158.0s]    [langchain-1] langchain: harvesting pages=198 expected=813
+2026-09-10 01:09:31  [   158.0s]    [django-3] django: harvesting pages=57 expected=991
+2026-09-10 01:09:31  [   158.0s]    [pytorch-5] pytorch: harvesting pages=53 expected=72
+2026-09-10 01:09:51  [   178.1s]    [langchain-1] langchain: harvesting pages=214 expected=813
+2026-09-10 01:09:51  [   178.1s]    [django-3] django: harvesting pages=65 expected=991
+2026-09-10 01:10:12  [   198.1s]    [langchain-1] langchain: harvesting pages=244 expected=813
+2026-09-10 01:10:12  [   198.1s]    [django-3] django: harvesting pages=76 expected=991
+2026-09-10 01:10:32  [   218.2s]    [langchain-1] langchain: harvesting pages=247 expected=813
+2026-09-10 01:10:32  [   218.2s]    [django-3] django: harvesting pages=85 expected=991
+2026-09-10 01:10:52  [   238.2s]    [langchain-1] langchain: harvesting pages=251 expected=813
+2026-09-10 01:10:52  [   238.2s]    [django-3] django: harvesting pages=98 expected=991
+2026-09-10 01:11:12  [   258.4s]    [langchain-1] langchain: harvesting pages=280 expected=813
+2026-09-10 01:11:12  [   258.4s]    [django-3] django: harvesting pages=107 expected=991
+2026-09-10 01:11:32  [   278.4s]    [langchain-1] langchain: harvesting pages=299 expected=813
+2026-09-10 01:11:32  [   278.4s]    [django-3] django: harvesting pages=116 expected=991
+2026-09-10 01:11:52  [   298.5s]    [langchain-1] langchain: harvesting pages=309 expected=813
+2026-09-10 01:11:52  [   298.5s]    [django-3] django: harvesting pages=123 expected=991
+2026-09-10 01:12:12  [   318.5s]    [langchain-1] langchain: harvesting pages=311 expected=813
+2026-09-10 01:12:12  [   318.5s]    [django-3] django: harvesting pages=130 expected=991
+2026-09-10 01:12:32  [   338.5s]    [langchain-1] langchain: harvesting pages=322 expected=813
+2026-09-10 01:12:32  [   338.5s]    [django-3] django: harvesting pages=143 expected=991
+2026-09-10 01:12:52  [   358.6s]    [langchain-1] langchain: harvesting pages=339 expected=813
+2026-09-10 01:12:52  [   358.6s]    [django-3] django: harvesting pages=149 expected=991
+2026-09-10 01:13:12  [   378.6s]    [langchain-1] langchain: harvesting pages=350 expected=813
+2026-09-10 01:13:12  [   378.6s]    [django-3] django: harvesting pages=162 expected=991
+2026-09-10 01:13:32  [   399.1s]    [langchain-1] langchain: harvesting pages=358 expected=813
+2026-09-10 01:13:32  [   399.1s]    [django-3] django: harvesting pages=175 expected=991
+2026-09-10 01:13:53  [   419.1s]    [langchain-1] langchain: harvesting pages=379 expected=813
+2026-09-10 01:13:53  [   419.1s]    [django-3] django: harvesting pages=182 expected=991
+
+==============================================================================
+DIAGNOSTIC A -- why the langgraph documentation site lost
+(resolution only; no harvest, no store write. The cached entry for this
+ name is cleared first so the ladder actually runs.)
+==============================================================================
+Forgot the remembered resolution for 'langgraph'.
+resolve('langgraph') took 7.4s
+  best        : https://github.com/langchain-ai/langgraph/tree/main/libs/langgraph
+  resolved_via: registry
+  note        : 
+
+  every candidate considered:
+    - https://reference.langchain.com/python/langgraph/
+        source=pypi:Documentation confidence=0.92 verified=False
+        signals=['names-it:11']
+        reason=not enough to identify 'langgraph' — only names-it:11. Naming a project is not the same as being it.
+    - https://docs.langchain.com/oss/python/langgraph/overview
+        source=pypi:Homepage confidence=0.78 verified=False
+        signals=['registry-agreement']
+        reason=not enough to identify 'langgraph' — only registry-agreement. Naming a project is not the same as being it.
+    - https://github.com/langchain-ai/langgraph/tree/main/libs/langgraph
+        source=pypi:Source confidence=0.35 verified=True
+        signals=['repo-identity', 'names-it:10']
+        reason=identified by repo-identity, names-it:10
+    - https://github.com/Onelevenvy/langgraph-rust
+        source=crates:repository confidence=0.35 verified=False
+        signals=['names-it:6']
+        reason=not enough to identify 'langgraph' — only names-it:6. Naming a project is not the same as being it.
+2026-09-10 01:14:13  [   439.3s]    [langchain-1] langchain: harvesting pages=382 expected=813
+2026-09-10 01:14:13  [   439.3s]    [django-3] django: harvesting pages=186 expected=991
+2026-09-10 01:14:33  [   459.9s]    [langchain-1] langchain: harvesting pages=411 expected=813
+2026-09-10 01:14:33  [   459.9s]    [django-3] django: harvesting pages=197 expected=991
+2026-09-10 01:14:53  [   479.9s]    [langchain-1] langchain: harvesting pages=427 expected=813
+2026-09-10 01:14:53  [   479.9s]    [django-3] django: harvesting pages=206 expected=991
+
+==============================================================================
+DIAGNOSTIC B -- was tensorflow.org ever considered?
+==============================================================================
+
+--- tensorflow ---
+Forgot the remembered resolution for 'tensorflow'.
+resolve('tensorflow') took 26.3s
+  best        : https://tensorflow.github.io/rust/tensorflow
+  resolved_via: registry
+  every candidate considered:
+    - https://tensorflow.github.io/rust/tensorflow
+        source=crates:documentation confidence=0.92 verified=True
+        signals=['own-domain', 'repo-identity', 'names-it:14']
+        reason=identified by own-domain, repo-identity, names-it:14
+    - https://www.tensorflow.org/guide/
+        source=probe:/guide/ confidence=0.7 verified=True
+        signals=['own-domain', 'names-it:17']
+        reason=identified by own-domain, names-it:17
+    - https://www.tensorflow.org/
+        source=pypi:Homepage confidence=0.55 verified=True
+        signals=['own-domain', 'names-it:20']
+        reason=identified by own-domain, names-it:20
+    - https://github.com/nikhilk/node-tensorflow#readme
+        source=npm:homepage confidence=0.35 verified=True
+        signals=['repo-backlink', 'registry-agreement', 'names-it:6']
+        reason=identified by repo-backlink, registry-agreement, names-it:6
+    - https://github.com/nikhilk/node-tensorflow
+        source=npm:repository confidence=0.35 verified=True
+        signals=['registry-agreement', 'names-it:6']
+        reason=identified by registry-agreement, names-it:6
+    - https://github.com/tensorflow/rust
+        source=crates:repository confidence=0.35 verified=True
+        signals=['registry-agreement', 'names-it:6']
+        reason=identified by registry-agreement, names-it:6
+
+--- pytorch ---
+Forgot the remembered resolution for 'pytorch'.
+resolve('pytorch') took 6.2s
+  best        : https://pytorch.kr/
+  resolved_via: domain
+  every candidate considered:
+    - https://pytorch.kr/
+        source=domain:io confidence=0.75 verified=True
+        signals=['own-domain', 'install:pypi', 'names-it:37']
+        reason=identified by own-domain, install:pypi, names-it:37
+    - https://pytorch.org/llms.txt/
+        source=domain:dev/probe:llms.txt confidence=0.97 verified=True
+        signals=['own-domain', 'names-it:129']
+        reason=identified by own-domain, names-it:129
+    - https://pytorch.org/
+        source=domain:dev confidence=0.75 verified=False
+        signals=['own-domain']
+        reason=not enough to identify 'pytorch' — only own-domain. Naming a project is not the same as being it.
+2026-09-10 01:15:13  [   500.0s]    [langchain-1] langchain: harvesting pages=447 expected=813
+2026-09-10 01:15:13  [   500.0s]    [django-3] django: harvesting pages=215 expected=991
+2026-09-10 01:15:33  [   520.0s]    [langchain-1] langchain: harvesting pages=452 expected=813
+2026-09-10 01:15:33  [   520.0s]    [django-3] django: harvesting pages=218 expected=991
+2026-09-10 01:15:53  [   540.0s]    [django-3] django: harvesting pages=231 expected=991
+2026-09-10 01:16:13  [   560.0s]    [langchain-1] langchain: harvesting pages=458 expected=813
+2026-09-10 01:16:34  [   580.4s]    [langchain-1] langchain: harvesting pages=483 expected=813
+2026-09-10 01:16:54  [   600.4s]    [langchain-1] langchain: harvesting pages=500 expected=813
+2026-09-10 01:17:14  [   620.5s]    [langchain-1] langchain: harvesting pages=525 expected=813
+2026-09-10 01:17:34  [   640.5s]    [langchain-1] langchain: harvesting pages=541 expected=813
+2026-09-10 01:17:54  [   660.5s]    [langchain-1] langchain: harvesting pages=561 expected=813
+2026-09-10 01:18:14  [   680.6s]    [langchain-1] langchain: harvesting pages=583 expected=813
+2026-09-10 01:18:34  [   700.6s]    [langchain-1] langchain: harvesting pages=586 expected=813
+2026-09-10 01:19:14  [   740.6s]    [langchain-1] langchain: harvesting pages=611 expected=813
+2026-09-10 01:19:34  [   760.7s]    nothing running
+
+2026-09-10 01:19:34  [   760.7s]  ==============================================================================
+2026-09-10 01:19:34  [   760.7s]  6. How each harvest ended
+2026-09-10 01:19:34  [   760.7s]  ==============================================================================
+2026-09-10 01:19:34  [   760.7s]    langchain      state=done      phase=storing pages=629 elapsed=750.8014607429504
+2026-09-10 01:19:34  [   760.7s]        | Resolved **langchain** to https://docs.langchain.com/
+2026-09-10 01:19:34  [   760.7s]        | (PyPI project_urls[Homepage] for langchain; identified by own-domain, docs-host)
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | Harvested **langchain** 2026-09-10 — 627 pages, 8,956,185 characters, via llms-full.txt, in 751s.
+2026-09-10 01:19:34  [   760.7s]        | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (langchain 2026-09-10)`.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | **INCOMPLETE — manifest declared 813 unique pages, but 186 could not be acquired.** Say so if you answer from it, and prefer a direct URL to the full documentation if you can find one.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | NOTE: these 627 pages have a median of 0 characters and 627 of them are under 500. That is the shape of an API symbol index or a split dump, not prose documentation — useful for looking up a signature, thin for learning how something works. If you wanted guides and tutorials, check whether the project publishes them separately.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | Read it back with `read_knowledge_base(name="langchain", version="2026-09-10")` — do NOT re-harvest to answer questions about it.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | Pages:
+2026-09-10 01:19:34  [   760.7s]        | 1. Use docs programmatically - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 2. Role-based access control - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 3. User management - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 4. Set up resource tags - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 5. Self-hosted LangSmith - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 6. Access & oversight - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 7. Run (span) data format - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 8. Make conversations private - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 9. Deploy your app to cloud - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 10. Authentication & access control - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 11. Set up custom authentication - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 12. Interrupts - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 13. langgraph_sdk | LangChain Reference
+2026-09-10 01:19:34  [   760.7s]        | 14. Observability concepts - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 15. Filter traces - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 16. Rebuild graph at runtime - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 17. Conditional tracing - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 18. Govern - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 19. Set up hierarchy - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 20. Overview - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 21. Workload isolation - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 22. Organization and workspace operations reference - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 23. Customize user management - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 24. Create an account and API key - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 25. Manage your organization using the API - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 26. Manage prompts - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 27. Prompt & Context Hub - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 28. Manage billing in your account - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 29. Data purging for compliance - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | 30. Log user feedback using the SDK - Docs by LangChain
+2026-09-10 01:19:34  [   760.7s]        | … and 597 more
+2026-09-10 01:19:34  [   760.7s]    django         state=done      phase=storing pages=232 elapsed=500.364830493927
+2026-09-10 01:19:34  [   760.7s]        | Resolved **django** to https://www.djangoproject.com/
+2026-09-10 01:19:34  [   760.7s]        | (PyPI project_urls[Homepage] for django; identified by repo-identity, names-it:47)
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | Harvested **django** 5.2 — 232 pages, 695,273 characters, via sitemap, in 473s.
+2026-09-10 01:19:34  [   760.7s]        | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (django 5.2)`.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | **INCOMPLETE — stored 232 of the 991 pages the sitemap lists, 759 of them unextractable.** Say so if you answer from it, and prefer a direct URL to the full documentation if you can find one.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | **759 page(s) reached but not extractable** — nothing on them read like documentation, so they were not stored and are not counted as covered:
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/aug/20/dsf-membership-open-space-at-djangocon-us
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/aug/12/dsf-office-hours
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/aug/10/annual-release-cycle
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/aug/06/call-for-applicants-for-a-django-executive-directo
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/aug/05/django-61-released
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/aug/04/security-releases
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/jul/29/dsf-member-of-the-month-katherine-michel
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/jul/24/see-you-in-chicago-in-one-month
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/jul/22/django-61-rc-1-released
+2026-09-10 01:19:34  [   760.7s]        | - https://www.djangoproject.com/weblog/2026/jul/15/supporting-the-triptych-project
+2026-09-10 01:19:34  [   760.7s]        | … and 749 more
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | NOTE: these 232 pages have a median of 0 characters and 232 of them are under 500. That is the shape of an API symbol index or a split dump, not prose documentation — useful for looking up a signature, thin for learning how something works. If you wanted guides and tutorials, check whether the project publishes them separately.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | Read it back with `read_knowledge_base(name="django", version="5.2")` — do NOT re-harvest to answer questions about it.
+2026-09-10 01:19:34  [   760.7s]        | 
+2026-09-10 01:19:34  [   760.7s]        | Pages:
+2026-09-10 01:19:34  [   760.7s]        | 1. Call for volunteers: Fundraising Working Group | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 2. Django bugfix release issued: 6.1.1 | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 3. Djangonaut Space - Session 7 Accepting Applications | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 4. DSF member of the month - Benjamin Balder Bach | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 5. Django Developers Survey 2026 results | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 6. PyCharm & Django Fall Fundraiser | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 7. The Block and Tackle of Django's Code of Conduct Working Group | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 8. Keeping Up with the Django Community | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 9. DSF member of the month - Salim Nuru | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 10. Django 6.1 beta 1 released | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 11. Announcing the Search for a DSF Executive Director | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 12. DSF 2026 Fundraising Goals | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 13. Django security releases issued: 6.0.6 and 5.2.15 | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 14. Django 6.0 released | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 15. Django security releases issued: 5.2.9, 5.1.15, and 4.2.27 | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 16. 2026 DSF Board Election Results | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 17. DSF member of the month -  Akio Ogasahara | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 18. Twenty years of Django releases | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 19. Django 6.0 release candidate 1 released | Weblog | Django
+2026-09-10 01:19:34  [   760.7s]        | 20. Going build-free with native JavaScript modules | Weblog | Django
+
+==============================================================================
+6b. How each harvest ended  (section 6 was cut short by the harness's own console encoding; re-emitted here in full)
+==============================================================================
+  langchain    state=done     phase=storing pages_ticked=629 elapsed=751s
+      | Resolved **langchain** to https://docs.langchain.com/
+      | (PyPI project_urls[Homepage] for langchain; identified by own-domain, docs-host)
+      | 
+      | Harvested **langchain** 2026-09-10 — 627 pages, 8,956,185 characters, via llms-full.txt, in 751s.
+      | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (langchain 2026-09-10)`.
+      | 
+      | **INCOMPLETE — manifest declared 813 unique pages, but 186 could not be acquired.** Say so if you answer from it, and prefer a direct URL to the full documentation if you can find one.
+      | 
+      | NOTE: these 627 pages have a median of 0 characters and 627 of them are under 500. That is the shape of an API symbol index or a split dump, not prose documentation — useful for looking up a signature, thin for learning how something works. If you wanted guides and tutorials, check whether the project publishes them separately.
+      | 
+      | Read it back with `read_knowledge_base(name="langchain", version="2026-09-10")` — do NOT re-harvest to answer questions about it.
+
+  django       state=done     phase=storing pages_ticked=232 elapsed=500s
+      | Resolved **django** to https://www.djangoproject.com/
+      | (PyPI project_urls[Homepage] for django; identified by repo-identity, names-it:47)
+      | 
+      | Harvested **django** 5.2 — 232 pages, 695,273 characters, via sitemap, in 473s.
+      | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (django 5.2)`.
+      | 
+      | **INCOMPLETE — stored 232 of the 991 pages the sitemap lists, 759 of them unextractable.** Say so if you answer from it, and prefer a direct URL to the full documentation if you can find one.
+      | 
+      | **759 page(s) reached but not extractable** — nothing on them read like documentation, so they were not stored and are not counted as covered:
+      | - https://www.djangoproject.com/weblog/2026/aug/20/dsf-membership-open-space-at-djangocon-us
+      | - https://www.djangoproject.com/weblog/2026/aug/12/dsf-office-hours
+      | - https://www.djangoproject.com/weblog/2026/aug/10/annual-release-cycle
+      | - https://www.djangoproject.com/weblog/2026/aug/06/call-for-applicants-for-a-django-executive-directo
+      | - https://www.djangoproject.com/weblog/2026/aug/05/django-61-released
+      | - https://www.djangoproject.com/weblog/2026/aug/04/security-releases
+      | - https://www.djangoproject.com/weblog/2026/jul/29/dsf-member-of-the-month-katherine-michel
+      | - https://www.djangoproject.com/weblog/2026/jul/24/see-you-in-chicago-in-one-month
+      | - https://www.djangoproject.com/weblog/2026/jul/22/django-61-rc-1-released
+      | - https://www.djangoproject.com/weblog/2026/jul/15/supporting-the-triptych-project
+      | … and 749 more
+      | 
+      | NOTE: these 232 pages have a median of 0 characters and 232 of them are under 500. That is the shape of an API symbol index or a split dump, not prose documentation — useful for looking up a signature, thin for learning how something works. If you wanted guides and tutorials, check whether the project publishes them separately.
+      | 
+      | Read it back with `read_knowledge_base(name="django", version="5.2")` — do NOT re-harvest to answer questions about it.
+
+  pytorch      state=done     phase=storing pages_ticked=72 elapsed=81s
+      | Resolved **pytorch** to https://pytorch.kr/
+      | (pytorch.kr is the project's own domain and carries an install command; identified by own-domain, install:pypi, names-it:37)
+      | 
+      | Harvested **pytorch** lts — 66 pages, 357,492 characters, via sitemap, in 71s.
+      | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (pytorch lts)`.
+      | 
+      | **INCOMPLETE — stored 66 of the 72 pages the sitemap lists, 6 of them unextractable.** Say so if you answer from it, and prefer a direct URL to the full documentation if you can find one.
+      | 
+      | **6 page(s) reached but not extractable** — nothing on them read like documentation, so they were not stored and are not counted as covered:
+      | - https://pytorch.kr/hub/developer-models/compact
+      | - https://pytorch.kr/hub/developer-models
+      | - https://pytorch.kr/maintainers
+      | - https://pytorch.kr/get-started.html
+      | - https://pytorch.kr/mobile.html
+      | - https://pytorch.kr/naverd978eaf94b3bcd2b77b2f531d87d8831.html
+      | 
+      | NOTE: these 66 pages have a median of 0 characters and 66 of them are under 500. That is the shape of an API symbol index or a split dump, not prose documentation — useful for looking up a signature, thin for learning how something works. If you wanted guides and tutorials, check whether the project publishes them separately.
+      | 
+      | Read it back with `read_knowledge_base(name="pytorch", version="lts")` — do NOT re-harvest to answer questions about it.
+
+  tensorflow   state=done     phase=storing pages_ticked=1 elapsed=51s
+      | Resolved **tensorflow** to https://tensorflow.github.io/rust/tensorflow
+      | (crates.io documentation for tensorflow; identified by own-domain, repo-identity, names-it:14)
+      | 
+      | Harvested **tensorflow** 2026-09-10 — 1 pages, 11,339 characters, via crawl, in 19s.
+      | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (tensorflow 2026-09-10)`.
+      | 
+      | **71 page(s) reached but not extractable** — nothing on them read like documentation, so they were not stored and are not counted as covered:
+      | - https://tensorflow.github.io/rust/all.html
+      | - https://tensorflow.github.io/rust/constant.CLASSIFY_INPUTS.html
+      | - https://tensorflow.github.io/rust/constant.CLASSIFY_METHOD_NAME.html
+      | - https://tensorflow.github.io/rust/constant.CLASSIFY_OUTPUT_CLASSES.html
+      | - https://tensorflow.github.io/rust/constant.CLASSIFY_OUTPUT_SCORES.html
+      | - https://tensorflow.github.io/rust/constant.DEFAULT_SERVING_SIGNATURE_DEF_KEY.html
+      | - https://tensorflow.github.io/rust/constant.PREDICT_INPUTS.html
+      | - https://tensorflow.github.io/rust/constant.PREDICT_METHOD_NAME.html
+      | - https://tensorflow.github.io/rust/constant.PREDICT_OUTPUTS.html
+      | - https://tensorflow.github.io/rust/constant.REGRESS_INPUTS.html
+      | … and 61 more
+      | 
+      | Read it back with `read_knowledge_base(name="tensorflow", version="2026-09-10")` — do NOT re-harvest to answer questions about it.
+
+  langgraph    state=done     phase=storing pages_ticked=0 elapsed=12s
+      | Resolved **langgraph** to https://github.com/langchain-ai/langgraph/tree/main/libs/langgraph
+      | (PyPI project_urls[Source] for langgraph; identified by repo-identity, names-it:10)
+      | 
+      | Harvested **langgraph** 2026-09-10 — 1 pages, 6,350 characters, via github, in 1s.
+      | Stored in postgres: `postgres://127.0.0.1:5432/DocsForge (langgraph 2026-09-10)`.
+      | 
+      | Read it back with `read_knowledge_base(name="langgraph", version="2026-09-10")` — do NOT re-harvest to answer questions about it.
+
+
+==============================================================================
+7. list_knowledge_base over MCP, after all five runs
+==============================================================================
+The MCP server is launched exactly as a client launches it. Compare
+this against section 8, which reads the configured store directly.
+    | Nothing is stored yet. Learn a technology with `learn_technology(name="...")` — you do not need a URL.
+
+==============================================================================
+9. Reading each new corpus back over MCP
+==============================================================================
+  langchain: 117 chars returned
+      | Error executing tool read_knowledge_base: No stored documentation called 'langchain'. Available: (nothing stored yet)
+
+  langgraph: 117 chars returned
+      | Error executing tool read_knowledge_base: No stored documentation called 'langgraph'. Available: (nothing stored yet)
+
+  django: 114 chars returned
+      | Error executing tool read_knowledge_base: No stored documentation called 'django'. Available: (nothing stored yet)
+
+  tensorflow: 118 chars returned
+      | Error executing tool read_knowledge_base: No stored documentation called 'tensorflow'. Available: (nothing stored yet)
+
+  pytorch: 115 chars returned
+      | Error executing tool read_knowledge_base: No stored documentation called 'pytorch'. Available: (nothing stored yet)
+
+
+==============================================================================
+8. The configured store, read directly -- ground truth
+==============================================================================
+backend: PostgresStore   technologies: 28
+       ai-sdk           v=2026-08-14   pages=    1 chars=     2216 complete=True harvested=2026-08-14 17:53
+       astro            v=2026-08-20   pages=  385 chars=  2865282 complete=True harvested=2026-08-20 22:54
+       better-auth      v=2026-08-14   pages=    1 chars=    22440 complete=True harvested=2026-08-14 17:53
+       convex           v=2026-08-14   pages=    1 chars=    44750 complete=True harvested=2026-08-14 17:53
+  NEW  django           v=5.2          pages=  232 chars=   695273 complete=False harvested=2026-09-10 01:08
+       drizzle          v=2026-08-14   pages=    1 chars=    37370 complete=True harvested=2026-08-14 17:53
+       effect           v=v3           pages=  703 chars=  6322993 complete=True harvested=2026-08-14 02:20
+       elysia           v=2026-08-14   pages=    1 chars=     7418 complete=True harvested=2026-08-14 17:53
+       gin-gonic        v=2026-08-25   pages=   87 chars=   254778 complete=True harvested=2026-08-25 17:07
+       go-net-http      v=2026-08-25   pages=   16 chars=   588492 complete=True harvested=2026-08-25 17:06
+       google-adk       v=2026-08-31   pages= 1799 chars=  3449078 complete=True harvested=2026-08-31 01:59
+       hono             v=2026-08-14   pages=    1 chars=     5649 complete=True harvested=2026-08-14 17:53
+  NEW  langchain        v=2026-09-10   pages=  627 chars=  8956185 complete=False harvested=2026-09-10 01:06
+  NEW  langgraph        v=2026-09-10   pages=    1 chars=     6350 complete=True harvested=2026-09-10 01:07
+       mojo             v=1.0.0        pages=   17 chars=  1278483 complete=False harvested=2026-09-06 22:42
+       nuxt             v=2026-08-14   pages=    1 chars=    56614 complete=True harvested=2026-08-14 17:53
+       perplexity       v=2026-08-14   pages=    1 chars=    42478 complete=True harvested=2026-08-14 17:53
+       prisma           v=2026-08-14   pages=    1 chars=     7086 complete=True harvested=2026-08-14 17:53
+       pydantic         v=2.11         pages=  109 chars=  1414402 complete=True harvested=2026-08-14 18:26
+  NEW  pytorch          v=lts          pages=   66 chars=   357492 complete=False harvested=2026-09-10 01:08
+       railway          v=2026-08-14   pages=    1 chars=    70612 complete=True harvested=2026-08-14 17:53
+       stripe           v=2026-08-14   pages=    1 chars=    89843 complete=True harvested=2026-08-14 17:53
+       svelte           v=2026-08-14   pages=    1 chars=     1673 complete=True harvested=2026-08-14 17:53
+       tanstack         v=2026-08-14   pages=    1 chars=    11592 complete=True harvested=2026-08-14 17:53
+  NEW  tensorflow       v=2026-09-10   pages=    1 chars=    11339 complete=True harvested=2026-09-10 01:08
+       turso            v=2026-08-14   pages=    1 chars=    11092 complete=True harvested=2026-08-14 17:53
+       vitest           v=2026-08-14   pages=    1 chars=     9986 complete=True harvested=2026-08-14 17:53
+       zod              v=2026-08-14   pages=    1 chars=   266084 complete=True harvested=2026-08-14 17:53
+
+  the five, in detail:
+    django       version=5.2          pages=232 chars=695273 complete=False strategy=sitemap
+      source   : https://www.djangoproject.com/
+      expected : 991   acquired: 232   complete: False
+    langchain    version=2026-09-10   pages=627 chars=8956185 complete=False strategy=llms-full.txt
+      source   : https://docs.langchain.com/
+      expected : 813   acquired: 627   complete: False
+    langgraph    version=2026-09-10   pages=1 chars=6350 complete=True strategy=github
+      source   : https://github.com/langchain-ai/langgraph/tree/main/libs/langgraph
+      expected : 1   acquired: 1   complete: True
+    pytorch      version=lts          pages=66 chars=357492 complete=False strategy=sitemap
+      source   : https://pytorch.kr/
+      expected : 72   acquired: 66   complete: False
+    tensorflow   version=2026-09-10   pages=1 chars=11339 complete=True strategy=crawl
+      source   : https://tensorflow.github.io/rust/tensorflow
+      expected : 1   acquired: 1   complete: True
+
+==============================================================================
+End of evaluation
+==============================================================================
