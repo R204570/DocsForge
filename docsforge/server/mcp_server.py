@@ -231,21 +231,38 @@ async def health(request: Request) -> Response:
 class BearerGate:
     """Require `Authorization: Bearer <token>` on the MCP path.
 
-    Everything else passes through untouched. Comparison is constant-time and
-    the token is read once, at construction, so rotating it means restarting —
-    which is also the only way the SDK's own session state would notice.
+    Two kinds of bearer are accepted: the DocsForge token itself, and an
+    access token this server's OAuth side issued to a client that logged in
+    with that same token (see `oauth.py`). Everything else passes through
+    untouched. Comparison is constant-time and the token is read once, at
+    construction, so rotating it means restarting — which is also the only
+    way the SDK's own session state would notice.
+
+    The 401 names where OAuth discovery starts, which is how a client that
+    cannot send a static token finds its way to the login page.
     """
 
-    def __init__(self, app, token: str, protect: str = "/mcp"):
+    def __init__(self, app, token: str, protect: str = "/mcp", verifier=None,
+                 resource_metadata: str | None = None):
         self.app, self.token, self.protect = app, token.encode(), protect
+        self.verifier = verifier
+        challenge = "Bearer"
+        if resource_metadata:
+            challenge += f', resource_metadata="{resource_metadata}"'
+        self.challenge = challenge
+
+    def accepts(self, presented: bytes) -> bool:
+        if hmac.compare_digest(presented, self.token):
+            return True
+        return bool(self.verifier and self.verifier(presented.decode("utf-8", "replace")))
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and scope["path"].rstrip("/") == self.protect.rstrip("/"):
             header = dict(scope.get("headers") or {}).get(b"authorization", b"")
             scheme, _, presented = header.partition(b" ")
-            if scheme.lower() != b"bearer" or not hmac.compare_digest(presented.strip(), self.token):
+            if scheme.lower() != b"bearer" or not self.accepts(presented.strip()):
                 response = JSONResponse({"error": "unauthorized"}, status_code=401,
-                                        headers={"WWW-Authenticate": "Bearer"})
+                                        headers={"WWW-Authenticate": self.challenge})
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
@@ -281,8 +298,25 @@ def choose_http(http_flag: bool, stdio_flag: bool) -> bool:
         return False
 
 
+def configured_public_url(fallback: str) -> str:
+    """Where this server says it lives, for OAuth discovery.
+
+    Discovery documents name absolute URLs, so unlike the Connect page this
+    cannot be taken from each request. `DOCSFORGE_PUBLIC_URL` if set; on
+    Vercel the production domain the platform provides; else the fallback
+    the caller knows (the bind address, for a local run).
+    """
+    configured = (os.environ.get("DOCSFORGE_PUBLIC_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    vercel = (os.environ.get("VERCEL_PROJECT_PRODUCTION_URL") or "").strip()
+    if vercel:
+        return f"https://{vercel}"
+    return fallback.rstrip("/")
+
+
 def build_http_app(host: str = "127.0.0.1", token: str | None = None,
-                   stateless: bool = False):
+                   stateless: bool = False, public_url: str | None = None):
     """The ASGI app `--http` serves: `/`, `/health`, and a gated `/mcp`.
 
     Separate from `main()` so a test can drive it in-process. `token=None`
@@ -290,13 +324,37 @@ def build_http_app(host: str = "127.0.0.1", token: str | None = None,
     where that rule is enforced, because it is the one place that knows the
     bind address.
 
+    With a token, the server is also an OAuth authorization server whose
+    login is that token (`oauth.py`), so clients that cannot send a bearer
+    header — ChatGPT — can still get in. `public_url` is what discovery
+    advertises; see `configured_public_url`.
+
     `stateless` is for a host where no two requests are guaranteed the same
     process: every request then carries everything, answers are plain JSON
     rather than an event stream, and no session lives in memory between them.
     """
     app = server.streamable_http_app(host=host, stateless_http=stateless,
                                      json_response=stateless)
-    return BearerGate(app, token) if token else app
+    if not token:
+        return app
+    from docsforge.server import oauth
+    base = configured_public_url(public_url or f"http://{host}:8765")
+    provider = oauth.StatelessProvider(token, base)
+    # Mounted here, at runtime, rather than handed to `MCPServer` at import:
+    # the SDK would then gate /mcp on every run, token or not, and the
+    # decision belongs to whoever built this app.
+    try:
+        oauth_routes = oauth.routes(provider)
+    except ValueError as why:
+        # The SDK insists an issuer be HTTPS unless it is loopback — right,
+        # since codes and tokens travel through it. A deployment that cannot
+        # say where it lives keeps the bearer token and loses only OAuth.
+        print(f"DocsForge: OAuth not offered ({why}; public URL is {base}) — "
+              f"set DOCSFORGE_PUBLIC_URL to an https address to enable it", file=sys.stderr)
+        return BearerGate(app, token)
+    app.router.routes.extend(oauth_routes)
+    return BearerGate(app, token, verifier=provider.verify_access,
+                      resource_metadata=oauth.resource_metadata_url(base))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -353,7 +411,8 @@ def main(argv: list[str] | None = None) -> int:
               f"({'bearer token required' if token else 'no token: open'})",
               file=sys.stderr)
         import uvicorn
-        uvicorn.run(build_http_app(host=args.host, token=token or None),
+        uvicorn.run(build_http_app(host=args.host, token=token or None,
+                                   public_url=f"http://{shown}:{args.port}"),
                     host=args.host, port=args.port, log_level="info")
     else:
         # This process is launched per turn by whatever client attached us --

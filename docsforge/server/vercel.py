@@ -154,8 +154,13 @@ def build(env=os.environ):
     # `host` is not a bind address here — the platform owns that — it only
     # tells the SDK this is not loopback, so its localhost-only Host check
     # stays off and the deployment's own hostname is accepted.
+    # OAuth discovery needs the deployment's real address; Vercel provides
+    # the production domain, and DOCSFORGE_PUBLIC_URL overrides it.
+    public = env.get("DOCSFORGE_PUBLIC_URL") or (
+        f"https://{env['VERCEL_PROJECT_PRODUCTION_URL']}" if env.get("VERCEL_PROJECT_PRODUCTION_URL") else None)
     return LifespanOnDemand(
-        lambda: mcp_server.build_http_app(host="0.0.0.0", token=token, stateless=True))
+        lambda: mcp_server.build_http_app(host="0.0.0.0", token=token, stateless=True,
+                                          public_url=public))
 
 
 app = build()
