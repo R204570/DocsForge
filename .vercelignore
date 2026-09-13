@@ -1,0 +1,27 @@
+# Not shipped to the Vercel build. `.env` above all: the function is
+# configured from the project's environment variables, never from a file.
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.github/
+.claude/
+.impeccable/
+knowledge_base/
+logs/
+measurements/
+docs_md/
+tests/
+scripts/
+Project Development/
+docsforge/server/static/
+Containerfile
+.dockerignore
+.containerignore
+*.md.bak
+shot-*.png

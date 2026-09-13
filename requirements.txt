@@ -39,7 +39,7 @@ openai>=1.40         # providers/chatgpt.py AND providers/ollama.py (OpenAI-comp
 google-genai>=1.0    # providers/gemini.py
 
 # ── knowledge-base storage ───────────────────────────────
-# Optional. Without it, harvests are Markdown files in knowledge_base/;
+# Core since the hosted server needs it. Harvests are still Markdown files in knowledge_base/;
 # with DOCSFORGE_DB set, they go to Postgres with a full-text index.
 psycopg[binary]>=3.1
 

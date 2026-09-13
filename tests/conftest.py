@@ -64,3 +64,18 @@ def _reset_store_between_tests():
     forge_tools.reset_store(None)
     yield
     forge_tools.reset_store(None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_host_flags():
+    """The host flags describe the process, and importing the Vercel
+    entrypoint sets one of them for real — as it must, since on Vercel the
+    import *is* the process. In the suite that import happens once and would
+    otherwise turn every later harvest test into a serverless one."""
+    from docsforge.tools import harvest_jobs
+
+    harvest_jobs.EPHEMERAL = False
+    harvest_jobs.DETACHED = False
+    yield
+    harvest_jobs.EPHEMERAL = False
+    harvest_jobs.DETACHED = False
