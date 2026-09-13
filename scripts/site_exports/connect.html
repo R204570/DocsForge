@@ -350,9 +350,9 @@ python main.py --http --host 0.0.0.0 --port 8765</pre>
         text: 'export DOCSFORGE_MCP_TOKEN=' + T + '\ncodex mcp add docsforge --url ' + MCP + ' --bearer-token-env-var DOCSFORGE_MCP_TOKEN'
       },
       "chatgpt": {
-        title: "ChatGPT", kind: "Settings → Apps & Connectors",
-        note: "Plus, Pro, Business, Enterprise or Edu. Profile → Settings → Apps & Connectors → Advanced settings → turn Developer Mode on → back in Apps & Connectors, Create → fill these in → Create. Then in a chat: + → Developer Mode → tick DocsForge and ask, e.g. “use DocsForge to learn pydantic, then answer…”. Reopen the chat after adding it so the tool list refreshes.",
-        text: 'Name             DocsForge\nDescription      Documentation for technologies the model was not trained on\nConnector URL    ' + MCP + '\nAuthentication   Token\nToken            ' + T
+        title: "ChatGPT", kind: "not yet",
+        note: "ChatGPT's custom connectors authenticate with OAuth or not at all — there is no field for a bearer token, and this server is token-gated. Until DocsForge speaks OAuth, ChatGPT cannot connect to it. Codex, OpenAI's coding agent, can: see the Codex tab.",
+        text: 'ChatGPT connector: not supported by this server yet.\n\nChatGPT (Settings → Apps & Connectors → Create) accepts\n  Authentication: OAuth | No authentication\nand this server requires a bearer token.\n\nUse Codex instead, or any client on this page.'
       },
       "cursor": {
         title: "Cursor", kind: "~/.cursor/mcp.json",

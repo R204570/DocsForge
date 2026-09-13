@@ -261,7 +261,10 @@ def test_connect_offers_every_client_with_the_servers_own_url(gated, monkeypatch
     assert '"serverUrl": "' in html                                   # Windsurf / Antigravity
     assert "mcp-remote" in html                                       # Claude Desktop bridge
     assert "code --add-mcp" in html and "gemini mcp add" in html
-    # ChatGPT: a form, not a command — the walkthrough names the real menu path
-    assert "Apps & Connectors" in html and "Developer Mode" in html and "Authentication   Token" in html
+    # ChatGPT: its connectors take OAuth or nothing, never a bearer token, so
+    # the tab must say the truth — not walk someone into a form that cannot
+    # be completed.
+    assert "ChatGPT connector: not supported by this server yet." in html
+    assert "Authentication   Token" not in html
     # the token is never in the page: only the reader's input fills it in
     assert 'id="token"' in html and 'type="password"' in html
