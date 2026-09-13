@@ -172,7 +172,23 @@ stdin/stdout instead; `--http` and `--stdio` force either (a service with no
 terminal, like the Containerfile, passes `--http`). Only `/mcp` is gated: clients send `Authorization: Bearer <DOCSFORGE_MCP_TOKEN>`,
 and without it the server answers 401. Binding a non-loopback address with no
 token is refused outright (`DOCSFORGE_MCP_INSECURE=1` overrides, for a network
-you own). The web chat in `docsforge/server/app.py` is not part of this
+you own).
+
+**OAuth, for clients that cannot send a token.** ChatGPT's connectors
+authenticate with OAuth or not at all, so with a token configured the server
+is also an OAuth 2.1 authorization server (`docsforge/server/oauth.py`) —
+discovery at `/.well-known/…`, dynamic client registration, PKCE — whose
+**login is the DocsForge token**: the client opens a DocsForge sign-in page,
+the person pastes the token once, and the client walks away with an access
+token that `/mcp` accepts beside the bearer header. Everything the flow needs
+to remember is carried in signed, expiring blobs rather than stored, which is
+what lets it run on a stateless host and off the database; rotating the token
+revokes every client and token at once. Discovery names absolute URLs, so the
+server has to know where it lives: `DOCSFORGE_PUBLIC_URL`, or on Vercel the
+production domain the platform provides. Without an HTTPS (or loopback)
+address OAuth is not offered and the bearer token still works.
+
+The web chat in `docsforge/server/app.py` is not part of this
 process and nothing routes to it. See [Deploying](#deploying).
 
 Register with Claude Code:
@@ -842,6 +858,7 @@ never shipped.
 | `DOCSFORGE_MCP_TOKEN` | yes | Clients send it as `Authorization: Bearer …`. Generate it (`openssl rand -hex 32`); never reuse a database password. |
 | `DOCSFORGE_DB` or `DATABASE_URL` | yes | The Postgres DSN, `?sslmode=require` on Aiven. On a host with no persistent disk a file store would vanish. |
 | `DOCSFORGE_HARVEST_DEADLINE` | no | Seconds a harvest may take inside one tool call before it goes to the background (25). |
+| `DOCSFORGE_PUBLIC_URL` | no | The https address OAuth discovery advertises. Vercel's production domain is used when unset. |
 | `PORT` | no | Container only: what the platform routes to (8765). |
 
 ### Vercel (serverless)

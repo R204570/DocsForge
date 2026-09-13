@@ -323,9 +323,9 @@ python main.py --http --host 0.0.0.0 --port 8765</pre>
         text: 'export DOCSFORGE_MCP_TOKEN=' + T + '\ncodex mcp add docsforge --url ' + MCP + ' --bearer-token-env-var DOCSFORGE_MCP_TOKEN'
       },
       "chatgpt": {
-        title: "ChatGPT", kind: "Settings → Apps & Connectors",
-        note: "Plus, Pro, Business, Enterprise or Edu. Profile → Settings → Apps & Connectors → Advanced settings → turn Developer Mode on → back in Apps & Connectors, Create → fill these in → Create. Then in a chat: + → Developer Mode → tick DocsForge and ask, e.g. “use DocsForge to learn pydantic, then answer…”. Reopen the chat after adding it so the tool list refreshes.",
-        text: 'Name             DocsForge\nDescription      Documentation for technologies the model was not trained on\nConnector URL    ' + MCP + '\nAuthentication   Token\nToken            ' + T
+        title: "ChatGPT", kind: "Settings → Apps & Connectors (OAuth)",
+        note: "Plus, Pro, Business, Enterprise or Edu. Profile → Settings → Apps & Connectors → Advanced settings → Developer Mode on → back in Apps & Connectors, Create → fill in the fields above, leave the OAuth endpoints alone (ChatGPT discovers them from the server) → Create. A DocsForge sign-in page opens: paste the server's token, Allow — once; ChatGPT keeps its own access token from then on. In a chat: + → Developer Mode → tick DocsForge. Reopen the chat after adding it so the tool list refreshes.",
+        text: 'Name             DocsForge\nDescription      Documentation for technologies the model was not trained on\nMCP Server URL   ' + MCP + '\nAuthentication   OAuth\nRegistration     Dynamic Client Registration  (the default)\n\nSign-in page     paste ' + T + '  →  Allow'
       },
       "cursor": {
         title: "Cursor", kind: "~/.cursor/mcp.json",

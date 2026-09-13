@@ -93,7 +93,8 @@ def test_health_is_public_and_names_no_host(gated):
 def test_mcp_without_a_token_is_refused(gated):
     r = gated.post("/mcp", json=INIT, headers=MCP_HEADERS)
     assert r.status_code == 401
-    assert r.headers["www-authenticate"] == "Bearer"
+    # `Bearer`, plus where OAuth discovery starts (tests/test_oauth.py has the rest)
+    assert r.headers["www-authenticate"].startswith("Bearer")
 
 
 def test_mcp_with_the_wrong_token_is_refused(gated):
@@ -261,7 +262,10 @@ def test_connect_offers_every_client_with_the_servers_own_url(gated, monkeypatch
     assert '"serverUrl": "' in html                                   # Windsurf / Antigravity
     assert "mcp-remote" in html                                       # Claude Desktop bridge
     assert "code --add-mcp" in html and "gemini mcp add" in html
-    # ChatGPT: a form, not a command — the walkthrough names the real menu path
-    assert "Apps & Connectors" in html and "Developer Mode" in html and "Authentication   Token" in html
+    # ChatGPT: its connectors take OAuth or nothing, never a bearer token, so
+    # the tab walks through the OAuth connector and the DocsForge sign-in
+    # page that the token is pasted into.
+    assert "Authentication   OAuth" in html and "Dynamic Client Registration" in html
+    assert "Sign-in page" in html and "Authentication   Token" not in html
     # the token is never in the page: only the reader's input fills it in
     assert 'id="token"' in html and 'type="password"' in html

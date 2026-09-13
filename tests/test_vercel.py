@@ -22,7 +22,10 @@ from docsforge.tools import forge_tools as ft
 from docsforge.tools import harvest_jobs
 
 TOKEN = "vercel-token"
-ENV_OK = {"DOCSFORGE_DB": "postgresql://x:y@db.example/z", mcp_server.TOKEN_VAR: TOKEN}
+# What Vercel's environment holds: the store, the token, and the production
+# domain the platform itself provides — which is what OAuth discovery names.
+ENV_OK = {"DOCSFORGE_DB": "postgresql://x:y@db.example/z", mcp_server.TOKEN_VAR: TOKEN,
+          "VERCEL_PROJECT_PRODUCTION_URL": "docsforge.vercel.app"}
 INIT = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                    "clientInfo": {"name": "t", "version": "0"}}}
@@ -119,3 +122,19 @@ def test_a_host_that_sends_lifespan_is_not_started_twice():
         h = {**HDR, "Authorization": f"Bearer {TOKEN}"}
         assert c.post("/mcp", json=INIT, headers=h).status_code == 200
         assert c.get("/health").status_code == 200
+
+
+def test_oauth_discovery_names_the_production_domain(client):
+    asm = client.get("/.well-known/oauth-authorization-server").json()
+    assert asm["authorization_endpoint"] == "https://docsforge.vercel.app/authorize"
+    r = client.post("/mcp", json=INIT, headers=HDR)
+    assert 'resource_metadata="https://docsforge.vercel.app/.well-known/oauth-protected-resource/mcp"' \
+        in r.headers["www-authenticate"]
+
+
+def test_without_a_production_domain_the_token_still_works_and_oauth_is_off(capsys):
+    env = {k: v for k, v in ENV_OK.items() if k != "VERCEL_PROJECT_PRODUCTION_URL"}
+    c = TestClient(vercel.build(env), base_url="https://x.vercel.app")
+    assert c.post("/mcp", json=INIT, headers={**HDR, "Authorization": f"Bearer {TOKEN}"}).status_code == 200
+    assert c.get("/.well-known/oauth-authorization-server").status_code == 404
+    assert "OAuth not offered" in capsys.readouterr().err
