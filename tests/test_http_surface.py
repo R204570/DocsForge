@@ -243,7 +243,7 @@ def test_a_configured_public_url_wins(gated, monkeypatch):
 
 
 # ── the client picker on /connect ────────────────────────
-CLIENTS = ("Claude Code", "Codex", "Cursor", "Windsurf", "Antigravity",
+CLIENTS = ("Claude Code", "Codex", "ChatGPT", "Cursor", "Windsurf", "Antigravity",
            "Gemini CLI", "VS Code", "Claude Desktop", "Any client (JSON)")
 
 
@@ -261,5 +261,7 @@ def test_connect_offers_every_client_with_the_servers_own_url(gated, monkeypatch
     assert '"serverUrl": "' in html                                   # Windsurf / Antigravity
     assert "mcp-remote" in html                                       # Claude Desktop bridge
     assert "code --add-mcp" in html and "gemini mcp add" in html
+    # ChatGPT: a form, not a command — the walkthrough names the real menu path
+    assert "Apps & Connectors" in html and "Developer Mode" in html and "Authentication   Token" in html
     # the token is never in the page: only the reader's input fills it in
     assert 'id="token"' in html and 'type="password"' in html
