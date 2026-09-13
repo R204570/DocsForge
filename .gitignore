@@ -56,3 +56,6 @@ logs/
 
 # scratch of scripts/build_site.py (compiled CSS, per-page configs)
 scripts/site_exports/_build/
+
+# the hosted MCP bearer token (same value as DOCSFORGE_MCP_TOKEN in .env); paste into Vercel, never commit
+.mcp-token
