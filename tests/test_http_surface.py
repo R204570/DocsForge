@@ -58,6 +58,7 @@ def test_site_pages_are_public_and_self_contained(gated, path, marker):
     assert marker in r.text
     # The version chip is the package's, not whatever the page was drawn with.
     assert f"v{mcp_server.__version__}" in r.text and "{{VERSION}}" not in r.text
+    assert "{{BASE_URL}}" not in r.text and "YOUR-HOST" not in r.text
     # Self-contained: no script from anywhere, and nothing from the local web
     # chat — that surface is not part of the hosted process.
     assert "<script" not in r.text
@@ -218,3 +219,23 @@ def test_health_reports_a_store_that_fell_back(gated, monkeypatch):
     body = gated.get("/health").json()
     assert body["status"] == "degraded" and body["degraded"] is True and body["store"] == "files"
     assert "x" not in body.values() and "cannot reach" not in str(body)
+
+
+# ── the page names the server it came from ───────────────
+def test_connect_shows_the_url_the_reader_used(gated, monkeypatch):
+    monkeypatch.delenv("DOCSFORGE_PUBLIC_URL", raising=False)
+    assert "http://127.0.0.1:8765/mcp" in gated.get("/connect").text
+
+
+def test_connect_behind_a_tls_proxy_shows_https_and_the_public_host(gated, monkeypatch):
+    # Vercel terminates TLS: the app sees http, the reader used https.
+    monkeypatch.delenv("DOCSFORGE_PUBLIC_URL", raising=False)
+    r = gated.get("/connect", headers={"x-forwarded-proto": "https",
+                                       "x-forwarded-host": "temp-repo-murex.vercel.app"})
+    assert "https://temp-repo-murex.vercel.app/mcp" in r.text
+    assert "127.0.0.1" not in r.text
+
+
+def test_a_configured_public_url_wins(gated, monkeypatch):
+    monkeypatch.setenv("DOCSFORGE_PUBLIC_URL", "https://docs.example.com/")
+    assert "https://docs.example.com/mcp" in gated.get("/connect").text

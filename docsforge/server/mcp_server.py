@@ -172,29 +172,47 @@ TOKEN_VAR = "DOCSFORGE_MCP_TOKEN"
 INSECURE_VAR = "DOCSFORGE_MCP_INSECURE"
 
 
-def page(name: str) -> Response:
-    """One site page, with the version chip filled in from the package."""
+def public_url(request: Request) -> str:
+    """Where this server is reachable, as the page's reader reached it.
+
+    `DOCSFORGE_PUBLIC_URL` wins when set. Otherwise the request's own host,
+    with the scheme a proxy forwarded — on a platform like Vercel the app
+    sees plain HTTP behind TLS termination, and a `Connect` page that told
+    people to use `http://` there would be wrong.
+    """
+    configured = (os.environ.get("DOCSFORGE_PUBLIC_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    return f"{scheme}://{host}"
+
+
+def page(name: str, request: Request) -> Response:
+    """One site page, with the version chip and the server's own URL filled in."""
     path = SITE / name
     if not path.exists():
         return JSONResponse({"name": "docsforge", "version": __version__, "mcp": "/mcp"})
-    body = path.read_text(encoding="utf-8").replace("{{VERSION}}", __version__)
+    body = (path.read_text(encoding="utf-8")
+            .replace("{{VERSION}}", __version__)
+            .replace("{{BASE_URL}}", public_url(request)))
     return Response(body, media_type="text/html; charset=utf-8",
                     headers={"Cache-Control": "public, max-age=300"})
 
 
 @server.custom_route("/", methods=["GET"], include_in_schema=False)
 async def landing(request: Request) -> Response:
-    return page(PAGES["/"])
+    return page(PAGES["/"], request)
 
 
 @server.custom_route("/tools", methods=["GET"], include_in_schema=False)
 async def tools_page(request: Request) -> Response:
-    return page(PAGES["/tools"])
+    return page(PAGES["/tools"], request)
 
 
 @server.custom_route("/connect", methods=["GET"], include_in_schema=False)
 async def connect_page(request: Request) -> Response:
-    return page(PAGES["/connect"])
+    return page(PAGES["/connect"], request)
 
 
 @server.custom_route("/health", methods=["GET"], include_in_schema=False)

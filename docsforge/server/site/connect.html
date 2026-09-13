@@ -81,7 +81,7 @@
             <span class="text-[10px] font-mono text-muted/60">CLI</span>
           </div>
           <div class="p-4 flex-1 font-mono text-[13px] leading-relaxed text-text overflow-x-auto whitespace-pre">claude mcp add --transport http docsforge \
-  https://YOUR-HOST/mcp \
+  {{BASE_URL}}/mcp \
   --header "Authorization: Bearer $DOCSFORGE_MCP_TOKEN"</div>
         </div>
 
@@ -94,7 +94,7 @@
           <div class="p-4 flex-1 font-mono text-[13px] leading-relaxed text-text overflow-x-auto whitespace-pre">{
   "mcpServers": {
     "docsforge": {
-      "url": "https://YOUR-HOST/mcp",
+      "url": "{{BASE_URL}}/mcp",
       "headers": { "Authorization": "Bearer …" }
     }
   }
