@@ -16,11 +16,11 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools as ft
-import harvest_jobs
-import resolver
-import tracing as tr
-from kb_store import FileStore
+from docsforge.tools import forge_tools as ft
+from docsforge.tools import harvest_jobs
+from docsforge.core import resolver
+from docsforge.tools import tracing as tr
+from docsforge.store.kb_store import FileStore
 
 PAGES = [("Intro", "https://x.dev/docs/intro", "welcome")]
 
@@ -64,11 +64,13 @@ def by_name(trace, name):
 
 # ── run_tool(): EVERY call records what ran and what came back ──
 def test_an_uninstrumented_tool_still_records_its_arguments_and_output(monkeypatch):
+    from docsforge.core import engine as df
+
     """The gap this fixes: a tool nobody wrote internal stages for used to
     produce an empty trace, so opening its row in the UI showed nothing.
     Every call now records the invocation itself."""
     monkeypatch.setattr(ft, "detect_source",
-                        lambda url, fetcher: __import__("docsforge").Detection("llms_txt", url))
+                        lambda url, fetcher: df.Detection("llms_txt", url))
 
     out = ft.run_tool("detect_source_type", {"url": "https://x.dev/llms.txt"})
     trace = last_trace()
@@ -207,7 +209,7 @@ def test_already_stored_technology_is_traced_without_a_harvest(monkeypatch):
 
 # ── tool_harvest_docs: harvesting / storing / corpus selection ──
 def test_harvest_docs_traces_its_three_stages(monkeypatch):
-    import docsforge as df
+    from docsforge.core import engine as df
 
     def fake_harvest(url, opts=None, stats=None, sink=None, fetcher=None):
         stats["discovered"] = 1
@@ -256,7 +258,7 @@ def test_harvest_docs_traces_a_failed_fetch(monkeypatch):
 
 # ── page-fetch progress ticks: aggregated, no fake percentage ──
 def test_counting_fetcher_ticks_report_bare_counts_without_a_total(monkeypatch):
-    import docsforge as df
+    from docsforge.core import engine as df
 
     monkeypatch.setattr(df.Fetcher, "html", lambda self, url: "<html><body>ok</body></html>")
 
@@ -276,7 +278,7 @@ def test_counting_fetcher_ticks_report_bare_counts_without_a_total(monkeypatch):
 
 
 def test_counting_fetcher_ticks_include_the_total_once_known(monkeypatch):
-    import docsforge as df
+    from docsforge.core import engine as df
 
     monkeypatch.setattr(df.Fetcher, "html", lambda self, url: "<html><body>ok</body></html>")
 
@@ -336,7 +338,7 @@ def test_a_harvest_past_the_deadline_keeps_tracing_after_run_tool_returns(monkey
 # design doc's own headline case -- adk.dev, 229 links, every one `.md` --
 # counted zero pages and reported "starting" for its entire run.
 def _serve(pages, monkeypatch):
-    import docsforge as df
+    from docsforge.core import engine as df
 
     class Resp:
         def __init__(self, text, status=200):
@@ -355,7 +357,7 @@ def _serve(pages, monkeypatch):
 
 
 def test_a_markdown_twin_manifest_counts_the_pages_it_fetches(monkeypatch):
-    import docsforge as df
+    from docsforge.core import engine as df
 
     pages = {"https://x.dev/llms.txt":
              "# Index\n\n" + "\n".join(f"- [P{i}](https://x.dev/p{i}.md)"
@@ -389,7 +391,7 @@ def test_infrastructure_fetches_are_not_counted_as_pages(monkeypatch):
     Counting those would inflate the number the coverage claim rests on,
     which is why the acquisition loop reports pages rather than the
     transport guessing."""
-    import docsforge as df
+    from docsforge.core import engine as df
 
     pages = {"https://x.dev/llms.txt":
              "# Index\n\n" + "\n".join(f"- [P{i}](https://x.dev/p{i}.md)"
@@ -414,7 +416,7 @@ def test_the_exact_denominator_is_known_before_the_fetching_starts(monkeypatch):
     that is why its coverage claim beats a sitemap's. Publishing it only
     after the loop finished meant a 229-page harvest read "fetched 40
     pages" for the whole ten minutes it could have read "40/229"."""
-    import docsforge as df
+    from docsforge.core import engine as df
 
     pages = {"https://x.dev/llms.txt":
              "# Index\n\n" + "\n".join(f"- [P{i}](https://x.dev/p{i}.md)"
@@ -448,7 +450,7 @@ def test_a_hybrid_root_counts_as_a_page_it_already_holds(monkeypatch):
     """The root arrives with the manifest rather than through the fetch
     loop. Counting it keeps the progress figure and the denominator
     describing the same set of documents."""
-    import docsforge as df
+    from docsforge.core import engine as df
 
     body = ("# Docs\n\n> summary\n\n" + ("Root prose. " * 80) + "\n\n"
             + "\n".join(f"- [P{i}](https://x.dev/p{i}.md)" for i in range(4)))

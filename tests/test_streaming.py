@@ -20,9 +20,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools as ft
-import kb_store
-from kb_store import FileStore, PostgresStore
+from docsforge.tools import forge_tools as ft
+from docsforge.store import kb_store
+from docsforge.store.kb_store import FileStore, PostgresStore
 
 PAGES = [
     ("Error Handling", "https://x.dev/docs/errors", "fail fast and recover"),
@@ -50,8 +50,7 @@ def files(tmp_path):
 def test_save_goes_through_the_writer():
     # Wiring, not behaviour: a batch save and a streamed one must be the same
     # code, or the one nobody runs in tests quietly rots.
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    source = open(os.path.join(root, "kb_store.py"), encoding="utf-8").read()
+    source = open(kb_store.__file__, encoding="utf-8").read()
     assert source.count("with self.writer(") >= 2, \
         "save() should delegate to writer() in both stores"
 
@@ -257,8 +256,7 @@ def test_settling_replaces_the_previous_version():
 
 # ── wiring: the pipeline must actually use the writer ────
 def _forge_tools_source() -> str:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return open(os.path.join(root, "forge_tools.py"), encoding="utf-8").read()
+    return open(ft.__file__, encoding="utf-8").read()
 
 
 def test_the_harvest_pipeline_streams_into_a_writer():
@@ -281,8 +279,8 @@ def test_both_harvest_paths_stream():
 def test_pages_are_released_rather_than_carried_to_the_end():
     # Peak memory should be the number of pages, not their total size: the
     # crawl hands each body to the sink and keeps only its shape.
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    crawler = open(os.path.join(root, "docsforge.py"), encoding="utf-8").read()
+    from docsforge.core import engine
+    crawler = open(engine.__file__, encoding="utf-8").read()
     assert 'out.append(Doc(url, title, ""))' in crawler, \
         "the crawl still carries page bodies to the end of the harvest"
 

@@ -19,8 +19,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-from docsforge import Options, _Pace
+from docsforge.core import engine as df
+from docsforge.core.engine import Options, _Pace
 
 HOST = "https://x.dev"
 BODY = ("<p>" + ("Documentation prose about the subject at hand. " * 25) + "</p>")
@@ -173,8 +173,7 @@ def test_a_rendered_crawl_stays_sequential():
     # Playwright's sync API is bound to the thread that created the browser and
     # a Fetcher keeps exactly one, so a rendered crawl must not be pooled — a
     # correctness constraint, not a tuning choice.
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    source = open(os.path.join(root, "docsforge.py"), encoding="utf-8").read()
+    source = open(df.__file__, encoding="utf-8").read()
     assert re.search(r"workers\s*=\s*1 if \(opts\.js", source), \
         "a JS crawl must fall back to one worker"
 

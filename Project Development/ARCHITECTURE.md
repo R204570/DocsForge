@@ -3,7 +3,7 @@
 Recorded from the build, not from intention. Where the code and this file
 disagree, the code is right and this file is stale.
 
-Written against 740 passing tests, 59 skipped behind opt-in gates — live
+Written against 860 passing tests, 59 skipped behind opt-in gates — live
 network, Postgres, browser rendering.
 
 ---
@@ -19,11 +19,11 @@ they call the same function with the same arguments.
 graph LR
   CLI["CLI<br/>docsforge"]
   MCP["MCP server<br/>docsforge-mcp"]
-  WEB["Web panel<br/>FastAPI + static/"]
+  WEB["Web panel<br/>server/app.py + static/"]
 
-  TOOLS["forge_tools.py<br/>the twelve tools"]
-  ENGINE["docsforge.py<br/>detect · fetch · extract · harvest"]
-  STORE["kb_store.py<br/>FileStore | PostgresStore"]
+  TOOLS["tools/forge_tools.py<br/>the twelve tools"]
+  ENGINE["core/engine.py<br/>detect · fetch · extract · harvest"]
+  STORE["store/kb_store.py<br/>FileStore | PostgresStore"]
 
   CLI --> ENGINE
   MCP --> TOOLS
@@ -33,53 +33,77 @@ graph LR
   ENGINE --> STORE
 ```
 
-`forge_tools.py` is the seam. It owns argument shaping, the trace wrapper, and
-the human-readable result strings; `docsforge.py` owns the web and knows
+`tools/forge_tools.py` is the seam. It owns argument shaping, the trace wrapper, and
+the human-readable result strings; `core/engine.py` owns the web and knows
 nothing about tools.
 
 ---
 
 ## 2. Module map
 
+Everything is one package, `docsforge/`, with a subpackage per responsibility;
+the only script outside it is `main.py`, which starts the MCP server. Paths
+below are relative to `docsforge/`.
+
+```
+main.py                  python main.py [--http]      -> the MCP server
+docsforge/__main__.py    python -m docsforge <URL>    -> the CLI
+docsforge/core/          acquisition, identity and scope
+docsforge/store/         kb_store
+docsforge/tools/         the tool layer, background jobs, tracing, logs
+docsforge/server/        mcp_server (+ site/: the public pages it serves over HTTP),
+                         app (+ static/: the local web chat — never hosted)
+docsforge/providers/     model backends for the web chat
+scripts/                 bench harnesses and live smoke drivers
+```
+
+Hosted, the process is `main.py --http` in the `Containerfile`: `/` , `/tools`
+and `/connect` are public pages, `/health` is for the platform, and `/mcp` is
+the tool surface behind a bearer token (`DOCSFORGE_MCP_TOKEN`). The gate is a
+small ASGI layer in `mcp_server.py` rather than the SDK's OAuth machinery,
+because that has to be configured when the server object is built — which
+would put a token requirement on every local `--http` run too. A non-loopback
+bind without a token is refused. The web chat is not in the hosted process.
+
 ```mermaid
 graph TD
   subgraph Surfaces
-    APP["app.py<br/>HTTP + SSE"]
-    MCPS["mcp_server.py"]
+    APP["server/app.py<br/>HTTP + SSE"]
+    MCPS["server/mcp_server.py<br/>started by main.py"]
   end
 
   subgraph Tools
-    FT["forge_tools.py"]
-    HJ["harvest_jobs.py<br/>background harvests"]
+    FT["tools/forge_tools.py"]
+    HJ["tools/harvest_jobs.py<br/>background harvests"]
   end
 
   subgraph Acquisition
-    DF["docsforge.py<br/>detect · crawl · harvest"]
-    LF["llmsfinder.py<br/>shape · links · density"]
-    MAN["manifests.py<br/>generator manifests"]
-    VER["versions.py<br/>release ordering"]
+    DF["core/engine.py<br/>detect · crawl · harvest"]
+    LF["core/llmsfinder.py<br/>shape · links · density"]
+    MAN["core/manifests.py<br/>generator manifests"]
+    VER["core/versions.py<br/>release ordering"]
   end
 
   subgraph Identity
-    RES["resolver.py<br/>name to URL"]
-    INST["instrument.py<br/>what a probe revealed"]
-    REA["reasoning.py<br/>optional model veto"]
+    RES["core/resolver.py<br/>name to URL"]
+    INST["core/instrument.py<br/>what a probe revealed"]
+    REA["core/reasoning.py<br/>optional model veto"]
   end
 
   subgraph Scope
-    FED["federation.py<br/>a technology is many corpora"]
-    SEL["selection.py<br/>ask, never guess"]
-    OBS["observation.py"]
+    FED["core/federation.py<br/>a technology is many corpora"]
+    SEL["core/selection.py<br/>ask, never guess"]
+    OBS["core/observation.py"]
   end
 
   subgraph Storage
-    KB["kb_store.py"]
-    PAS["passages.py<br/>read-time relevance"]
+    KB["store/kb_store.py"]
+    PAS["core/passages.py<br/>read-time relevance"]
   end
 
   subgraph Observability
-    TR["tracing.py<br/>event log"]
-    AL["applog.py<br/>JSONL request log"]
+    TR["tools/tracing.py<br/>event log"]
+    AL["tools/applog.py<br/>JSONL request log"]
   end
 
   APP --> FT
@@ -104,7 +128,7 @@ graph TD
   KB --> PAS
 ```
 
-`measure.py` sits outside this — it is a bench harness, not a runtime path.
+`scripts/measure.py` sits outside this — it is a bench harness, not a runtime path.
 
 ---
 
@@ -117,7 +141,7 @@ never has to reconcile two ideas of the same chat.
 ```mermaid
 sequenceDiagram
   participant B as Browser
-  participant A as app.py
+  participant A as server/app.py
   participant P as provider
   participant T as forge_tools.run_tool
   participant X as Trace
@@ -321,7 +345,7 @@ graph TD
 ```
 
 Two versions of one library are kept side by side rather than one overwriting
-the other, because they contradict each other. `versions.py` orders labels so
+the other, because they contradict each other. `core/versions.py` orders labels so
 "latest" means newest rather than most recently fetched — a release number
 always outranks a harvest date, because the date only ever appears when a
 harvest failed to find a number.
@@ -358,7 +382,7 @@ graph TD
   ST2 --> E3["event · failed, with the error<br/>attached to the operation that caused it"]
 ```
 
-**`tracing.py`** is what the user sees: a nested, incrementally emitted event
+**`tools/tracing.py`** is what the user sees: a nested, incrementally emitted event
 log rendered under each tool row in the panel, expandable by clicking the row.
 Every event carries an id, a parent id, a lifecycle state — `queued`,
 `running`, `completed`, `failed`, `skipped`, `cancelled` — a timestamp, and
@@ -380,7 +404,7 @@ Design constraints that are load-bearing:
   turn while you are looking at it; the durable record of a harvest is the
   knowledge-base entry it wrote.
 
-**`applog.py`** is what a developer reads: rotating JSONL at `logs/docsforge.log`
+**`tools/applog.py`** is what a developer reads: rotating JSONL at `logs/docsforge.log`
 — one line per HTTP request, one per tool call, per turn, per trace event, per
 harvest transition, per error. Gitignored, and independent of whether a browser
 was watching.
@@ -390,7 +414,7 @@ was watching.
 The trace explains one tool call while you are looking at it. A harvest past
 the 25-second deadline is a different problem: it outlives the call, and with
 the `claudecode` provider it outlives the *process*, because the CLI launches
-`mcp_server.py` itself and every turn gets a fresh subprocess.
+`main.py` — the MCP server — itself and every turn gets a fresh subprocess.
 
 So job status is published rather than held in memory:
 

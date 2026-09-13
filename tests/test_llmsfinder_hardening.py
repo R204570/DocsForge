@@ -17,8 +17,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import llmsfinder
+from docsforge.core import engine as df
+from docsforge.core import llmsfinder
 
 
 class FakeResponse:
@@ -384,7 +384,7 @@ def test_the_declared_version_reaches_stats_through_a_real_harvest():
 
 
 def test_a_declared_release_replaces_the_date_but_a_vague_label_does_not():
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
 
     docs = [df.Doc("https://x.dev/a", "A", "")]
     today = time.strftime("%Y-%m-%d")
@@ -402,7 +402,7 @@ def test_a_declared_release_replaces_the_date_but_a_vague_label_does_not():
 def test_a_version_in_the_url_still_wins_over_one_the_file_declares():
     """The URL is what the caller asked for. A site-wide file's own label
     must not quietly relabel a harvest the caller scoped to one version."""
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
 
     docs = [df.Doc("https://x.dev/docs/v3/a", "A", ""),
             df.Doc("https://x.dev/docs/v3/b", "B", "")]
@@ -650,7 +650,7 @@ def test_a_version_in_the_url_routes_the_same_way_as_one_passed_in():
 def test_an_unorderable_label_answers_nothing():
     """"latest" and "stable" are moving targets. A file claiming one has
     made no checkable claim, so it cannot satisfy a release request."""
-    import versions as V
+    from docsforge.core import versions as V
 
     assert V.same_release("1.10", "1.10.4") is True
     assert V.same_release("2", "2.11") is True
@@ -665,7 +665,7 @@ def test_a_less_specific_label_does_not_answer_a_more_specific_request():
     because the comparison was symmetric. A page filed under the 2.x line
     establishes nothing about 2.5 — the answer has to be at least as
     specific as the question."""
-    import versions as V
+    from docsforge.core import versions as V
 
     assert V.same_release("2", "2.11") is True, "asking broadly accepts a point release"
     assert V.same_release("2.5", "2") is False, "asking precisely rejects the whole line"
@@ -839,7 +839,7 @@ def test_manifest_acquisition_spaces_its_requests():
     A 200-page manifest went out as 200 back-to-back requests to one host.
     """
     import time
-    import docsforge as df
+    from docsforge.core import engine as df
 
     seen = []
 
@@ -863,7 +863,7 @@ def test_manifest_acquisition_spaces_its_requests():
 def test_manifest_acquisition_does_not_pace_when_no_delay_was_asked_for():
     """The default must stay as fast as it was."""
     import time
-    import docsforge as df
+    from docsforge.core import engine as df
 
     class _Instant(df.Fetcher):
         def __init__(self):
@@ -888,7 +888,7 @@ _ROOT_MANIFEST = (
 
 
 def _scope(url, det_url, version=""):
-    import docsforge as df
+    from docsforge.core import engine as df
     det = df.Detection(kind="llms_txt", url=det_url, body=_ROOT_MANIFEST)
     return df._scope_site_wide_llms(url, det, None, df.Options(version=version))
 

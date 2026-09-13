@@ -15,9 +15,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import instrument
-from instrument import Budget, Ledger, Observation, ResolveState, observe
+from docsforge.core import engine as df
+from docsforge.core import instrument
+from docsforge.core.instrument import Budget, Ledger, Observation, ResolveState, observe
 
 LONG = "Documentation body text. " * 20          # comfortably over MIN_MAIN_CHARS
 SHORT = "tiny"
@@ -37,8 +37,7 @@ def test_the_crawler_adapts_on_its_own_measurements():
     # What must stay true is the pair of rules that keep adaptation honest:
     # every revision is recorded (Invariant 11), and nothing is ever dropped
     # (Invariant 7).
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    crawler = open(os.path.join(root, "docsforge.py"), encoding="utf-8").read()
+    crawler = open(df.__file__, encoding="utf-8").read()
 
     assert "Ledger" in crawler and "Observation" in crawler
     assert "plan.revise(" in crawler, "the crawler never re-derives its plan"
@@ -278,9 +277,10 @@ def test_only_the_resolver_spends_a_budget():
     # Layer 1 is bounded; nothing else has a lap structure to bound. If the
     # crawler ever grows one it needs its own budget with its own numbers, not
     # a borrowed resolution allowance.
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    for name in ("docsforge.py", "forge_tools.py", "harvest_jobs.py"):
-        text = open(os.path.join(root, name), encoding="utf-8").read()
-        assert "Budget(" not in text, f"{name} constructs a Budget"
-    resolver_text = open(os.path.join(root, "resolver.py"), encoding="utf-8").read()
+    from docsforge.core import resolver
+    from docsforge.tools import forge_tools, harvest_jobs
+    for mod in (df, forge_tools, harvest_jobs):
+        text = open(mod.__file__, encoding="utf-8").read()
+        assert "Budget(" not in text, f"{mod.__name__} constructs a Budget"
+    resolver_text = open(resolver.__file__, encoding="utf-8").read()
     assert "Budget()" in resolver_text, "Layer 1 must be bounded"

@@ -8,11 +8,11 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import app
-import docsforge as df
-import forge_tools
-from kb_store import StoreError
-from providers import MAX_CONTENT, MAX_HISTORY
+from docsforge.server import app
+from docsforge.core import engine as df
+from docsforge.tools import forge_tools
+from docsforge.store.kb_store import StoreError
+from docsforge.providers import MAX_CONTENT, MAX_HISTORY
 
 
 # ── source-kind parsing ──────────────────────────────────
@@ -103,7 +103,7 @@ def test_history_truncates_giant_messages():
 @pytest.fixture
 def box(tmp_path, monkeypatch):
     """A file-backed store holding more technologies than fit on one page."""
-    from kb_store import FileStore
+    from docsforge.store.kb_store import FileStore
 
     store = FileStore(tmp_path)
     forge_tools.reset_store(store)

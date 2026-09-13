@@ -8,9 +8,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import forge_tools as ft
-from kb_store import FileStore
+from docsforge.core import engine as df
+from docsforge.tools import forge_tools as ft
+from docsforge.store.kb_store import FileStore
 
 
 # ── crawl scoping ────────────────────────────────────────
@@ -185,7 +185,7 @@ def test_a_fallback_store_is_retried_rather_than_cached_forever(kb, monkeypatch)
     does. Caching that first failed connection made every harvest ever taken
     look like it had vanished, for as long as the server stayed up.
     """
-    from kb_store import FileStore
+    from docsforge.store.kb_store import FileStore
 
     down = FileStore(kb)
     down.degraded = "connection refused"
@@ -215,7 +215,7 @@ def test_a_healthy_file_store_is_never_rebuilt(kb, monkeypatch):
 
     def build(*a, **k):
         calls.append(1)
-        from kb_store import FileStore
+        from docsforge.store.kb_store import FileStore
         return FileStore(kb)
 
     monkeypatch.setattr(ft, "build_store", build)
@@ -435,3 +435,368 @@ def test_unlimited_does_not_empty_a_sitemap_slice():
     links = ["a", "b", "c"]
     cap = opts.limit()
     assert (links if cap is None else links[:cap]) == links
+
+
+# ── the corpus shape is measured from what was stored ───────────────────────
+
+class _CollectingWriter:
+    """A writer that keeps everything, like the real one from the sink's view."""
+
+    def __init__(self, refuse=False):
+        self.refuse = refuse
+        self.pages = []
+
+    def add(self, title, url, body):
+        if self.refuse:
+            return False
+        self.pages.append((title, url, body))
+        return True
+
+
+def test_the_sink_keeps_the_size_of_every_page_it_stored():
+    sink = ft._StripSink(_CollectingWriter())
+    sink.add("A", "https://x.dev/a", "<!-- source: x | type: html -->\n\n" + "z" * 5000)
+    sink.add("B", "https://x.dev/b", "y" * 3000)
+    assert sink.sizes == [5000, 3000], "the provenance comment is not the page"
+
+
+def test_a_page_the_store_refused_is_not_counted():
+    sink = ft._StripSink(_CollectingWriter(refuse=True))
+    sink.add("A", "https://x.dev/a", "z" * 5000)
+    assert sink.sizes == [], "a page that was not stored has no stored size"
+
+
+def test_the_corpus_shape_is_measured_from_what_was_stored():
+    """`_drain` returns `Doc(url, title, "")` so peak memory stays proportional
+    to page count, and the shape note was measured over those emptied
+    documents. Every median was therefore zero, and every harvest of twenty
+    pages or more was told it was "the shape of an API symbol index or a split
+    dump, not prose documentation". Measured live on 2026-09-10: langchain's
+    627 pages, 8,956,185 characters -- 14,283 per page -- reported "a median of
+    0 characters and 627 of them are under 500"."""
+    from docsforge.core import llmsfinder
+
+    emptied = [df.Doc(f"https://x.dev/{i}", f"P{i}", "") for i in range(30)]
+    assert llmsfinder.density_note([len(d.markdown) for d in emptied]), (
+        "the defect: a corpus whose bodies were released always reads as stubs")
+
+    sink = ft._StripSink(_CollectingWriter())
+    for i in range(30):
+        sink.add(f"P{i}", f"https://x.dev/{i}", "prose " * 500)
+    assert not llmsfinder.density_note(sink.sizes), (
+        "measured from what was stored, prose documentation is not a set of "
+        "stubs")
+
+
+def test_a_corpus_that_really_is_stubs_still_says_so():
+    """The note has to keep working, or fixing it just removes it."""
+    from docsforge.core import llmsfinder
+
+    sink = ft._StripSink(_CollectingWriter())
+    for i in range(30):
+        sink.add(f"P{i}", f"https://x.dev/{i}", "attr: str")
+    note = llmsfinder.density_note(sink.sizes)
+    assert note and "median of 9 characters" in note
+
+
+# ── one language, chosen at the sitemap index too ───────────────────────────
+
+def test_a_per_language_sitemap_index_keeps_the_default_language():
+    """`docs.djangoproject.com/sitemap.xml` is twelve per-language children and
+    `sitemap-el.xml` sorts first, so a capped harvest filled up on 1,077 Greek
+    URLs and never opened `sitemap-en.xml`. The per-URL locale filter then saw
+    one language and had nothing to choose between."""
+    kids = [f"https://d.dev/sitemap-{code}.xml" for code in
+            ("el", "en", "es", "fr", "id", "it", "ja", "ko", "pl", "pt-br",
+             "sv", "zh-hans")]
+    assert df._prefer_default_locale(kids) == ["https://d.dev/sitemap-en.xml"]
+
+
+def test_a_numbered_or_named_sitemap_index_is_left_whole():
+    """Two letters, so a paged or sectioned index is not mistaken for a
+    translation and silently truncated to one child."""
+    numbered = ["https://d.dev/sitemap-1.xml", "https://d.dev/sitemap-2.xml"]
+    named = ["https://d.dev/sitemap-posts.xml", "https://d.dev/sitemap-docs.xml"]
+    assert df._prefer_default_locale(numbered) == numbered
+    assert df._prefer_default_locale(named) == named
+
+
+# ── a documentation host has no marketing to drop ───────────────────────────
+
+def test_a_documentation_host_keeps_its_whole_sitemap():
+    """Measured: `docs.djangoproject.com` publishes 11,209 English URLs and the
+    marketing filter cut them to 66 — `/topics/`, `/howto/`, `/ref/` and
+    `/intro/` are not docs-shaped by that list, and `/releases/` is 4,898 pages
+    it drops outright. A request for Django 5.2 came back with three pages."""
+    urls = ([f"https://docs.d.dev/en/5.2/topics/{i}" for i in range(20)]
+            + [f"https://docs.d.dev/en/5.2/releases/{i}" for i in range(20)]
+            + [f"https://docs.d.dev/en/5.2/howto/{i}" for i in range(20)])
+    assert df._focus_on_docs(urls, "/") == urls
+
+
+def test_a_marketing_host_still_loses_its_blog():
+    """The case the filter was written for is untouched: `astro.build` returned
+    34 blog posts out of 40."""
+    urls = ([f"https://d.dev/blog/post-{i}" for i in range(20)]
+            + ["https://d.dev/start/", "https://d.dev/install/"])
+    kept = df._focus_on_docs(urls, "/")
+    assert not [u for u in kept if "/blog/" in u]
+    assert "https://d.dev/start/" in kept
+
+
+# ── a named release scopes the sitemap, not just the label ──────────────────
+
+def test_a_named_release_narrows_the_sitemap():
+    """The manifest path has honoured a named release since
+    `_links_for_release`; the sitemap path never did, so `django` 5.2 harvested
+    `/en/5.0/`, `/en/4.2/` and `/en/dev/` together and labelled the mixture
+    5.2 — the same page under four releases, under exactly the right name."""
+    urls = [f"https://docs.d.dev/en/{v}/topics/forms/"
+            for v in ("5.2", "5.0", "4.2", "3.0")]
+    kept = df._urls_for_release(urls, "5.2", df.Options())
+    assert kept == ["https://docs.d.dev/en/5.2/topics/forms/"]
+
+
+def test_a_release_that_scopes_a_path_beats_one_that_is_its_subject():
+    """Django files the 5.2 manual at `/en/5.2/…` and its 5.2 release notes at
+    `/en/dev/releases/5.2/`. Both name the release; only the first is the 5.2
+    documentation, and the difference is how deep the segment sits."""
+    urls = ["https://docs.d.dev/en/5.2/topics/forms/",
+            "https://docs.d.dev/en/dev/releases/5.2/",
+            "https://docs.d.dev/en/dev/releases/5.2.1/"]
+    kept = df._urls_for_release(urls, "5.2", df.Options())
+    assert kept == ["https://docs.d.dev/en/5.2/topics/forms/"]
+
+
+def test_a_site_that_does_not_version_its_paths_is_left_alone():
+    """A request for a release a site files somewhere else should get that
+    site's documentation, not an empty harvest."""
+    urls = ["https://docs.d.dev/topics/forms/", "https://docs.d.dev/howto/"]
+    assert df._urls_for_release(urls, "5.2", df.Options()) == urls
+    assert df._urls_for_release(urls, "", df.Options()) == urls
+
+
+# ── every surface reads the same configuration ──────────────────────────────
+
+def test_env_is_loaded_by_the_module_every_surface_imports(tmp_path, monkeypatch):
+    """`app.py` called `load_dotenv()` and nothing else did. An MCP client
+    launches `python main.py` with the ambient environment, so
+    `DOCSFORGE_DB` was unset there and `build_store()` returned a `FileStore`.
+
+    Measured 2026-09-10 against a Postgres store holding 23 technologies:
+    `list_knowledge_base` over MCP answered "Nothing is stored yet", and after
+    harvesting five technologies through that same surface,
+    `read_knowledge_base` could not read one of them back."""
+    (tmp_path / ".env").write_text("DOCSFORGE_ENV_PROBE=from-dotenv\n",
+                                   encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    os.environ.pop("DOCSFORGE_ENV_PROBE", None)
+    try:
+        ft._load_env()
+        assert os.environ.get("DOCSFORGE_ENV_PROBE") == "from-dotenv"
+    finally:
+        os.environ.pop("DOCSFORGE_ENV_PROBE", None)
+
+
+def test_loading_env_never_overrides_what_the_caller_set(tmp_path, monkeypatch):
+    """A caller that exported its own still wins, so `app.py` calling
+    `load_dotenv` first changes nothing, and a test harness pointing at a
+    throwaway database is not quietly redirected at the real one."""
+    (tmp_path / ".env").write_text("DOCSFORGE_ENV_PROBE=from-dotenv\n",
+                                   encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    os.environ["DOCSFORGE_ENV_PROBE"] = "from-the-caller"
+    try:
+        ft._load_env()
+        assert os.environ["DOCSFORGE_ENV_PROBE"] == "from-the-caller"
+    finally:
+        os.environ.pop("DOCSFORGE_ENV_PROBE", None)
+
+
+def test_a_missing_dotenv_package_is_not_an_error():
+    """`python-dotenv` ships with the web extra, and the MCP server is a core
+    install. Reading configuration must not become a new dependency."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "dotenv":
+            raise ModuleNotFoundError("No module named 'dotenv'")
+        return real_import(name, *args, **kwargs)
+
+    builtins.__import__ = refuse
+    try:
+        ft._load_env()          # must not raise
+    finally:
+        builtins.__import__ = real_import
+
+
+# ── coverage is unknown unless something stated the size ────────────────────
+
+class _OnePage:
+    """Serves one documentation page that links nowhere."""
+
+    PAGE = ("<html><body><main><h1>Only page</h1><p>"
+            + ("word " * 200) + "</p></main></body></html>")
+
+    def __init__(self):
+        self.asked = []
+
+    def get(self, url, **kw):
+        self.asked.append(url)
+        if url.rstrip("/").endswith("/docs"):
+            r = _Resp(self.PAGE)
+            r.url = url
+            return r
+        raise df.ForgeError(f"HTTP 404 for {url}")
+
+    def text(self, url, **kw):
+        return self.get(url).text
+
+    def html(self, url, **kw):
+        return self.get(url).text
+
+    def close(self):
+        pass
+
+
+class _Resp:
+    def __init__(self, text, ctype="text/html"):
+        self.text = text
+        self.status_code = 200
+        self.headers = {"content-type": ctype}
+        self.url = ""
+
+
+def test_a_crawl_that_drained_its_frontier_reports_unknown_not_complete():
+    """Measured 2026-09-10: `tensorflow` resolved to a rustdoc index page that
+    links almost nowhere. The frontier drained after one page and the store
+    recorded a one-page corpus as **complete** — the strongest claim this
+    product makes, from the weakest evidence it has.
+
+    A drained frontier is a real claim and a weaker one than a sitemap's:
+    pages nothing links to are invisible to a crawl either way."""
+    stats = {}
+    docs, strategy = df.harvest("https://d.dev/docs/",
+                                opts=df.Options(crawl=True, max_pages=25),
+                                fetcher=_OnePage(), stats=stats)
+    assert strategy == "crawl" and len(docs) == 1
+    assert stats["whole"] is None, "unknown, not complete"
+    assert stats["frontier_drained"] is True, "and say what was established"
+    assert "nothing links to" in stats["reason"]
+
+
+def test_unknown_coverage_is_reported_as_unknown_not_as_success():
+    """`forge_tools` has always had the branch; nothing could reach it."""
+    assert "COVERAGE UNKNOWN" in ft._coverage_note(None)
+    assert ft._coverage_flag(None) != ft._coverage_flag(True)
+
+
+def test_a_source_that_states_its_own_size_still_reports_complete():
+    """A repository is enumerated through the API, and a spec or a single
+    published document is one artifact that either arrived whole or did not.
+    Those really do know their size, and demoting them would be losing a true
+    claim rather than dropping a false one."""
+    for kind in ("github", "openapi", "raw_text"):
+        stats = {}
+        det = df.Detection(kind, "https://d.dev/thing")
+        df._note_coverage(stats, det, [df.Doc("https://d.dev/a", "A", "body")])
+        assert stats["whole"] is True, kind
+
+    stats = {}
+    df._note_coverage(stats, df.Detection("html", "https://d.dev/x"),
+                      [df.Doc("https://d.dev/a", "A", "body")])
+    assert stats["whole"] is None, "everything else has established nothing"
+
+
+# ── a version label is a finding or it is a caveat ──────────────────────────
+
+def test_a_release_the_pages_name_is_recorded_as_confirmed():
+    """`docs.djangoproject.com` files the 5.2 manual under `/en/5.2/`, so the
+    pages themselves say which release they are."""
+    stats = {}
+    urls = [f"https://docs.d.dev/en/{v}/topics/forms/" for v in ("5.2", "4.2")]
+    kept = df._urls_for_release(urls, "5.2", df.Options(), stats)
+    assert kept == ["https://docs.d.dev/en/5.2/topics/forms/"]
+    assert stats.get("release_confirmed") is True
+
+
+def test_a_release_nothing_names_is_not_recorded_as_confirmed():
+    """`pytorch.kr` has no release scoping at all, and `pytorch` was stored as
+    **lts** — a release line PyTorch retired after 1.8.2."""
+    stats = {}
+    urls = ["https://pytorch.kr/", "https://pytorch.kr/hub/"]
+    kept = df._urls_for_release(urls, "lts", df.Options(), stats)
+    assert kept == urls, "taken as published rather than harvested empty"
+    assert "release_confirmed" not in stats
+
+
+# ── a wrong corpus has to be correctable through the tool that made it ──────
+
+def _stored(tmp_path, name="pytorch", version="lts"):
+    """A store already holding one version of `name`."""
+    store = FileStore(tmp_path)
+    with store.writer(name, version, "https://pytorch.kr/", "sitemap") as w:
+        w.add("Korean page", "https://pytorch.kr/a", "body " * 50)
+        w.settle(complete=False, expected=72, version=version, strategy="sitemap")
+    ft.reset_store(store)
+    return store
+
+
+def test_an_already_stored_technology_is_not_re_harvested(tmp_path):
+    """The guard that stops a site being crawled twice, unchanged."""
+    _stored(tmp_path)
+    out = ft.tool_learn_technology(name="pytorch")
+    assert "already stored" in out
+    assert "Nothing was fetched" in out
+
+
+def test_refresh_re_harvests_a_stored_technology(tmp_path, monkeypatch):
+    """Measured 2026-09-10: `pytorch` had been stored from a community mirror,
+    and once resolution was fixed `learn_technology` still answered "already
+    stored — nothing was fetched" and handed back the mirror. A caller that
+    harvests the wrong corpus once could not correct it through the tool it
+    harvests with: `forget_documentation` is gated behind an environment
+    variable, and `harvest_docs` needs the URL the caller came here missing."""
+    _stored(tmp_path)
+
+    reached = {}
+
+    def _fake_harvest(url, name=None, **kw):
+        reached["url"] = url
+        return "harvested"
+
+    monkeypatch.setattr(ft, "tool_harvest_docs", _fake_harvest)
+    monkeypatch.setattr(ft, "_resolve", lambda name, ecosystem="": _Resolved())
+
+    out = ft.tool_learn_technology(name="pytorch", refresh=True)
+    assert "already stored" not in out
+    assert reached.get("url") == "https://docs.pytorch.org/docs/stable/index.html"
+
+
+class _Resolved:
+    """The shape `_resolve` returns, reduced to what learn_technology reads."""
+
+    class _Best:
+        url = "https://docs.pytorch.org/docs/stable/index.html"
+        evidence = "own-domain"
+        reason = "identified by own-domain, docs-host"
+
+    best = _Best()
+    candidates: list = []
+    note = ""
+    resolved_via = "domain"
+
+    def as_dict(self):
+        return {"best": {"url": self.best.url}}
+
+
+def test_refresh_reaches_a_detached_harvest_too(tmp_path):
+    """A stdio MCP server hands its harvest to the long-lived server, and a
+    flag that stops at the handoff is a flag that does nothing where the
+    product actually runs."""
+    import inspect
+    source = inspect.getsource(ft.tool_learn_technology)
+    handoff = source.split("harvest_jobs.hand_off(", 1)[1]
+    assert '"refresh": refresh' in handoff.split(")", 1)[0] + handoff[:400]

@@ -52,9 +52,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Web chat (app.py). Static assets live beside app.py and are not installed by
-# a wheel, so the web UI is a checkout-only surface for now; the extra exists
-# so `pip install -e .[web]` in a clone pulls the right packages.
+# Web chat (docsforge.server.app). Static assets live beside app.py and ship
+# in the wheel as package data, so `python -m docsforge.server.app` works
+# from an install as well as a clone.
 web = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
@@ -68,7 +68,7 @@ js = ["playwright>=1.40"]                    # then: playwright install chromium
 
 # One SDK per provider. Each is imported lazily and reports a clear error when
 # its package is missing, so none of these belong in core.
-# providers/claudecode.py needs no package at all — it drives the `claude` CLI.
+# docsforge/providers/claudecode.py needs no package at all — it drives the `claude` CLI.
 groq = ["groq>=0.11"]
 anthropic = ["anthropic>=0.70"]
 openai = ["openai>=1.40"]                    # also serves providers/ollama.py
@@ -79,8 +79,8 @@ all = ["docsforge[web,postgres,js,providers]"]
 dev = ["docsforge[all]", "pytest>=8.0"]
 
 [project.scripts]
-docsforge = "docsforge:main"
-docsforge-mcp = "mcp_server:main"
+docsforge = "docsforge.core.engine:main"
+docsforge-mcp = "docsforge.server.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/R204570/DocsForge"
@@ -89,25 +89,17 @@ Issues = "https://github.com/R204570/DocsForge/issues"
 [tool.setuptools.dynamic]
 version = { attr = "docsforge.__version__" }
 
-# Flat modules, not a src/ package. Listing them explicitly beats auto-discovery,
-# which would sweep up tests/, venv/ and knowledge_base/.
-[tool.setuptools]
-py-modules = [
-    "docsforge",
-    "federation",
-    "forge_tools",
-    "harvest_jobs",
-    "instrument",
-    "observation",
-    "passages",
-    "selection",
-    "mcp_server",
-    "resolver",
-    "kb_store",
-    "manifests",
-    "versions",
-    "app",
-]
-
+# One package, `docsforge/`, with a subpackage per responsibility (core, store,
+# tools, server, providers). Naming it explicitly beats auto-discovery, which
+# would sweep up tests/, scripts/, venv/ and knowledge_base/.
 [tool.setuptools.packages.find]
-include = ["providers*"]
+include = ["docsforge*"]
+
+[tool.setuptools.package-data]
+"docsforge.server" = ["static/*", "site/*"]
+
+# The suite imports the package from the repository root. `pythonpath` makes
+# that true no matter which directory pytest is launched from.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

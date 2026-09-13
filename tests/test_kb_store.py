@@ -14,8 +14,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-from kb_store import (
+from docsforge.core import engine as df
+from docsforge.store.kb_store import (
     FileStore, PostgresStore, StoreError, build_store, parse_page, split_pages,
     version_from_url,
 )
@@ -444,3 +444,69 @@ def test_postgres_schema_is_idempotent():
     store.migrate()  # running the DDL twice must not raise
     store._ready = False
     store.migrate()
+
+
+# ── a question is not a phrase ──────────────────────────────────────────────
+#
+# Measured 2026-09-10 against a 1,799-page `google-adk` corpus that certainly
+# contains `LlmAgent`:
+#
+#     search_knowledge_base("In Google's ADK, what is the exact name of the
+#                            class used to build a simple LLM-backed agent?")
+#         -> Nothing stored in google-adk matches ...
+#
+# Postgres conjoins every significant term through `websearch_to_tsquery`, and
+# the file store matched the query as one substring. Both are right for a
+# phrase and wrong for a sentence, and a sentence is how a model asks. The
+# reply DocsForge then gave was "try `learn_technology`" — advice to re-harvest
+# a site it already had, which a small model was measured following fifteen
+# times in one run.
+
+def _adk_store(tmp_path, pages):
+    store = FileStore(tmp_path / "kb")
+    with store.writer("adk", "1.0", "https://adk.dev/", "crawl") as writer:
+        for title, url, body in pages:
+            writer.add(title, url, body)
+        writer.settle(complete=True, expected=len(pages))
+    return store
+
+
+ADK_PAGES = [
+    ("Simple agents with LlmAgent", "https://adk.dev/agents/llm",
+     "# Simple agents with LlmAgent\n\nThe `LlmAgent` class, often aliased "
+     "simply as Agent, is the basic building block.\n"),
+    ("Workflow agents", "https://adk.dev/agents/workflow",
+     "# Workflow agents\n\nA SequentialAgent runs its sub-agents in order.\n"),
+    ("Installation", "https://adk.dev/install",
+     "# Installation\n\nRun `pip install google-adk` to begin.\n"),
+]
+
+
+def test_a_natural_language_question_finds_the_page(tmp_path):
+    store = _adk_store(tmp_path, ADK_PAGES)
+    hits = store.search(
+        "In Google's Agent Development Kit (ADK), what is the exact name of "
+        "the class used to build a simple LLM-backed agent?", tech="adk")
+    assert hits, "a question no page contains verbatim still has an answer"
+    assert any("LlmAgent" in (h["title"] + h["snippet"]) for h in hits)
+
+
+def test_an_exact_phrase_still_answers_exactly(tmp_path):
+    """Precision first: the fallback only runs when the phrase found nothing,
+    so no query that worked before changes its answer."""
+    store = _adk_store(tmp_path, ADK_PAGES)
+    hits = store.search("pip install google-adk", tech="adk")
+    assert hits
+    assert hits[0]["url"] == "https://adk.dev/install"
+
+
+def test_a_query_of_nothing_but_stopwords_finds_nothing(tmp_path):
+    """The fallback must not turn every question into every page."""
+    store = _adk_store(tmp_path, ADK_PAGES)
+    assert store.search("what is the of and to", tech="adk") == []
+
+
+def test_a_question_about_something_absent_still_finds_nothing(tmp_path):
+    store = _adk_store(tmp_path, ADK_PAGES)
+    assert store.search("kubernetes ingress controller annotations",
+                        tech="adk") == []

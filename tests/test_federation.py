@@ -20,9 +20,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import federation as fed
-from federation import Corpus, Federation
+from docsforge.core import engine as df
+from docsforge.core import federation as fed
+from docsforge.core.federation import Corpus, Federation
 
 
 def soup(html: str):
@@ -201,7 +201,7 @@ def test_a_versionless_corpus_is_filed_under_undated():
     # One label across a federation files a versionless corpus under a version
     # it does not have, so the version lives on the corpus. A date would be a
     # claim about when the content is from, which an undated corpus cannot make.
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
     assert ft.corpus_label(Corpus(url="https://x.dev/docs/"), []) == "undated"
     assert ft.corpus_label(Corpus(url="https://x.dev/docs/", version="v3"), []) == "v3"
     # A version the URL does name is still honoured.
@@ -264,7 +264,7 @@ def test_an_unclassifiable_corpus_says_so_rather_than_guessing():
 def test_a_corpus_that_fails_the_gate_is_reported_as_refused(monkeypatch):
     # A refused host is never fetched, so this needs no store: the point is
     # that the refusal reaches the reader rather than a log.
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
 
     monkeypatch.setattr(ft, "_identify_host",
                         lambda name, url: (False, "never mentions it"))
@@ -278,7 +278,7 @@ def test_a_corpus_that_fails_the_gate_is_reported_as_refused(monkeypatch):
 
 
 def test_a_single_corpus_harvest_reports_nothing_extra():
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
     assert ft._federate("x", "https://x.dev/docs/", {}) == ""
     assert ft._federate("x", "https://x.dev/docs/", {"corpora": []}) == ""
 
@@ -286,15 +286,15 @@ def test_a_single_corpus_harvest_reports_nothing_extra():
 # ── harvesting every selected corpus ─────────────────────
 @pytest.fixture
 def kb(tmp_path):
-    import forge_tools as ft
-    from kb_store import FileStore
+    from docsforge.tools import forge_tools as ft
+    from docsforge.store.kb_store import FileStore
     ft.reset_store(FileStore(tmp_path))
     yield tmp_path
     ft.reset_store(None)
 
 
 def _two_page_harvest(url, opts, fetcher=None, stats=None, sink=None):
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
     if stats is not None:
         stats["discovered"] = 2
         stats["whole"] = True
@@ -308,7 +308,7 @@ def _two_page_harvest(url, opts, fetcher=None, stats=None, sink=None):
 
 
 def test_two_corpora_of_one_technology_file_under_different_keys():
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
     a = Corpus(url="https://x.dev/docs/")
     b = Corpus(url="https://api.x.dev/reference/")
     assert ft.corpus_key("x", a) != ft.corpus_key("x", b)
@@ -316,7 +316,7 @@ def test_two_corpora_of_one_technology_file_under_different_keys():
 
 
 def test_a_selected_corpus_is_actually_harvested_and_stored(kb, monkeypatch):
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
     monkeypatch.setattr(ft, "_identify_host", lambda name, url: (True, "names it 9 times"))
     monkeypatch.setattr(ft, "harvest", _two_page_harvest)
 
@@ -333,8 +333,8 @@ def test_a_selected_corpus_is_actually_harvested_and_stored(kb, monkeypatch):
 
 
 def test_a_corpus_that_cannot_be_harvested_is_reported_not_dropped(kb, monkeypatch):
-    import forge_tools as ft
-    from docsforge import ForgeError
+    from docsforge.tools import forge_tools as ft
+    from docsforge.core.engine import ForgeError
 
     monkeypatch.setattr(ft, "_identify_host", lambda name, url: (True, "names it"))
 
@@ -355,7 +355,7 @@ def test_a_corpus_that_cannot_be_harvested_is_reported_not_dropped(kb, monkeypat
 def test_each_corpus_keeps_its_own_count(kb, monkeypatch):
     # Invariant 8, end to end: a corpus that comes back short must not make the
     # corpus that finished look short, and vice versa.
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
     monkeypatch.setattr(ft, "_identify_host", lambda name, url: (True, "names it"))
 
     def short(url, opts, fetcher=None, stats=None, sink=None):
@@ -380,8 +380,7 @@ def test_the_coverage_note_has_exactly_one_renderer():
     # coverage described "only the corpus that was crawled" long after
     # selection had started harvesting the others. Two renderers of one fact
     # drift apart silently; this asserts there is one.
-    import os
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    source = open(os.path.join(root, "forge_tools.py"), encoding="utf-8").read()
+    from docsforge.tools import forge_tools
+    source = open(forge_tools.__file__, encoding="utf-8").read()
     assert "sites.note(" in source, "_federate does not use the shared renderer"
     assert "**This technology documents itself" not in source,         "_federate is rendering a second coverage note of its own"

@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
+from docsforge.core import engine as df
 
 LONG = "Documentation body text. " * 20
 NAV = "".join(f"<a href='/p{i}'>A navigation entry {i}</a>" for i in range(40))
@@ -177,7 +177,7 @@ def test_the_frontier_never_queues_the_same_page_twice():
 
 
 # ── the closed loop: the plan revises itself mid-crawl ────
-from observation import Ledger, Observation
+from docsforge.core.observation import Ledger, Observation
 
 
 def obs(**kw) -> Observation:
@@ -346,7 +346,7 @@ def test_a_template_routed_to_density_stops_using_the_selector_list():
 
 
 def df_ancestry(el):
-    from observation import ancestry
+    from docsforge.core.observation import ancestry
     return ancestry(el)
 
 
@@ -427,7 +427,7 @@ def test_a_learned_floor_actually_changes_what_is_extracted():
         if scored > best_score:
             best, best_score = el, scored
 
-    from observation import ancestry
+    from docsforge.core.observation import ancestry
     plan = df.Plan()
     plan.floors[ancestry(best)] = round(best_score - 0.01, 3)
 

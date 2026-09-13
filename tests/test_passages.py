@@ -14,9 +14,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools as ft
-import passages as psg
-from kb_store import FileStore
+from docsforge.tools import forge_tools as ft
+from docsforge.core import passages as psg
+from docsforge.store.kb_store import FileStore
 
 PAGE = """# Retrying
 

@@ -13,10 +13,10 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import forge_tools as ft
-import kb_store as kbs
-import llmsfinder
+from docsforge.core import engine as df
+from docsforge.tools import forge_tools as ft
+from docsforge.store import kb_store as kbs
+from docsforge.core import llmsfinder
 
 
 class FakeResponse:
@@ -298,3 +298,86 @@ def test_read_knowledge_base_discloses_omission(tmp_path, monkeypatch):
     res = ft.tool_read_knowledge_base("longtech")
     assert "showing the first 100" in res
     assert "Omitted" in res
+
+
+# --- a full dump is not a table of contents ---------------------------------
+#
+# Measured 2026-09-10 against `docs.langchain.com/llms-full.txt`: 6,749,200
+# characters of documentation, 9,542 links threaded through the prose, and it
+# mentions `llms-full.txt` twice -- both times pointing at its own Python and
+# TypeScript sub-corpora. That mention alone classified it `index`, so the
+# 6.7 MB already in hand was discarded and re-acquired as 813 individual HTML
+# fetches, of which 186 failed. Twelve and a half minutes and a 23% loss, to
+# fetch again what one request had already returned whole.
+
+def test_a_full_file_naming_its_own_sub_corpora_is_still_a_dump():
+    body = ("# LangChain\n\n"
+            + ("Prose about how the framework works. " * 400)
+            + "\n\nFor the separate corpora:\n"
+            + "- Python: https://docs.langchain.com/oss/python/llms-full.txt\n"
+            + "- TypeScript: https://docs.langchain.com/oss/typescript/llms-full.txt\n"
+            + ("More prose, with a [citation](https://docs.langchain.com/a) "
+               "inside the sentence. " * 200))
+
+    assert llmsfinder.classify_llms_shape(
+        body, "https://docs.langchain.com/llms-full.txt") == "dump"
+    # Without the URL the old rule still fires, which is the bug this pins.
+    assert llmsfinder.classify_llms_shape(body) == "index"
+
+
+def test_a_stub_that_calls_itself_full_is_still_an_index():
+    """Naming the file is the publisher's statement, not a licence. A body that
+    really is almost all links is an index whatever it is called."""
+    body = "# Docs\n\n" + "\n".join(
+        f"- [Page {i}](https://x.dev/page/{i}.md): summary" for i in range(30))
+    assert llmsfinder.classify_llms_shape(
+        body, "https://x.dev/llms-full.txt") == "index"
+
+
+def test_an_index_naming_a_fuller_file_still_sends_us_to_it():
+    """The rule the URL check narrows, unchanged for the case it was built for:
+    an `llms.txt` carrying real prose *and* pointing at `llms-full.txt` is a
+    table of contents, and the fuller file is what should be fetched. Without
+    the name rule this body's density would read as a hybrid."""
+    body = ("# Docs\n\nSee https://x.dev/llms-full.txt for everything.\n\n"
+            + ("Some prose here. " * 100) + "\n\n"
+            + "\n".join(f"- [Page {i}](https://x.dev/page/{i})" for i in range(4)))
+    assert llmsfinder.classify_llms_shape(body) == "index", "the case under test"
+    assert llmsfinder.classify_llms_shape(body, "https://x.dev/llms.txt") == "index"
+
+
+def test_density_counts_manifest_lines_not_lines_containing_a_link():
+    """A link buried in a sentence is a cross-reference, not a manifest entry.
+    Counting the whole line it sits on read `docs.langchain.com/llms-full.txt`
+    as 20.7% links; counting lines that *begin* with a link reads it as 4.3%."""
+    prose = ("This paragraph mentions [the guide](https://x.dev/guide) in "
+             "passing and continues for a while afterwards. " * 60)
+    assert llmsfinder.classify_llms_shape(prose, "https://x.dev/llms.txt") == "dump"
+
+    manifest = "\n".join(f"- [Page {i}](https://x.dev/{i})" for i in range(30))
+    assert llmsfinder.classify_llms_shape(
+        manifest, "https://x.dev/llms.txt") == "index"
+
+
+# --- an article is an article whatever the section is called -----------------
+
+def test_a_dated_path_is_an_article_whatever_the_section_is_called():
+    """`_NOT_DOCS` listed `/blog` and Django spells it `/weblog/`, so a request
+    for Django 5.2 stored 214 weblog posts as documentation. Naming the noun
+    loses to the next site that says `/journal/`; the date does not."""
+    assert df.looks_like_article(
+        "https://www.djangoproject.com/weblog/2026/aug/20/dsf-membership")
+    assert df.looks_like_article("https://x.dev/2026/01/05/some-post")
+    assert df.looks_like_article("https://x.dev/journal/entry")
+    assert not df.looks_like_article("https://docs.djangoproject.com/en/5.2/topics/")
+    assert not df.looks_like_article("https://x.dev/api/reference")
+
+
+def test_a_whole_host_sitemap_drops_the_weblog():
+    """The measured shortfall: 991 sitemap URLs, 232 stored, 214 of them
+    `/weblog/`."""
+    urls = ([f"https://d.dev/weblog/2026/aug/{i:02d}/post" for i in range(1, 30)]
+            + ["https://d.dev/start/", "https://d.dev/foundation/"])
+    kept = df._focus_on_docs(urls, "/")
+    assert not [u for u in kept if "/weblog/" in u]
+    assert "https://d.dev/start/" in kept

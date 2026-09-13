@@ -18,9 +18,9 @@ from starlette.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import app
-import tracing as tr
-from providers.base import text, tool_end, tool_start
+from docsforge.server import app
+from docsforge.tools import tracing as tr
+from docsforge.providers.base import text, tool_end, tool_start
 
 
 @pytest.fixture(autouse=True)
@@ -138,10 +138,10 @@ def test_chat_stream_attaches_trace_id_to_tool_end(monkeypatch):
 
 def test_chat_stream_logs_the_tool_call_sequence_for_the_turn(monkeypatch, tmp_path):
     monkeypatch.setattr(app.providers, "get", lambda name: _FakeProvider())
-    monkeypatch.setattr("applog.LOG_DIR", str(tmp_path))
-    monkeypatch.setattr("applog.LOG_FILE", str(tmp_path / "docsforge.log"))
-    monkeypatch.setattr("applog._configured", False)
-    monkeypatch.setattr("applog._disabled", False)
+    monkeypatch.setattr("docsforge.tools.applog.LOG_DIR", str(tmp_path))
+    monkeypatch.setattr("docsforge.tools.applog.LOG_FILE", str(tmp_path / "docsforge.log"))
+    monkeypatch.setattr("docsforge.tools.applog._configured", False)
+    monkeypatch.setattr("docsforge.tools.applog._disabled", False)
 
     list(app.chat_stream([{"role": "user", "content": "hi"}], "fake"))
 
@@ -215,7 +215,7 @@ def test_an_out_of_process_failure_keeps_the_text_the_model_was_given(monkeypatc
 def test_a_stale_thread_local_id_is_never_reused_for_another_turn(monkeypatch):
     """Server threads are reused. A turn whose tools run out of process must
     not inherit the trace id an earlier in-process turn left behind."""
-    import forge_tools as ft
+    from docsforge.tools import forge_tools as ft
 
     monkeypatch.setattr(app.providers, "get", lambda name: _FakeProvider())
     first = "".join(app.chat_stream([{"role": "user", "content": "a"}], "fake"))

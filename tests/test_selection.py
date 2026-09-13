@@ -19,9 +19,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import selection as sel
-from federation import Corpus
-from selection import Selection, select, usable_for_planning
+from docsforge.core import selection as sel
+from docsforge.core.federation import Corpus
+from docsforge.core.selection import Selection, select, usable_for_planning
 
 
 def corpus(kind: str, url: str = "", confidence: float = 0.8,
@@ -64,8 +64,7 @@ def test_the_default_intent_authorises_nothing_to_be_left_out():
 def test_selection_has_no_way_to_drop_pages_inside_a_corpus():
     # Invariant 4, enforced structurally. If a page-level filter ever appears
     # in this module's surface, this test is the thing that should stop it.
-    source = open(os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "selection.py"), encoding="utf-8").read()
+    source = open(sel.__file__, encoding="utf-8").read()
     for forbidden in ("def filter_pages", "max_pages", "page_limit", "skip_page"):
         assert forbidden not in source, f"selection.py grew {forbidden}"
 
@@ -299,7 +298,7 @@ def test_the_refusal_carries_everything_needed_to_answer_it():
 
 
 def test_adk_is_a_kind_of_its_own():
-    import federation as fed
+    from docsforge.core import federation as fed
     kind, confidence = fed.classify_kind("https://x.dev/adk/python/")
     assert kind == "adk" and confidence > 0.5
     # And an intent can take the API and SDK without dragging it in.

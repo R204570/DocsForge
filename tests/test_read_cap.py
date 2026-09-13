@@ -14,8 +14,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools as ft
-import kb_store as kbs
+from docsforge.tools import forge_tools as ft
+from docsforge.store import kb_store as kbs
 
 
 def test_the_read_cap_is_generous_but_not_absent():

@@ -27,9 +27,9 @@ from starlette.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import app
-import harvest_jobs
-from harvest_jobs import DONE, FAILED, RUNNING
+from docsforge.server import app
+from docsforge.tools import harvest_jobs
+from docsforge.tools.harvest_jobs import DONE, FAILED, RUNNING
 
 
 @pytest.fixture(autouse=True)
@@ -109,17 +109,17 @@ def test_hand_off_returns_none_when_nothing_is_listening(monkeypatch):
 
 
 def test_the_tool_warns_when_a_harvest_cannot_outlive_the_turn():
-    import forge_tools
+    from docsforge.tools import forge_tools
 
     forge_tools._log_no_server()
     job = harvest_jobs.Job(id="mojo-1", label="mojo", started=time.time())
     message = forge_tools._still_harvesting(job)
     assert "will stop when this turn ends" in message
-    assert "python app.py" in message
+    assert "python -m docsforge.server.app" in message
 
 
 def test_the_warning_is_not_repeated_once_it_has_been_said():
-    import forge_tools
+    from docsforge.tools import forge_tools
 
     forge_tools._log_no_server()
     job = harvest_jobs.Job(id="mojo-1", label="mojo", started=time.time())
@@ -137,7 +137,7 @@ def test_the_server_starts_a_harvest_and_returns_its_id(monkeypatch):
         started.set()
         return "Harvested **mojo**"
 
-    import forge_tools
+    from docsforge.tools import forge_tools
     monkeypatch.setattr(forge_tools, "tool_learn_technology", fake)
 
     with TestClient(app.app) as client:
@@ -222,6 +222,6 @@ def test_handing_off_is_off_by_default():
 def test_the_stdio_server_turns_it_on():
     import inspect
 
-    import mcp_server
+    from docsforge.server import mcp_server
 
     assert "DETACHED = True" in inspect.getsource(mcp_server.main)

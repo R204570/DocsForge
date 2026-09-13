@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocsForge — MCP Server</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              bg: '#0b0b0d',
+              surface: '#121215',
+              card: '#17171b',
+              hairline: '#2a2a31',
+              text: '#ececee',
+              muted: '#a9a9b3',
+              lavender: '#cf9fff',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0b0b0d;
+      color: #ececee;
+      font-family: 'Inter', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .hero-glow {
+      background: radial-gradient(circle 500px at 50% -10%, rgba(207, 159, 255, 0.12), transparent 70%);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#0b0b0d] text-[#ececee] selection:bg-[#cf9fff]/20 selection:text-[#cf9fff]">
+
+  <!-- Sticky Top Nav -->
+  <header class="sticky top-0 z-50 w-full bg-[#121215]/90 backdrop-blur-md border-b border-[#2a2a31]">
+    <div class="max-w-[1100px] mx-auto px-6 h-14 flex items-center justify-between">
+      <!-- Wordmark -->
+      <a href="#" class="flex items-center gap-2.5 group">
+        <span class="w-3 h-3 bg-[#cf9fff] rounded-sm transition-transform group-hover:scale-105"></span>
+        <span class="font-sans font-semibold text-base tracking-tight text-[#ececee]">DocsForge</span>
+      </a>
+
+      <!-- Navigation Links -->
+      <nav class="hidden md:flex items-center gap-7 text-sm font-medium text-[#a9a9b3]">
+        <a href="#how-it-works" class="hover:text-[#ececee] transition-colors">How it works</a>
+        <a href="#sources" class="hover:text-[#ececee] transition-colors">Sources</a>
+        <a href="#coverage" class="hover:text-[#ececee] transition-colors">Coverage</a>
+        <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="hover:text-[#ececee] transition-colors flex items-center gap-1">
+          GitHub
+          <svg class="w-3.5 h-3.5 opacity-70" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4.5 11.5L11.5 4.5M11.5 4.5H6M11.5 4.5V10" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+      </nav>
+
+      <!-- Right Version Chip -->
+      <div class="flex items-center">
+        <span class="font-mono text-xs px-2.5 py-1 rounded-[6px] bg-[#17171b] border border-[#2a2a31] text-[#a9a9b3]">
+          v1.1.0
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="w-full">
+    <!-- Hero Section -->
+    <section class="relative pt-24 pb-20 px-6 overflow-hidden hero-glow">
+      <div class="max-w-[1100px] mx-auto flex flex-col items-center text-center">
+        <!-- Eyebrow -->
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-[8px] bg-[#17171b] border border-[#2a2a31] mb-8">
+          <span class="font-mono text-xs tracking-wider text-[#cf9fff] font-medium">MCP SERVER · OPEN SOURCE · MIT</span>
+        </div>
+
+        <!-- Headline -->
+        <h1 class="max-w-[860px] text-4xl sm:text-5xl md:text-[56px] font-bold tracking-tight text-[#ececee] leading-[1.12] mb-6">
+          Documentation for technologies your model was never trained on.
+        </h1>
+
+        <!-- Subhead -->
+        <p class="max-w-[768px] text-base sm:text-lg text-[#a9a9b3] leading-relaxed mb-10">
+          DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — with a coverage figure you can gate on.
+        </p>
+
+        <!-- CTA Buttons -->
+        <div class="flex flex-wrap items-center justify-center gap-4 mb-16">
+          <a href="#connect" class="inline-flex items-center justify-center h-11 px-6 rounded-[14px] bg-[#cf9fff] text-[#0b0b0d] font-medium text-sm hover:bg-[#d8b4ff] active:scale-[0.99] transition-all">
+            Connect your client
+          </a>
+          <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-11 px-6 rounded-[14px] bg-transparent border border-[#2a2a31] text-[#ececee] font-medium text-sm hover:bg-[#17171b] hover:border-[#3e3e48] active:scale-[0.99] transition-all">
+            View on GitHub
+          </a>
+        </div>
+
+        <!-- Code Card Terminal -->
+        <div class="w-full max-w-[768px] bg-[#17171b] border border-[#2a2a31] rounded-[14px] text-left p-6 shadow-2xl relative">
+          <div class="flex items-center gap-2 pb-4 mb-4 border-b border-[#2a2a31]/60">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#2a2a31]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#2a2a31]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#2a2a31]"></span>
+            <span class="font-mono text-[11px] text-[#a9a9b3]/60 ml-2">session :: harvest-terminal</span>
+          </div>
+          <div class="font-mono text-[13px] sm:text-[13.5px] leading-relaxed space-y-2">
+            <div class="text-[#ececee] flex items-baseline gap-2">
+              <span class="text-[#cf9fff] select-none font-semibold">$</span>
+              <span>learn_technology(name=&quot;pydantic&quot;, version=&quot;1.10&quot;)</span>
+            </div>
+            <div class="text-[#a9a9b3] flex items-baseline gap-2">
+              <span class="text-[#cf9fff]/70 select-none">→</span>
+              <span>resolved to <span class="text-[#ececee] underline decoration-[#2a2a31] underline-offset-4">https://docs.pydantic.dev</span> <span class="text-[#a9a9b3]/80">(names 'pydantic' 214 times)</span></span>
+            </div>
+            <div class="text-[#a9a9b3] flex items-baseline gap-2">
+              <span class="text-[#cf9fff]/70 select-none">→</span>
+              <span>harvested 85 pages, stored as pydantic 1.10</span>
+            </div>
+            <div class="text-[#a9a9b3] flex items-baseline gap-2">
+              <span class="text-[#cf9fff]/70 select-none">→</span>
+              <span>complete — every page the sitemap lists</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stat Strip -->
+    <section class="max-w-[1100px] mx-auto px-6 mb-28">
+      <div class="grid grid-cols-2 md:grid-cols-4 rounded-[14px] bg-[#121215] border border-[#2a2a31] divide-y md:divide-y-0 md:divide-x divide-[#2a2a31] overflow-hidden">
+        <div class="p-6 md:p-7 flex flex-col items-center text-center justify-center">
+          <div class="font-mono text-3xl md:text-4xl font-semibold text-[#cf9fff] mb-1.5 tracking-tight">12</div>
+          <div class="font-mono text-xs uppercase tracking-wider text-[#a9a9b3]">tools</div>
+        </div>
+        <div class="p-6 md:p-7 flex flex-col items-center text-center justify-center">
+          <div class="font-mono text-3xl md:text-4xl font-semibold text-[#cf9fff] mb-1.5 tracking-tight">5</div>
+          <div class="font-mono text-xs uppercase tracking-wider text-[#a9a9b3]">source types</div>
+        </div>
+        <div class="p-6 md:p-7 flex flex-col items-center text-center justify-center">
+          <div class="font-mono text-3xl md:text-4xl font-semibold text-[#cf9fff] mb-1.5 tracking-tight">0</div>
+          <div class="font-mono text-xs uppercase tracking-wider text-[#a9a9b3]">API keys to resolve a name</div>
+        </div>
+        <div class="p-6 md:p-7 flex flex-col items-center text-center justify-center">
+          <div class="font-mono text-3xl md:text-4xl font-semibold text-[#cf9fff] mb-1.5 tracking-tight">1</div>
+          <div class="font-mono text-xs uppercase tracking-wider text-[#a9a9b3]">file per version</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section: How it works -->
+    <section id="how-it-works" class="max-w-[1100px] mx-auto px-6 mb-28 scroll-mt-20">
+      <div class="mb-10 text-center md:text-left">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-[#ececee]">How it works</h2>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <!-- Card 01 -->
+        <div class="bg-[#17171b] border border-[#2a2a31] rounded-[14px] p-7 flex flex-col justify-between hover:border-[#3e3e48] transition-colors">
+          <div>
+            <div class="font-mono text-sm font-semibold text-[#cf9fff] mb-4 tracking-wider">01</div>
+            <h3 class="text-lg font-semibold text-[#ececee] mb-3">Resolve</h3>
+            <p class="text-sm text-[#a9a9b3] leading-relaxed">
+              Asks the package registries — npm, PyPI, crates.io, all keyless — where the library declares its documentation, then probes the site for an llms.txt or a docs root.
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 02 -->
+        <div class="bg-[#17171b] border border-[#2a2a31] rounded-[14px] p-7 flex flex-col justify-between hover:border-[#3e3e48] transition-colors">
+          <div>
+            <div class="font-mono text-sm font-semibold text-[#cf9fff] mb-4 tracking-wider">02</div>
+            <h3 class="text-lg font-semibold text-[#ececee] mb-3">Verify</h3>
+            <p class="text-sm text-[#a9a9b3] leading-relaxed">
+              A page must name the package repeatedly before it is trusted. If nothing verifies, DocsForge says so and asks for a URL instead of picking something plausible.
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 03 -->
+        <div class="bg-[#17171b] border border-[#2a2a31] rounded-[14px] p-7 flex flex-col justify-between hover:border-[#3e3e48] transition-colors">
+          <div>
+            <div class="font-mono text-sm font-semibold text-[#cf9fff] mb-4 tracking-wider">03</div>
+            <h3 class="text-lg font-semibold text-[#ececee] mb-3">Harvest</h3>
+            <p class="text-sm text-[#a9a9b3] leading-relaxed">
+              Best strategy first: llms-full.txt, then a docs-scoped sitemap, then a scoped crawl. Every page lands as Markdown, versions kept apart, incompleteness reported — never hidden.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section: Every source type, detected automatically -->
+    <section id="sources" class="max-w-[1100px] mx-auto px-6 mb-28 scroll-mt-20">
+      <div class="text-center max-w-[768px] mx-auto">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-[#ececee] mb-8">
+          Every source type, detected automatically
+        </h2>
+
+        <!-- Five Chips -->
+        <div class="flex flex-wrap items-center justify-center gap-3 mb-6">
+          <span class="font-mono text-xs sm:text-sm px-4 py-2 rounded-[14px] border border-[#2a2a31] bg-[#17171b] text-[#ececee]">
+            llms.txt / llms-full.txt
+          </span>
+          <span class="font-mono text-xs sm:text-sm px-4 py-2 rounded-[14px] border border-[#2a2a31] bg-[#17171b] text-[#ececee]">
+            OpenAPI / Swagger
+          </span>
+          <span class="font-mono text-xs sm:text-sm px-4 py-2 rounded-[14px] border border-[#2a2a31] bg-[#17171b] text-[#ececee]">
+            sitemap.xml
+          </span>
+          <span class="font-mono text-xs sm:text-sm px-4 py-2 rounded-[14px] border border-[#2a2a31] bg-[#17171b] text-[#ececee]">
+            GitHub repositories
+          </span>
+          <span class="font-mono text-xs sm:text-sm px-4 py-2 rounded-[14px] border border-[#2a2a31] bg-[#17171b] text-[#ececee]">
+            HTML docs &amp; raw Markdown
+          </span>
+        </div>
+
+        <p class="text-sm text-[#a9a9b3]">
+          The URL and, when needed, the content decide the strategy. You never pick.
+        </p>
+      </div>
+    </section>
+
+    <!-- Section: Honest about coverage -->
+    <section id="coverage" class="max-w-[1100px] mx-auto px-6 mb-28 scroll-mt-20">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+        <!-- Left Column -->
+        <div>
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-[#ececee] mb-4">
+            Honest about coverage
+          </h2>
+          <p class="text-base text-[#a9a9b3] leading-relaxed">
+            A third of a manual that looks whole produces confident, wrong answers. So a partial harvest says so — in the harvest result, in list_knowledge_base, and again every time the content is read.
+          </p>
+        </div>
+
+        <!-- Right Column (Alert Card) -->
+        <div>
+          <div class="bg-[#17171b] border-y border-r border-[#2a2a31] border-l-4 border-l-[#ff6b6b] rounded-r-[14px] rounded-l-none p-6 md:p-7 shadow-lg">
+            <div class="font-mono text-xs sm:text-[13px] font-medium text-[#ff8f8f] mb-3 tracking-tight">
+              INCOMPLETE — stopped at the 200-page limit, 400+ pages still queued.
+            </div>
+            <p class="text-sm text-[#a9a9b3] leading-relaxed">
+              Versions are stored side by side. v2 and v3 contradict each other, and a model handed both will quote the wrong one.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="w-full bg-[#121215] border-t border-[#2a2a31] py-12 px-6">
+    <div class="max-w-[1100px] mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+      <!-- Left side -->
+      <div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 text-xs text-[#a9a9b3] text-center sm:text-left">
+        <span class="font-medium text-[#ececee]">DocsForge · MIT License · Built by Raj Patel</span>
+        <span class="hidden sm:inline text-[#2a2a31]">|</span>
+        <span class="font-mono text-[11px] text-[#a9a9b3]/80">Bugs, bad extractions, ideas — open an issue.</span>
+      </div>
+
+      <!-- Right side links -->
+      <div class="flex items-center gap-6 text-xs font-medium text-[#a9a9b3]">
+        <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="hover:text-[#ececee] transition-colors">GitHub</a>
+        <a href="https://github.com/issues" target="_blank" rel="noopener noreferrer" class="hover:text-[#ececee] transition-colors">Issues</a>
+        <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="hover:text-[#ececee] transition-colors">Contribute</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

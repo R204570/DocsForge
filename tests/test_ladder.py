@@ -17,8 +17,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import resolver
-from resolver import Budget, ResolveState
+from docsforge.core import resolver
+from docsforge.core.resolver import Budget, ResolveState
 
 
 class FakeResponse:
@@ -233,8 +233,7 @@ def test_a_search_hit_still_has_to_pass_the_identity_gate():
 def test_search_is_never_a_search_engine():
     # Scraping a search engine's HTML endpoint is brittle, against their terms,
     # and a poor look for a resolver whose pitch is trustworthiness.
-    source = open(os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "resolver.py"), encoding="utf-8").read()
+    source = open(resolver.__file__, encoding="utf-8").read()
     for engine in ("google.com/search", "bing.com/search", "duckduckgo.com/html"):
         assert engine not in source
 

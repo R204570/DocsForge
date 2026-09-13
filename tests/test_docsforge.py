@@ -8,8 +8,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import docsforge as df
-import forge_tools
+from docsforge.core import engine as df
+from docsforge.tools import forge_tools
 
 
 class FakeResponse:
@@ -214,7 +214,7 @@ def test_an_untranslated_site_is_untouched():
 # ── the CLI can take a harvest back out ──────────────────
 @pytest.fixture
 def cli_store(tmp_path, monkeypatch):
-    from kb_store import build_store
+    from docsforge.store.kb_store import build_store
 
     monkeypatch.setenv("DOCSFORGE_KB_ROOT", str(tmp_path))
     monkeypatch.delenv("DOCSFORGE_DB", raising=False)
@@ -232,7 +232,7 @@ def test_forget_removes_one_version(cli_store):
 
 
 def test_forget_removes_every_version(cli_store):
-    from kb_store import StoreError
+    from docsforge.store.kb_store import StoreError
 
     assert df.main(["--forget", "pydantic", "--yes"]) == 0
     with pytest.raises(StoreError):
@@ -526,3 +526,148 @@ def test_help_does_not_crash_on_a_legacy_console(monkeypatch, capsys):
     assert exit_info.value.code == 0
     assert calls, "the console must be reconfigured before argparse prints help"
     assert "0 means no limit" in capsys.readouterr().out
+
+
+# ── a dump states where its pages came from, so it can be narrowed ──────────
+#
+# `docs.langchain.com/llms-full.txt` carries 1,175 `Source:` lines, one per
+# page. The old reading -- "a dump lists no pages, so it makes no checkable
+# claim about what it covers" -- is true of its links and false of its text,
+# and taking it as published returned 3,372 pages of LangChain, LangSmith and
+# Fleet as LangGraph's documentation.
+
+DUMP_WITH_SOURCES = (
+    "# Docs by Example\n\n> Everything we publish.\n\n"
+    "# Getting started\nSource: https://d.dev/guide/start\n\n"
+    + ("Guide prose. " * 40) + "\n\n"
+    "# Widgets\nSource: https://d.dev/widgets/overview\n\n"
+    + ("Widget prose. " * 40) + "\n\n"
+    "# Widgets in depth\nSource: https://d.dev/widgets/deep\n\n"
+    + ("More widget prose. " * 40) + "\n"
+)
+
+
+def test_a_dump_is_narrowed_to_the_section_that_was_asked_for():
+    narrowed = df._dump_under(DUMP_WITH_SOURCES, "/widgets/")
+    assert narrowed, "the dump covers this section"
+    assert "Widget prose." in narrowed
+    assert "More widget prose." in narrowed
+    assert "Guide prose." not in narrowed, "a scoped request must not broaden"
+    assert "Everything we publish." in narrowed, (
+        "narrowing to a section keeps the site's own overview -- the rule "
+        "`drop_root` exists to express")
+
+
+def test_a_dump_covering_none_of_the_section_is_refused():
+    """Measured: the root `llms-full.txt` at docs.langchain.com states sources
+    under `/build-overview` and `/langsmith/`, and publishes the Python corpus
+    separately at `/oss/python/llms-full.txt`. It covers no page under
+    `/oss/python/langgraph/`, so it is not LangGraph's documentation."""
+    assert df._dump_under(DUMP_WITH_SOURCES, "/nothing-here/") == ""
+
+
+def test_a_dump_that_states_no_sources_is_left_alone():
+    """Unchanged where the claim genuinely cannot be checked: refusing on a
+    suspicion nothing supports would trade a whole published corpus for a
+    crawl."""
+    plain = "# Docs\n\n" + ("Prose with no source lines. " * 100)
+    assert df._dump_under(plain, "/docs/") is None
+
+
+def test_every_word_of_a_narrowed_section_survives():
+    narrowed = df._dump_under(DUMP_WITH_SOURCES, "/widgets/")
+    for chunk in ("Widget prose.", "More widget prose."):
+        assert narrowed.count(chunk.split()[0]) >= 40
+
+
+# ── the level a dump is split on is chosen by page size, not heading count ──
+
+def test_the_split_level_is_chosen_by_page_size_not_heading_count():
+    """Measured on `docs.langchain.com/llms-full.txt`, 6,749,200 characters:
+
+           level   headings   median span
+           #           2,528          179
+           ##          3,371        1,066
+           ###         2,081          961
+
+    Most-parts counts headings and a heading count says nothing about what is
+    under it -- `#` here is a per-page title with 179 characters beneath it."""
+    body = ("# T1\ntiny\n# T2\ntiny\n# T3\ntiny\n# T4\ntiny\n"
+            + "".join(f"## Section {i}\n\n{'text ' * 400}\n\n" for i in range(6)))
+    parts = df._split_dump(body, above=0)
+    titles = [t for t, _ in parts]
+
+    # `#` has four headings with one word under each; `##` has six with 400.
+    assert "Section 0" in titles and "Section 5" in titles
+    assert "T2" not in titles and "T3" not in titles, (
+        "the four near-empty `#` titles are preamble, not four pages")
+    assert len(parts) == 7, "six sections plus the preamble above the first"
+
+
+# ── a client-side redirect is a signpost, not a failed page ─────────────────
+
+STUB = ('<!DOCTYPE html><meta charset="utf-8"><title>Redirecting&hellip;</title>'
+        '<script>location.replace("../2.14/torch.html" + location.hash);</script>'
+        '<meta http-equiv="refresh" content="0; url=../2.14/torch.html">'
+        '<link rel="canonical" href="../2.14/torch.html">'
+        '<a href="../2.14/torch.html">Continue to ../2.14/torch.html</a>')
+
+REAL = ('<html><head><title>torch — PyTorch 2.14 documentation</title></head>'
+        '<body><main><h1>torch</h1><p>' + ('prose ' * 300) +
+        '</p></main></body></html>')
+
+
+class _Redirecting:
+    def __init__(self, pages):
+        self.pages = pages
+        self.asked = []
+
+    def html(self, url, **kw):
+        self.asked.append(url)
+        if url not in self.pages:
+            raise df.ForgeError(f"HTTP 404 for {url}")
+        return self.pages[url]
+
+
+def test_a_versioned_alias_stub_is_followed_to_the_real_page():
+    """Measured 2026-09-11: every URL under `docs.pytorch.org/docs/stable/`
+    serves a 1,400-byte stub redirecting to `/docs/2.14/`, because `stable` is
+    an alias for the current release. HTTP never redirects, so the fetcher
+    lands on the stub and extraction refuses it — several thousand pages of
+    PyTorch's documentation, every one "not extractable"."""
+    fetcher = _Redirecting({
+        "https://d.dev/docs/stable/torch.html": STUB,
+        "https://d.dev/docs/2.14/torch.html": REAL,
+    })
+    title, body = df._extract_page("https://d.dev/docs/stable/torch.html",
+                                   fetcher, df.Options())
+    assert "torch" in title
+    assert "prose" in body
+    assert "https://d.dev/docs/2.14/torch.html" in fetcher.asked
+
+
+def test_a_real_page_is_never_mistaken_for_a_signpost():
+    """A page with prose in it is a page, even if it carries a canonical link."""
+    page = ('<html><head><link rel="canonical" href="/elsewhere"></head><body>'
+            '<main><h1>Real</h1><p>' + ('prose ' * 300) + '</p></main></body></html>')
+    fetcher = _Redirecting({"https://d.dev/a": page})
+    title, body = df._extract_page("https://d.dev/a", fetcher, df.Options())
+    assert "prose" in body
+    assert fetcher.asked == ["https://d.dev/a"], "no second request"
+
+
+def test_a_redirect_loop_gives_up_rather_than_spinning():
+    fetcher = _Redirecting({
+        "https://d.dev/a": '<meta http-equiv="refresh" content="0; url=/b">',
+        "https://d.dev/b": '<meta http-equiv="refresh" content="0; url=/a">',
+    })
+    try:
+        df._extract_page("https://d.dev/a", fetcher, df.Options())
+    except df.ForgeError:
+        pass
+    assert len(fetcher.asked) <= df.REDIRECT_HOPS + 1
+
+
+def test_the_stub_size_bound_keeps_a_long_page_out_of_it():
+    big = '<meta http-equiv="refresh" content="0; url=/b">' + ("x" * 5000)
+    assert df._redirect_target(big, "https://d.dev/a") == ""

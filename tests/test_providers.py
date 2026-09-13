@@ -7,10 +7,10 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import forge_tools
-import providers
-from providers._openai_shape import accumulate, schemas
-from providers.base import Provider, ProviderError, tool_end
+from docsforge.tools import forge_tools
+from docsforge import providers
+from docsforge.providers._openai_shape import accumulate, schemas
+from docsforge.providers.base import Provider, ProviderError, tool_end
 
 
 # ── registry ─────────────────────────────────────────────
@@ -84,7 +84,7 @@ def test_claude_does_not_send_sampling_parameters():
     """temperature/top_p/top_k were removed on Opus 5 and return a 400."""
     import inspect
 
-    from providers import claude as claude_mod
+    from docsforge.providers import claude as claude_mod
 
     source = inspect.getsource(claude_mod)
     for banned in ("temperature", "top_p", "top_k"):
@@ -163,14 +163,14 @@ def test_claudecode_command_locks_the_session_to_docsforge_tools(monkeypatch):
     # Derived from the one tool list, not copied. The copy this replaces had
     # drifted to three of fourteen and this test asserted the drift was
     # correct — which is how a hardcoded list stays wrong.
-    import forge_tools
+    from docsforge.tools import forge_tools
     assert allowed.split(",") == [
         f"mcp__docsforge__{t.name}" for t in forge_tools.TOOLS
     ]
     assert "mcp__docsforge__harvest_docs" in allowed, \
         "the tool that does the actual work must be allowed"
     assert argv[argv.index("--output-format") + 1] == "stream-json"
-    assert "mcp_server.py" in argv[argv.index("--mcp-config") + 1]
+    assert "main.py" in argv[argv.index("--mcp-config") + 1]
 
 
 def test_claudecode_errors_clearly_when_the_cli_is_absent(monkeypatch):
@@ -261,7 +261,7 @@ def test_ollama_says_what_to_pull_when_empty(monkeypatch):
 
 
 def test_ollama_reuses_the_shared_openai_loop():
-    from providers._openai_shape import OpenAIShapedProvider
+    from docsforge.providers._openai_shape import OpenAIShapedProvider
 
     assert isinstance(providers.get("ollama"), OpenAIShapedProvider)
 
@@ -343,3 +343,43 @@ def test_the_turn_budget_leaves_room_to_harvest():
     # Nine calls found the entry point on a real run and left nothing to reply
     # with. A cap set for chatting is not a cap for harvesting.
     assert providers.get("claudecode").max_turns >= 20
+
+
+def test_claudecode_with_no_tools_attaches_no_mcp_server(monkeypatch):
+    """The benchmark's closed-book phase measures the wall the product exists
+    to remove. A "no documentation" run that could still reach for
+    `search_knowledge_base` -- or WebSearch -- is not measuring anything."""
+    cc = providers.get("claudecode")
+    monkeypatch.setattr(cc, "binary", lambda: "/usr/bin/claude")
+    argv = cc.command("hello", "SYSTEM", None, tools=[])
+
+    assert "--mcp-config" not in argv
+    assert "--allowedTools" not in argv
+    assert "--strict-mcp-config" in argv
+    assert argv[argv.index("--tools") + 1] == "", "built-ins off too"
+
+
+def test_claudecode_with_a_subset_allows_only_that_subset(monkeypatch):
+    from docsforge.tools import forge_tools
+    cc = providers.get("claudecode")
+    monkeypatch.setattr(cc, "binary", lambda: "/usr/bin/claude")
+    subset = [t for t in forge_tools.TOOLS if t.name in ("search_knowledge_base",
+                                                          "read_knowledge_base")]
+    argv = cc.command("hello", "SYSTEM", None, tools=subset)
+
+    allowed = argv[argv.index("--allowedTools") + 1].split(",")
+    assert sorted(allowed) == ["mcp__docsforge__read_knowledge_base",
+                               "mcp__docsforge__search_knowledge_base"]
+    assert "mcp__docsforge__learn_technology" not in allowed
+    assert "main.py" in argv[argv.index("--mcp-config") + 1]
+
+
+def test_claudecode_built_in_tools_are_always_off(monkeypatch):
+    """A DocsForge turn sees DocsForge tools and nothing else -- the docstring
+    has claimed that since `--strict-mcp-config`; this is the half of the
+    claim the CLI's own Bash, Read, WebFetch and WebSearch were not covered by."""
+    cc = providers.get("claudecode")
+    monkeypatch.setattr(cc, "binary", lambda: "/usr/bin/claude")
+    for tools in (None, []):
+        argv = cc.command("hello", "SYSTEM", None, tools=tools)
+        assert argv[argv.index("--tools") + 1] == ""
