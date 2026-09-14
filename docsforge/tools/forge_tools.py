@@ -1048,11 +1048,11 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
 def _in_flight() -> str:
     """Harvests running or recently failed, as a block to prepend.
 
-    Progress lives here rather than in a status tool of its own because a
-    model wanting to know whether something is ready already calls
-    list_knowledge_base; a separate tool would be one more thing for it not to
-    call. Successful harvests need no line — they appear in the listing itself.
-    A failed background harvest leaves no other trace, so it gets one.
+    Kept here as well as in `harvest_status`: a model wanting to know whether
+    something is ready often calls list_knowledge_base first, and the listing
+    would otherwise say a technology is absent while its harvest is halfway
+    through. Successful harvests need no line — they appear in the listing
+    itself. A failed background harvest leaves no other trace, so it gets one.
     """
     live = harvest_jobs.running()
     failed = [j for j in harvest_jobs.recent() if j.state == "failed"]
@@ -1468,12 +1468,182 @@ def _still_harvesting(job: harvest_jobs.Job) -> str:
         f"Currently {job.progress.line()}, {job.elapsed:.0f}s elapsed. This "
         f"returned before the harvest finished so your client would not time "
         f"out; it continues in the background while this server runs.\n\n"
-        f"- `list_knowledge_base()` reports it, and every other harvest in flight.\n"
+        f"- `harvest_status(harvest=\"{job.id}\")` reports its progress; "
+        f"`wait=20` lets it run that long before answering.\n"
+        f"- `list_knowledge_base()` reports it too, and every other harvest in flight.\n"
         f"- When it finishes, read it with `read_knowledge_base(name=\"{slug}\")`.\n"
         f"- **Do not call learn_technology for {job.label!r} again** - it is "
         f"already running, and a second call would crawl the same site twice.\n\n"
-        f"Tell the user it is being fetched now rather than reporting a failure."
+        f"The pages are being written to DocsForge's own knowledge base, not "
+        f"to your context: there is nothing for you to collect or save, and no "
+        f"reason to cut it short. Tell the user it is being fetched now rather "
+        f"than reporting a failure."
         + _server_warning()
+    )
+
+
+#: What every status of a running harvest says, verbatim, after the numbers.
+#: The load-bearing sentence is the first one. A model that has just been told
+#: "still running" tends to reason that *it* now has to do something with the
+#: pages — fetch them itself, collect the URLs, save what it has — or that a
+#: harvest it cannot see the end of should be cut short. Neither is true:
+#: the pages are written to DocsForge's store as they land, and a harvest is
+#: only worth having whole.
+_WHILE_IT_RUNS = (
+    "The pages are being written to DocsForge's own knowledge base as they "
+    "arrive — not to your context, your memory or any store of yours — so "
+    "there is nothing for you to fetch, collect or save, and no reason to "
+    "stop it early: a complete harvest, every page the site lists, is the "
+    "point. Let it finish. Do not call learn_technology or harvest_docs for "
+    "it again; call harvest_status again (with `wait` to let it run first), "
+    "and read it with read_knowledge_base when the status says done."
+)
+
+
+def _elapsed_label(seconds: float) -> str:
+    return f"{seconds:.0f}s" if seconds < 90 else f"{seconds / 60:.0f}m"
+
+
+def _status_of(job: harvest_jobs.Job) -> str:
+    """One harvest, in full — what `harvest_status` says about it."""
+    slug = _kb_slug(_normalise(job.label) or job.label)
+    where = f" from {job.progress.url}" if job.progress.url else ""
+    when = _elapsed_label(job.elapsed)
+    head = f"**{job.label}**{where} — harvest id `{job.id}`"
+
+    if job.state == harvest_jobs.RUNNING:
+        p = job.progress
+        lines = [f"{head}: **running**, {p.line()}, {when} elapsed."]
+        if p.phase == "harvesting" and p.expected and job.elapsed > 0:
+            done = p.fraction() or 0.0
+            lines.append(f"About {done:.0%} of the pages the site lists are in.")
+            rate = p.pages / job.elapsed
+            if p.pages >= 5 and rate > 0:
+                left = (p.expected - p.pages) / rate
+                lines.append(f"At that rate, roughly {_elapsed_label(left)} more "
+                             f"— a guess from the pace so far, not a promise.")
+        elif p.phase == "harvesting":
+            lines.append("This is a crawl, so the site's page count is not known "
+                         "until it ends; the count above only grows.")
+        else:
+            lines.append("It has not started fetching pages yet — resolving "
+                         "where the documentation lives comes first, and can "
+                         "take a minute on its own.")
+        lines += ["", _WHILE_IT_RUNS]
+        return "\n".join(lines)
+
+    if job.state == harvest_jobs.DONE:
+        body = job.result.strip()
+        return (
+            f"{head}: **done** in {when}. It is stored; read it with "
+            f"`read_knowledge_base(name=\"{slug}\")`."
+            + (f"\n\nWhat the harvest reported:\n\n{_truncate(body)}" if body else "")
+        )
+
+    if job.state == harvest_jobs.FAILED:
+        return (
+            f"{head}: **failed** after {when}.\n\n{job.error or 'No reason was recorded.'}"
+            f"\n\nNothing was stored. If that names candidates or asks for a "
+            f"selection, answer it; otherwise tell the user what went wrong "
+            f"rather than trying the same call again."
+        )
+
+    # STALLED: a record whose process stopped reporting.
+    return (
+        f"{head}: **stopped reporting** after {when}, last seen {job.progress.line()}. "
+        f"The process running it most likely exited, and nothing partial was "
+        f"stored. `list_knowledge_base` shows whether it landed anyway; if "
+        f"not, it has to be started again on a DocsForge that stays up."
+    )
+
+
+def _matches(job: harvest_jobs.Job, wanted: str) -> bool:
+    if not wanted:
+        return True
+    if job.id == wanted:
+        return True
+    slug = _kb_slug(_normalise(wanted) or wanted)
+    return _kb_slug(_normalise(job.label) or job.label) == slug
+
+
+def tool_harvest_status(harvest: str = "", wait: int = 0) -> str:
+    """How a harvest is getting on — one by id or name, or all of them."""
+    wanted = (harvest or "").strip().strip("`")
+
+    # A caller willing to wait waits only while there is something to wait
+    # for, and never past the deadline: this is the same bound that keeps
+    # learn_technology inside every client's timeout.
+    limit = min(max(0, int(wait or 0)), int(harvest_jobs.DEADLINE))
+    if limit and wanted:
+        until = time.time() + limit
+        while time.time() < until:
+            live = [j for j in harvest_jobs.running() if _matches(j, wanted)]
+            if not live:
+                break
+            time.sleep(0.25)
+
+    jobs = [j for j in harvest_jobs.running() + harvest_jobs.recent()
+            if _matches(j, wanted)]
+
+    if wanted and not jobs:
+        known = stored_name(wanted)
+        others = harvest_jobs.running()
+        note = ""
+        if others:
+            note = ("\n\nRunning right now: "
+                    + ", ".join(f"`{j.id}` ({j.label})" for j in others) + ".")
+        if known:
+            return (
+                f"No harvest called `{wanted}` is running, and none ended in "
+                f"the last {harvest_jobs.KEEP_RECORDS_FOR / 60:.0f} minutes — "
+                f"but **{known}** is already stored. Read it with "
+                f"`read_knowledge_base(name=\"{known}\")`; nothing needs "
+                f"harvesting." + note
+            )
+        # `effect-1` is an id; the technology to learn is `effect`.
+        name_hint = re.sub(r"-\d+$", "", wanted) or wanted
+        return (
+            f"No harvest called `{wanted}` is running, and none ended in the "
+            f"last {harvest_jobs.KEEP_RECORDS_FOR / 60:.0f} minutes. Nothing "
+            f"is stored under that name either. Start one with "
+            f"`learn_technology(name=\"{name_hint}\")`." + note + _nowhere_to_run()
+        )
+
+    if not jobs:
+        return (
+            f"No harvest is running, and none finished, failed or stopped in "
+            f"the last {harvest_jobs.KEEP_RECORDS_FOR / 60:.0f} minutes. "
+            f"`list_knowledge_base` shows what is stored." + _nowhere_to_run()
+        )
+
+    if wanted and len(jobs) == 1:
+        return _status_of(jobs[0])
+
+    live = [j for j in jobs if j.state == harvest_jobs.RUNNING]
+    over = [j for j in jobs if j.state != harvest_jobs.RUNNING]
+    out: list[str] = []
+    if live:
+        out.append(f"{len(live)} harvest{'s' if len(live) != 1 else ''} running:")
+        out += [j.line() for j in live]
+        out += ["", _WHILE_IT_RUNS]
+    if over:
+        if live:
+            out.append("")
+        out.append(f"Ended in the last {harvest_jobs.KEEP_RECORDS_FOR / 60:.0f} minutes:")
+        out += [j.line() for j in over]
+    out += ["", "Pass `harvest=` with an id for the full status of one."]
+    return "\n".join(out)
+
+
+def _nowhere_to_run() -> str:
+    """Said when this host cannot run a harvest in the background at all."""
+    if not harvest_jobs.EPHEMERAL:
+        return ""
+    return (
+        "\n\nThis host cannot keep working after a request ends, so no harvest "
+        "runs in the background here. A long-lived DocsForge (`python main.py`) "
+        "with the same `DOCSFORGE_DB` does, and what it stores is readable "
+        "here at once."
     )
 
 
@@ -1839,6 +2009,35 @@ TOOLS: list[Tool] = [
             "required": ["name"],
         },
         tool_learn_technology,
+    ),
+    Tool(
+        "harvest_status",
+        "Report how a harvest is getting on: its phase, pages fetched of how many, "
+        "time elapsed, and — once it ends — whether it stored, failed or stopped. "
+        "Call this when learn_technology or harvest_docs returned 'still running' "
+        "with a harvest id and you want to know whether it has finished. "
+        "The pages are being written to DocsForge's own knowledge base, not to "
+        "your context or any store of yours: you do not need to fetch, collect "
+        "or save anything, and you must not cut the harvest short or start it "
+        "again — a complete harvest, every page the site lists, is the point. "
+        "Wait for it, then read it with read_knowledge_base. With no arguments "
+        "it reports every harvest in flight and any that ended recently.",
+        {
+            "type": "object",
+            "properties": {
+                "harvest": {"type": "string",
+                            "description": "The harvest id learn_technology returned "
+                                           "(e.g. \"effect-1\"), or the technology's "
+                                           "name. Omit to report every harvest."},
+                "wait": {"type": "integer", "default": 0, "minimum": 0,
+                         "description": "Seconds to let the harvest keep running "
+                                        "before answering, so one call can see it "
+                                        "finish. Capped at the harvest deadline "
+                                        "(25s) so your client never times out; "
+                                        "0 answers at once."},
+            },
+        },
+        tool_harvest_status,
     ),
     Tool(
         "find_docs",
