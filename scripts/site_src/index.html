@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocsForge — MCP server</title>
+  <meta name="description" content="DocsForge gives a model documentation for technologies it was not trained on — with a coverage figure you can gate on. Connect it to any MCP client.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!--STYLE-->
+</head>
+<body>
+<!--
+THESIS: Show the system, do not describe it. A name goes in at the top of the page and verified, measured documentation comes out — drawn, in motion, in the product's own theme — and every later section shows one part of that machine at work. It refuses the icon-card feature grid and the metric tiles the category ships.
+OWN-WORLD: near-black ground (#0b0b0d), surfaces (#17171b) with hairlines (#2a2a31), one lavender (#cf9fff) reserved for what lights up: the prompt, a verified node, a stored page, the action. Inter for words, JetBrains Mono for anything the software prints. Diagrams are authored SVG in these same tokens; no raster, no illustration.
+STORY: a developer sees their own client's call resolve, verify, harvest and store in four seconds; scrolls through each step shown; sees that a capped harvest says so; sees where it runs; connects.
+FIRST VIEWPORT: nav; left, the headline at display scale with the lead and the two actions beneath; right, the system running — the call, three registries, the verified site, 85 pages landing, the bar completing — inside one figure with a faint lavender glow behind it.
+FORM: the product-led landing page, done at the craft level of Vercel and Linear — the user's standing preference, chosen over seed 93c9c310's stacked deck after that build was reviewed; world pinned by the user.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+<!--NAV-->
+
+<main class="wrap">
+  <section class="hero" id="top">
+    <div class="copy">
+      <h1 class="display">Documentation for technologies your model was never trained on.</h1>
+      <p class="lead" style="margin-top:22px">DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — with a coverage figure you can gate on.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="/connect">Connect your client</a>
+        <a class="btn btn-ghost" href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+      </div>
+      <div class="facts"><span>MCP server</span><span>open source</span><span>MIT</span></div>
+    </div>
+    <div class="figure deep hero-figure rv">
+      <div class="cap"><span><code>learn_technology</code></span><span>a recorded run</span></div>
+      <!--SVG:hero-->
+    </div>
+  </section>
+
+  <div class="figures rv-list"><span><b>12</b>tools</span><span><b>5</b>source types</span><span><b>0</b>API keys to resolve a name</span><span><b>1</b>file per version</span></div>
+
+  <section class="band" id="how-it-works">
+    <h2 class="rv">How it works</h2>
+    <p class="lead rv">Name a library. DocsForge works out where it documents itself, confirms the page really documents it, and harvests the whole set.</p>
+
+    <div class="row">
+      <div class="rv">
+        <h3><span class="n">01</span>Resolve</h3>
+        <p>Asks the package registries — npm, PyPI, crates.io, all keyless — where the library declares its documentation, then probes the site for an llms.txt or a docs root.</p>
+      </div>
+      <div class="figure rv"><!--SVG:resolve--></div>
+    </div>
+
+    <div class="row flip">
+      <div class="rv">
+        <h3><span class="n">02</span>Verify</h3>
+        <p>A page must name the package repeatedly before it is trusted. If nothing verifies, DocsForge says so and asks for a URL instead of picking something plausible.</p>
+      </div>
+      <div class="figure rv"><!--SVG:verify--></div>
+    </div>
+
+    <div class="row">
+      <div class="rv">
+        <h3><span class="n">03</span>Harvest</h3>
+        <p>Best strategy first: llms-full.txt, then a docs-scoped sitemap, then a scoped crawl. Every page lands as Markdown, versions kept apart, incompleteness reported — never hidden.</p>
+      </div>
+      <div class="figure rv"><!--SVG:harvest--></div>
+    </div>
+  </section>
+
+  <section class="band" id="sources" style="padding-top:0">
+    <h2 class="rv">Every source type, detected automatically</h2>
+    <p class="lead rv">The URL and, when needed, the content decide the strategy. You never pick.</p>
+    <div class="figure rv"><!--SVG:sources--></div>
+  </section>
+
+  <section class="band" id="coverage" style="padding-top:0">
+    <h2 class="rv">Honest about coverage</h2>
+    <div class="coverage">
+      <div class="rv">
+        <p class="prose">A third of a manual that looks whole produces confident, wrong answers. So a partial harvest says so — in the harvest result, in <code>list_knowledge_base</code>, and again every time the content is read.</p>
+        <div class="result" aria-label="What a partial harvest says">
+          <div class="line">INCOMPLETE — stopped at the 200-page limit, 400+ pages still queued.</div>
+          <p>Versions are stored side by side. v2 and v3 contradict each other, and a model handed both will quote the wrong one.</p>
+        </div>
+      </div>
+      <div class="figure rv"><!--SVG:coverage--></div>
+    </div>
+  </section>
+
+  <section class="band" id="architecture" style="padding-top:0">
+    <h2 class="rv">One engine, every surface</h2>
+    <p class="lead rv">One extraction engine backs every surface, so an MCP client and the chat panel return byte-identical results. Several DocsForge instances can share one store.</p>
+    <div class="figure rv"><!--SVG:architecture--></div>
+  </section>
+
+  <section class="close rv" id="connect">
+    <div>
+      <h2>Connect your MCP client.</h2>
+      <p class="lead" style="margin-top:12px">Streamable HTTP. One URL, one bearer token. The same twelve tools whichever client you use.</p>
+      <div class="clients"><span>Claude Code</span><span>Codex</span><span>ChatGPT</span><span>Cursor</span><span>Windsurf</span><span>Antigravity</span><span>Gemini CLI</span><span>VS Code</span><span>Claude Desktop</span></div>
+    </div>
+    <div class="cta">
+      <a class="btn btn-primary" href="/connect">Connect your client</a>
+      <a class="btn btn-ghost" href="/tools">See the twelve tools</a>
+    </div>
+  </section>
+</main>
+
+<!--FOOT-->
+<!--SCRIPT-->
+</body>
+</html>

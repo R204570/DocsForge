@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocsForge — Tools</title>
+  <meta name="description" content="The twelve DocsForge tools, defined once and served identically over MCP: arguments, what each does, what it returns.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!--STYLE-->
+</head>
+<body>
+<!--NAV-->
+
+<main class="wrap doc">
+  <header class="lede">
+    <h1>Twelve tools, defined once.</h1>
+    <p class="lead">Every tool is defined exactly once and served identically over MCP. Results handed to a model are capped at 60k characters with an explicit truncation marker.</p>
+  </header>
+
+  <h2 class="group rv">Learn</h2>
+  <div class="tools-list rv-list">
+    <div class="tool">
+      <div><div class="name">learn_technology</div><div class="args"><span>name</span><span>version</span><span>ecosystem</span><span>max_pages</span><span>js</span><span>intent</span><span>corpora</span><span>strict</span></div></div>
+      <div><p>Learns a library from its name alone — no URL. Resolves, verifies, harvests, stores.</p><div class="ret"><b>Returns:</b> Page count, characters, strategy, and a completeness verdict.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">harvest_docs</div><div class="args"><span>url</span><span>name</span><span>max_pages</span><span>js</span><span>scope</span><span>version</span></div></div>
+      <div><p>Learns a whole technology from one starting URL. Unlimited by default.</p><div class="ret"><b>Returns:</b> A summary; read the content back with read_knowledge_base.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">find_docs</div><div class="args"><span>name</span><span>ecosystem</span></div></div>
+      <div><p>Where a name resolves to, with the evidence. Harvests nothing.</p><div class="ret"><b>Returns:</b> Candidates and how often each page names the package.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">scan_project</div><div class="args"><span>path</span><span>unknown_only</span></div></div>
+      <div><p>Reads a project's dependency manifests: libraries, versions, and which are already documented.</p><div class="ret"><b>Returns:</b> A dependency table with documented / undocumented status.</div></div>
+    </div>
+  </div>
+
+  <h2 class="group rv">Extract</h2>
+  <div class="tools-list rv-list">
+    <div class="tool">
+      <div><div class="name">fetch_docs</div><div class="args"><span>url</span><span>crawl</span><span>max_pages</span><span>js</span><span>force</span></div></div>
+      <div><p>Extracts any documentation URL to clean Markdown. Auto-detects llms.txt, OpenAPI, sitemap, GitHub, raw text or HTML.</p><div class="ret"><b>Returns:</b> The Markdown.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">save_docs</div><div class="args"><span>url</span><span>out_dir</span><span>crawl</span><span>max_pages</span><span>js</span><span>force</span><span>single_file</span></div></div>
+      <div><p>Same extraction, written to files on disk.</p><div class="ret"><b>Returns:</b> The paths written.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">detect_source_type</div><div class="args"><span>url</span></div></div>
+      <div><p>Which strategy a URL would use — a cheap probe, no extraction.</p><div class="ret"><b>Returns:</b> llms_txt, openapi, sitemap, github, raw_text or html.</div></div>
+    </div>
+  </div>
+
+  <h2 class="group rv">Read back</h2>
+  <div class="tools-list rv-list">
+    <div class="tool">
+      <div><div class="name">search_knowledge_base</div><div class="args"><span>query</span><span>technology</span><span>version</span><span>limit</span><span>kind</span></div></div>
+      <div><p>Ranked search across every stored page at once.</p><div class="ret"><b>Returns:</b> Matches with a snippet showing why each page matched.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">read_knowledge_base</div><div class="args"><span>name</span><span>section</span><span>version</span></div></div>
+      <div><p>Reads stored docs back; with section, only the matching pages, ranked.</p><div class="ret"><b>Returns:</b> The pages, newest version unless one is named.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">list_knowledge_base</div><div class="args"><span>—</span></div></div>
+      <div><p>What has been harvested, which versions, and any harvest still running.</p><div class="ret"><b>Returns:</b> The inventory, with completeness per version.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">forget_resolution</div><div class="args"><span>name</span></div></div>
+      <div><p>Forgets where a name resolved to. Deletes no documentation.</p><div class="ret"><b>Returns:</b> Confirmation.</div></div>
+    </div>
+    <div class="tool">
+      <div><div class="name">forget_selection</div><div class="args"><span>name</span></div></div>
+      <div><p>Forgets which corpora were chosen, so it asks again. Deletes no documentation.</p><div class="ret"><b>Returns:</b> Confirmation.</div></div>
+    </div>
+  </div>
+
+  <div class="callout rv">
+    <p><code>forget_documentation</code> also exists, behind <code>DOCSFORGE_ALLOW_DELETE=1</code>. Deleting a harvest is the one irreversible thing here, and a model that has just mis-resolved a name is not the caller you want holding that lever.</p>
+  </div>
+
+  <section class="section">
+    <h2 class="rv">A long harvest does not block</h2>
+    <p class="prose rv">A call returns whatever is ready by a deadline — 25 seconds by default. A harvest that finishes inside it returns exactly what it always did. One that does not keeps running in the background, and the result says so:</p>
+    <div class="codeblock wrap rv">
+      <div class="bar"><span>harvest_response</span></div>
+      <pre><span class="c">&gt;</span> Currently harvesting 36/813 pages, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.</pre>
+    </div>
+  </section>
+</main>
+
+<!--FOOT-->
+<!--SCRIPT-->
+</body>
+</html>

@@ -1,6 +1,7 @@
 # secrets
 .env
 .env.local
+.mcp-token
 
 # scrape output
 docs_md/
@@ -54,5 +55,3 @@ measurements/
 # structured request/behaviour logs (applog.py) — diagnostics, not source
 logs/
 
-# scratch of scripts/build_site.py (compiled CSS, per-page configs)
-scripts/site_exports/_build/
