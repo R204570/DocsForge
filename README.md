@@ -219,6 +219,7 @@ Or in an MCP client config file:
 | `save_docs` | `url`, `out_dir`, `crawl`, `max_pages`, `js`, `force`, `single_file` | Paths written to disk. |
 | `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope`, `version` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
 | `learn_technology` | `name`, `version`, `ecosystem`, `max_pages`, `js`, `intent`, `corpora`, `strict` | **Learns a library from its name alone — no URL.** Resolves, verifies, harvests, stores. |
+| `harvest_status` | `harvest`, `wait` | How a harvest is getting on — phase, pages of how many, elapsed — and how it ended. Omit `harvest` for every harvest in flight; `wait` lets it run up to the deadline before answering. |
 | `find_docs` | `name`, `ecosystem` | Where a name resolves to, with evidence. Harvests nothing. |
 | `scan_project` | `path`, `unknown_only` | A project's dependencies, versions, and which are documented. |
 | `search_knowledge_base` | `query`, `technology`, `version`, `limit` | Ranked search across every stored page at once. |
@@ -532,10 +533,17 @@ back a harvest id while the crawl carries on in the background:
 Currently harvesting 118/703 pages, 25s elapsed.
 ```
 
-`list_knowledge_base` reports every harvest in flight, and any that failed —
-a background failure leaves no other trace, so it is surfaced there rather
-than lost. Anything that finishes inside the deadline returns exactly what it
-always returned; short harvests are unaffected.
+`harvest_status(harvest="effect-1")` reports how it is getting on — phase,
+pages of how many, elapsed time, and once it ends whether it stored, failed or
+stopped — and `wait=20` lets one call watch it finish. Every running status
+also says, in so many words, that the pages are landing in DocsForge's own
+store rather than in the model's context: a model told "still running" tends
+to decide the harvest is now its job — to fetch the pages itself, or to cut
+the harvest short — and neither is wanted. `list_knowledge_base` reports
+every harvest in flight too, and any that failed — a background failure
+leaves no other trace, so it is surfaced there rather than lost. Anything
+that finishes inside the deadline returns exactly what it always returned;
+short harvests are unaffected.
 
 Jobs live in the server process and are not persisted. The durable record of a
 harvest is the knowledge-base entry it writes, so a harvest interrupted by a

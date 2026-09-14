@@ -66,7 +66,12 @@ server = MCPServer(
         "from the store without touching the network. Working in a repository? "
         "scan_project reports its dependencies, their versions, and which are "
         "already documented. Use fetch_docs and harvest_docs only when you "
-        "genuinely already have a URL."
+        "genuinely already have a URL. "
+        "A harvest that outlives the 25-second deadline keeps running in the "
+        "background and hands back a harvest id; harvest_status reports its "
+        "progress. Its pages land in DocsForge's own knowledge base, not in "
+        "your context, so there is nothing for you to collect and no reason "
+        "to stop it early — let it finish, then read it back."
     ),
 )
 
