@@ -124,10 +124,12 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .figure .diagram { display: block; width: 100%; height: auto; max-width: 860px; margin-inline: auto; }
 .row .figure .diagram { max-width: 520px; }
 .hero-figure .diagram.wide { max-width: 620px; }
-.diagram.narrow { visibility: hidden; position: absolute; inset: 0; overflow: hidden; }
+/* the parked variant takes the figure's box exactly: a replaced element left at
+   height:auto keeps its intrinsic height and stretches the page past the footer */
+.diagram.narrow { visibility: hidden; position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
 @media (max-width: 640px) {
-  .diagram.wide { visibility: hidden; position: absolute; inset: 0; overflow: hidden; }
-  .diagram.narrow { visibility: visible; position: static; max-width: 360px; }
+  .diagram.wide { visibility: hidden; position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+  .diagram.narrow { visibility: visible; position: static; width: 100%; height: auto; max-width: 360px; }
 }
 .figure .cap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 12px; font-size: 12.5px; color: var(--text-3); }
 .figure .cap code { font-size: 11.5px; color: var(--text-2); }
@@ -211,7 +213,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .foot .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-block: 28px; font-size: 13px; color: var(--text-2); }
 .foot .l { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
 .foot .l b { color: var(--text); font-weight: 500; }
-.foot .l span.note { color: var(--text-3); }
+.foot .l span.note { margin: 0; color: var(--text-3); }
 .foot nav { display: flex; gap: 22px; }
 .foot nav a:hover { color: var(--text); }
 
