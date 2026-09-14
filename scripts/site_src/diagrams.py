@@ -211,7 +211,7 @@ def architecture() -> str:
         y = 14 + i * 40
         s.append(_node(14, y, 130, 30, c, d=i * 60, mono=True, r=8))
         s.append(_wire(f"M144 {y + 15} C 200 {y + 15}, 200 106, 258 106", d=400 + i * 60, flow=True))
-    s.append(_node(258, 66, 196, 80, "DocsForge  /mcp", sub="12 tools · streamable HTTP", d=900, cls="d-hi", mono=True))
+    s.append(_node(258, 66, 196, 80, "DocsForge  /mcp", sub="13 tools · streamable HTTP", d=900, cls="d-hi", mono=True))
     s.append(f'<text x="258" y="166" {MONO} font-size="10.5" class="ns d-in" style="--d:1000ms">one engine, every surface</text>')
     s.append(_wire("M454 106 L 500 106", d=1200, lit=True, flow=True))
     s.append('<g class="d-in" style="--d:1350ms"><ellipse cx="560" cy="66" rx="60" ry="12" class="nd"/><path d="M500 66 v80 a60 12 0 0 0 120 0 v-80" class="nd"/>'
@@ -227,7 +227,7 @@ def architecture() -> str:
         x, y = 10 + col * 168, 10 + row * 38
         n.append(_node(x, y, 152, 30, c, d=i * 60, mono=True, r=8, size=12))
         n.append(_wire(f"M{x + 76} {y + 30} C {x + 76} {y + 60}, 170 150, 170 170", d=400 + i * 60, flow=True))
-    n.append(_node(60, 170, 220, 70, "DocsForge  /mcp", sub="12 tools · streamable HTTP", d=900, cls="d-hi", mono=True))
+    n.append(_node(60, 170, 220, 70, "DocsForge  /mcp", sub="13 tools · streamable HTTP", d=900, cls="d-hi", mono=True))
     n.append(_wire("M170 240 L 170 274", d=1200, lit=True, flow=True))
     n.append('<g class="d-in" style="--d:1350ms"><ellipse cx="170" cy="286" rx="60" ry="12" class="nd"/><path d="M110 286 v66 a60 12 0 0 0 120 0 v-66" class="nd"/>'
              f'<text x="170" y="324" {MONO} font-size="12.5" text-anchor="middle" class="nt">PostgreSQL</text>'

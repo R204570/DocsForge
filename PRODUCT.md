@@ -124,7 +124,7 @@ field: `llms.txt`/`llms-full.txt`, OpenAPI/Swagger (JSON or YAML),
 - A real transcript shape: `learn_technology(name="pydantic",
   version="1.10")` → resolved to https://docs.pydantic.dev (names
   'pydantic' 214 times) → harvested 85 pages, stored as pydantic 1.10.
-- The twelve tools with arguments and returns (README "Tools exposed").
+- The thirteen tools with arguments and returns (README "Tools exposed").
 - Per-client connect snippets verified against each client's docs
   (`scripts/site_exports/connect.html`).
 - Absent, never to be invented: customers, testimonials, logos, download

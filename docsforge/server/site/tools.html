@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DocsForge — Tools</title>
-  <meta name="description" content="The twelve DocsForge tools, defined once and served identically over MCP: arguments, what each does, what it returns.">
+  <meta name="description" content="The thirteen DocsForge tools, defined once and served identically over MCP: arguments, what each does, what it returns.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -343,6 +343,10 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
       <div><p>Learns a whole technology from one starting URL. Unlimited by default.</p><div class="ret"><b>Returns:</b> A summary; read the content back with read_knowledge_base.</div></div>
     </div>
     <div class="tool">
+      <div><div class="name">harvest_status</div><div class="args"><span>harvest</span><span>wait</span></div></div>
+      <div><p>How a harvest is getting on — phase, pages of how many, elapsed — and how it ended. Says whose store the pages land in, so the model leaves it to finish.</p><div class="ret"><b>Returns:</b> The status of one harvest, or every harvest in flight and recently ended.</div></div>
+    </div>
+    <div class="tool">
       <div><div class="name">find_docs</div><div class="args"><span>name</span><span>ecosystem</span></div></div>
       <div><p>Where a name resolves to, with the evidence. Harvests nothing.</p><div class="ret"><b>Returns:</b> Candidates and how often each page names the package.</div></div>
     </div>
@@ -398,7 +402,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 
   <section class="section">
     <h2 class="rv">A long harvest does not block</h2>
-    <p class="prose rv">A call returns whatever is ready by a deadline — 25 seconds by default. A harvest that finishes inside it returns exactly what it always did. One that does not keeps running in the background, and the result says so:</p>
+    <p class="prose rv">A call returns whatever is ready by a deadline — 25 seconds by default. A harvest that finishes inside it returns exactly what it always did. One that does not keeps running in the background, and the result says so — <code>harvest_status</code> reports on it from then on, and reminds the model that the pages are landing in DocsForge's store, not its own:</p>
     <div class="codeblock wrap rv">
       <div class="bar"><span>harvest_response</span></div>
       <pre><span class="c">&gt;</span> Currently harvesting 36/813 pages, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.</pre>
