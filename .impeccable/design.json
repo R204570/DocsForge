@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-14T00:00:00Z",
+  "title": "Design System: DocsForge",
+  "extensions": {
+    "colorMeta": {
+      "bg": { "role": "neutral", "displayName": "Ground", "canonical": "oklch(15.1% 0.004 286)", "tonalRamp": ["#0b0b0d", "#212124", "#3a3a3d", "#555558", "#717174", "#8f8f92", "#adadb0", "#eeeef1"] },
+      "deep": { "role": "neutral", "displayName": "Well", "canonical": "oklch(16.5% 0.006 286)", "tonalRamp": ["#0b0b0e", "#212125", "#3a3a3e", "#555559", "#717175", "#8f8f93", "#adadb2", "#eeeef3"] },
+      "soft": { "role": "neutral", "displayName": "Soft", "canonical": "oklch(18.4% 0.006 286)", "tonalRamp": ["#0b0b0e", "#212124", "#3a3a3e", "#555559", "#717175", "#8f8f93", "#adadb2", "#eeeef2"] },
+      "surface": { "role": "neutral", "displayName": "Surface", "canonical": "oklch(20.6% 0.008 286)", "tonalRamp": ["#0b0b0e", "#212125", "#3a3a3f", "#55555a", "#717176", "#8e8e94", "#adadb3", "#eeeef4"] },
+      "line": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(28.8% 0.013 286)", "tonalRamp": ["#0b0a10", "#212128", "#3a3a41", "#54545c", "#717179", "#8e8e97", "#adadb6", "#ededf7"] },
+      "line-soft": { "role": "neutral", "displayName": "Hairline Soft", "canonical": "oklch(24.7% 0.013 285)", "tonalRamp": ["#0a0a11", "#212128", "#3a3a41", "#54545d", "#707179", "#8e8e97", "#adadb6", "#ededf7"] },
+      "wire": { "role": "neutral", "displayName": "Wire", "canonical": "oklch(45.3% 0.016 286)", "tonalRamp": ["#0a0a12", "#212129", "#393943", "#54545e", "#70707b", "#8e8e99", "#adadb8", "#ededf9"] },
+      "text": { "role": "neutral", "displayName": "Text", "canonical": "oklch(94.4% 0.003 286)", "tonalRamp": ["#0b0b0c", "#212123", "#3a3a3c", "#555557", "#717173", "#8f8f91", "#aeaeaf", "#eeeef0"] },
+      "text-2": { "role": "neutral", "displayName": "Text Secondary", "canonical": "oklch(73.8% 0.014 286)", "tonalRamp": ["#0b0a11", "#212128", "#3a3a42", "#54545d", "#71707a", "#8e8e98", "#adadb7", "#ededf8"] },
+      "text-3": { "role": "neutral", "displayName": "Text Tertiary", "canonical": "oklch(62.1% 0.018 286)", "tonalRamp": ["#0a0a12", "#21202a", "#393944", "#54545f", "#70707c", "#8e8e9a", "#acadb9", "#ededfa"] },
+      "accent": { "role": "primary", "displayName": "Lavender", "canonical": "oklch(78.2% 0.141 306)", "tonalRamp": ["#140023", "#31014f", "#4e1c73", "#693b92", "#8758b2", "#a576d2", "#c595f4", "#f3eafd"] },
+      "accent-bright": { "role": "primary", "displayName": "Lavender Bright", "canonical": "oklch(83.8% 0.104 307)", "tonalRamp": ["#140122", "#2f0c47", "#492864", "#654482", "#8260a1", "#a07ec1", "#c09ce1", "#f4eafe"] },
+      "accent-ink": { "role": "primary", "displayName": "Lavender Ink", "canonical": "oklch(18.2% 0.051 304)", "tonalRamp": ["#10051c", "#271b35", "#403450", "#5b4e6d", "#786a8a", "#9688a9", "#b5a6c9", "#f2ebfd"] },
+      "accent-dim": { "role": "primary", "displayName": "Lavender Tint", "canonical": "rgba(207, 159, 255, 0.13)", "tonalRamp": ["#140023", "#31014f", "#4e1c73", "#693b92", "#8758b2", "#a576d2", "#c595f4", "#f3eafd"] },
+      "accent-line": { "role": "primary", "displayName": "Lavender Line", "canonical": "rgba(207, 159, 255, 0.34)", "tonalRamp": ["#140023", "#31014f", "#4e1c73", "#693b92", "#8758b2", "#a576d2", "#c595f4", "#f3eafd"] },
+      "danger": { "role": "status", "displayName": "Incomplete Red", "canonical": "oklch(79.0% 0.121 20)", "tonalRamp": ["#1d0103", "#45020c", "#6c131e", "#8c3338", "#ad5153", "#cf6f70", "#f18d8e", "#fde9e8"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The home headline. Beside the hero figure at >=1024px it tightens to clamp(40px, 3.6vw, 52px)." },
+      "display-doc": { "displayName": "Display (reading pages)", "purpose": "The h1 of /tools and /connect." },
+      "headline": { "displayName": "Headline", "purpose": "Band and closing-card h2. Reading-page section h2s drop to 20px/700, group heads to 20px/600." },
+      "title": { "displayName": "Title", "purpose": "Feature-row h3, preceded by its mono step number." },
+      "title-sm": { "displayName": "Title (small)", "purpose": "Card h3." },
+      "lead": { "displayName": "Lead", "purpose": "The sentence under any headline; secondary text, <=62ch; 18px beside the hero figure." },
+      "body": { "displayName": "Body", "purpose": "Row paragraphs at <=48ch; prose at 1.65 and <=66ch; card body 14.5px; notes 13px." },
+      "ui": { "displayName": "UI", "purpose": "Buttons and the wordmark (600); nav links at 14px." },
+      "code": { "displayName": "Code", "purpose": "Code blocks, config keys, the figures strip, tabs at 12.5px; tool names at 15px/600 in lavender." },
+      "label": { "displayName": "Label", "purpose": "Version chip and argument tags at 11px, code-bar titles, step numbers at 12px, captions at 12.5px. Always sentence case." }
+    },
+    "shadows": [
+      { "name": "seat", "value": "0 30px 60px -28px rgba(0, 0, 0, 0.85), 0 2px 0 0 rgba(255, 255, 255, 0.02) inset", "purpose": "Under .figure and .close only: seats a showcase surface on the ground without a visible edge." },
+      { "name": "nav-veil", "value": "background: rgba(18, 18, 21, 0.86); backdrop-filter: blur(12px)", "purpose": "The sticky header over scrolling content." },
+      { "name": "hero-glow", "value": "radial-gradient(closest-side, rgba(207, 159, 255, 0.16), transparent 72%)", "purpose": "Behind and above the hero figure only (inset: -60px 0 auto; height: 60%; z-index: -1 in an isolated context)." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The one ease for every transition and keyframe; only the flowing wire dash is linear." },
+      { "name": "hover", "value": "150ms", "purpose": "Colour, border-color, background and transform on links, buttons, tabs." },
+      { "name": "reveal", "value": "700ms; from translateY(14px) blur(6px)", "purpose": ".rv blocks entering the viewport (observer rootMargin 0 0 -12% 0, threshold 0.12)." },
+      { "name": "reveal-list", "value": "600ms; from translateY(10px); stagger 70ms, capped 340ms from the sixth child", "purpose": ".rv-list children appearing as a list." },
+      { "name": "d-in", "value": "700ms; from opacity 0 translateY(6px)", "purpose": "A diagram node or text fading and drifting in, delayed by --d." },
+      { "name": "d-draw", "value": "var(--dur, 800ms); stroke-dashoffset 1 -> 0 with pathLength=1", "purpose": "A wire drawing itself." },
+      { "name": "d-fill", "value": "420ms; from opacity 0 scale(0.4) about its centre", "purpose": "A stored-page cell landing." },
+      { "name": "d-bar", "value": "900ms; scaleX(0) -> scaleX(var(--to, 1)) from the left", "purpose": "A harvest bar completing (or stopping short at --to)." },
+      { "name": "d-hi", "value": "500ms node / 400ms mark; hairline+surface -> lavender+tint", "purpose": "The node that answered lighting up; a verified mention appearing." },
+      { "name": "d-flow", "value": "stroke-dasharray 0.06 0.05; 1.6s linear x3 after the draw", "purpose": "Traffic flowing along an active wire in the architecture figure." },
+      { "name": "count-up", "value": "900ms; 1 - (1 - k)^3", "purpose": "The verify figure's 214x counting up after its --d, script-driven." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "640px", "purpose": "<=640: 16px side padding, narrow diagram twin shown, version chip hidden, config rows single-column." },
+      { "name": "nav-full", "value": "768px", "purpose": ">=768: the two anchor links appear; nav gap 28px." },
+      { "name": "reading-grid", "value": "820px", "purpose": ">=820: tool rows 300px 1fr; storage cards two columns." },
+      { "name": "rows", "value": "900px", "purpose": ">=900: feature rows, coverage and the closing card go two-column." },
+      { "name": "hero", "value": "1024px", "purpose": ">=1024: hero splits 5fr/7fr with the figure beside the headline." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action that matters in a view: a flat lavender slab with ink text. Brightens on hover, presses 1px on active.",
+      "html": "<a class=\"ds-btn ds-btn-primary\" href=\"#\">Connect your client</a>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 22px; border-radius: 14px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-weight: 500; font-size: 15px; border: 1px solid transparent; cursor: pointer; white-space: nowrap; text-decoration: none; transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--accent, #cf9fff); outline-offset: 3px; } .ds-btn-primary { background: var(--accent, #cf9fff); color: var(--accent-ink, #170b24); } .ds-btn-primary:hover { background: #dcb8ff; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "The second action beside a primary: transparent with a hairline that brightens on hover.",
+      "html": "<a class=\"ds-btn ds-btn-ghost\" href=\"#\">View on GitHub</a>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 22px; border-radius: 14px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-weight: 500; font-size: 15px; border: 1px solid transparent; cursor: pointer; white-space: nowrap; text-decoration: none; transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--accent, #cf9fff); outline-offset: 3px; } .ds-btn-ghost { border-color: var(--line, #2a2a31); color: var(--text, #ececee); background: transparent; } .ds-btn-ghost:hover { border-color: var(--text-3, #858591); }"
+    },
+    {
+      "name": "Top Nav",
+      "kind": "nav",
+      "refersTo": "nav-top",
+      "description": "Sticky 56px bar on soft ground at 86% with a 12px blur: wordmark (lavender square + name), links with the current page underlined in lavender, an inline external-link arrow, and a mono version chip.",
+      "html": "<header class=\"ds-top\"><a class=\"ds-mark\" href=\"#\"><i></i>DocsForge</a><nav class=\"ds-nav\"><a href=\"#\">How it works</a><a href=\"#\" aria-current=\"page\">Tools</a><a href=\"#\">Connect</a><a href=\"#\" class=\"ds-ext\">GitHub <svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M2 8 L8 2 M3.5 2 H8 V6.5\"/></svg></a></nav><span class=\"ds-chip\">v1.4.0</span></header>",
+      "css": ".ds-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 56px; padding: 0 24px; background: rgba(18, 18, 21, 0.86); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line, #2a2a31); font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: var(--text, #ececee); } .ds-mark { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; color: inherit; text-decoration: none; } .ds-mark i { width: 12px; height: 12px; border-radius: 3px; background: var(--accent, #cf9fff); } .ds-nav { display: flex; align-items: center; gap: 28px; font-size: 14px; font-weight: 500; color: var(--text-2, #a9a9b3); } .ds-nav a { color: inherit; text-decoration: none; transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-nav a:hover { color: var(--text, #ececee); } .ds-nav a[aria-current=\"page\"] { color: var(--text, #ececee); border-bottom: 1px solid var(--accent, #cf9fff); padding-bottom: 1px; } .ds-nav a:focus-visible { outline: 2px solid var(--accent, #cf9fff); outline-offset: 3px; border-radius: 4px; } .ds-ext { display: inline-flex; align-items: center; gap: 4px; } .ds-ext svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.7; } .ds-chip { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 11px; padding: 3px 10px; border: 1px solid var(--line, #2a2a31); border-radius: 999px; color: var(--text-2, #a9a9b3); background: var(--surface, #17171b); }"
+    },
+    {
+      "name": "Tab",
+      "kind": "chip",
+      "refersTo": "tab",
+      "description": "A mono client-picker tab: hairline at rest, lavender border and 13% tint when pressed.",
+      "html": "<div class=\"ds-tabs\"><button type=\"button\" class=\"ds-tab\" aria-pressed=\"true\">Claude Code</button><button type=\"button\" class=\"ds-tab\" aria-pressed=\"false\">Cursor</button><button type=\"button\" class=\"ds-tab\" aria-pressed=\"false\">Any client (JSON)</button></div>",
+      "css": ".ds-tabs { display: flex; flex-wrap: wrap; gap: 8px; } .ds-tab { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; padding: 7px 13px; border: 1px solid var(--line, #2a2a31); border-radius: 8px; color: var(--text-2, #a9a9b3); background: transparent; cursor: pointer; transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-tab:hover { color: var(--text, #ececee); } .ds-tab:focus-visible { outline: 2px solid var(--accent, #cf9fff); outline-offset: 3px; } .ds-tab[aria-pressed=\"true\"] { color: var(--text, #ececee); border-color: var(--accent, #cf9fff); background: var(--accent-dim, rgba(207, 159, 255, 0.13)); }"
+    },
+    {
+      "name": "Token Input",
+      "kind": "input",
+      "refersTo": "input-token",
+      "description": "A mono field dug into the well with a show/hide control beside it; the border turns lavender on focus.",
+      "html": "<div class=\"ds-tokenrow\"><label for=\"ds-token\">Your token</label><input id=\"ds-token\" type=\"password\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"paste DOCSFORGE_MCP_TOKEN\"><button type=\"button\" class=\"ds-eye\">show</button></div>",
+      "css": ".ds-tokenrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; } .ds-tokenrow label { font-size: 12px; color: var(--text-2, #a9a9b3); } .ds-tokenrow input { flex: 1 1 auto; min-width: 0; background: var(--deep, #0e0e11); border: 1px solid var(--line, #2a2a31); border-radius: 8px; padding: 9px 12px; font-family: inherit; font-size: 12.5px; color: var(--text, #ececee); } .ds-tokenrow input::placeholder { color: var(--text-3, #858591); } .ds-tokenrow input:focus { outline: none; border-color: var(--accent, #cf9fff); } .ds-eye { flex: none; font-family: inherit; font-size: 12px; color: var(--text-2, #a9a9b3); background: transparent; border: 1px solid var(--line, #2a2a31); border-radius: 8px; padding: 9px 12px; cursor: pointer; } .ds-eye:hover { color: var(--text, #ececee); } .ds-eye:focus-visible { outline: 2px solid var(--accent, #cf9fff); outline-offset: 3px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A surface with a hairline and 14px corners; title at 18px, secondary body, inline code in primary text. No shadow.",
+      "html": "<div class=\"ds-card\"><h3>Markdown files — the default.</h3><p><code>knowledge_base/&lt;tech&gt;/&lt;version&gt;.md</code>, one file per version plus an index. Zero setup, and the file is a deliverable you can hand to anyone.</p></div>",
+      "css": ".ds-card { background: var(--surface, #17171b); border: 1px solid var(--line, #2a2a31); border-radius: 14px; padding: 22px 24px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.1; color: var(--text, #ececee); text-wrap: balance; } .ds-card p { margin: 0; color: var(--text-2, #a9a9b3); font-size: 14.5px; line-height: 1.6; } .ds-card code { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: var(--text, #ececee); }"
+    },
+    {
+      "name": "Code Block",
+      "kind": "custom",
+      "refersTo": "well",
+      "description": "A well with a hairline, a mono title bar and a 13px/1.7 pre; prompt and comment spans in tertiary.",
+      "html": "<div class=\"ds-codeblock\"><div class=\"ds-bar\"><span>harvest_response</span></div><pre><span class=\"ds-c\">&gt;</span> Currently harvesting 36/813 pages, 25s elapsed. This returned before the harvest finished so your client would not time out.</pre></div>",
+      "css": ".ds-codeblock { background: var(--deep, #0e0e11); border: 1px solid var(--line, #2a2a31); border-radius: 14px; overflow: hidden; font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; } .ds-codeblock .ds-bar { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line-soft, #202027); font-size: 11px; color: var(--text-3, #858591); } .ds-codeblock pre { margin: 0; padding: 16px 18px; font-family: inherit; font-size: 13px; line-height: 1.7; color: var(--text, #ececee); white-space: pre-wrap; overflow-wrap: anywhere; } .ds-codeblock .ds-c { color: var(--text-3, #858591); }"
+    },
+    {
+      "name": "Callout",
+      "kind": "card",
+      "refersTo": "callout",
+      "description": "The one lit area on a page: 13% lavender tint bounded by the 34% lavender line, primary text, inline code in lavender.",
+      "html": "<div class=\"ds-callout\"><p><code>forget_documentation</code> also exists, behind <code>DOCSFORGE_ALLOW_DELETE=1</code>. Deleting a harvest is the one irreversible thing here.</p></div>",
+      "css": ".ds-callout { display: grid; gap: 8px; padding: 20px 22px; border: 1px solid var(--accent-line, rgba(207, 159, 255, 0.34)); background: var(--accent-dim, rgba(207, 159, 255, 0.13)); border-radius: 14px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-callout p { margin: 0; color: var(--text, #ececee); font-size: 15px; line-height: 1.6; } .ds-callout code { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: var(--accent, #cf9fff); }"
+    },
+    {
+      "name": "Result Line",
+      "kind": "custom",
+      "refersTo": "result",
+      "description": "What a partial harvest says: a well holding one red mono line between CSS-drawn ** markers, and a secondary paragraph beneath. The only place red appears.",
+      "html": "<div class=\"ds-result\"><div class=\"ds-line\">INCOMPLETE — stopped at the 200-page limit, 400+ pages still queued.</div><p>Versions are stored side by side. v2 and v3 contradict each other, and a model handed both will quote the wrong one.</p></div>",
+      "css": ".ds-result { background: var(--deep, #0e0e11); border: 1px solid var(--line, #2a2a31); border-radius: 14px; padding: 20px 22px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-result .ds-line { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; font-weight: 600; color: var(--danger, #ff9a9a); line-height: 1.6; } .ds-result .ds-line::before, .ds-result .ds-line::after { content: \"**\"; color: var(--text-3, #858591); font-weight: 400; } .ds-result p { margin: 14px 0 0; color: var(--text-2, #a9a9b3); font-size: 14.5px; line-height: 1.6; }"
+    },
+    {
+      "name": "Figure with Diagram",
+      "kind": "custom",
+      "refersTo": "figure",
+      "description": "A surface seated by the one shadow, a mono caption row, and an authored SVG in the diagram vocabulary: a call node, a lit node beside a resting one, a lit wire, stored-page cells, a bar and the verified tick.",
+      "html": "<div class=\"ds-figure\"><div class=\"ds-cap\"><span><code>learn_technology</code></span><span>a recorded run</span></div><svg viewBox=\"0 0 420 150\" class=\"ds-diagram\" role=\"img\" aria-label=\"A call resolves through PyPI, the site verifies, pages land and the bar completes\"><rect x=\"8\" y=\"8\" width=\"230\" height=\"36\" rx=\"10\" class=\"ds-nd ds-nd-call\"/><text x=\"22\" y=\"31\" class=\"ds-nt ds-mono\" font-size=\"12.5\"><tspan class=\"ds-hi\">$</tspan> learn_technology(name=\"pydantic\")</text><path d=\"M28 44 L 28 78 Q 28 88 38 88 L 46 88\" class=\"ds-wire\"/><path d=\"M28 44 L 28 118 Q 28 128 38 128 L 46 128\" class=\"ds-wire ds-wire-lit\"/><g class=\"ds-hi-node\"><rect x=\"46\" y=\"70\" width=\"90\" height=\"36\" rx=\"10\" class=\"ds-nd\"/><text x=\"60\" y=\"93\" class=\"ds-nt ds-mono\" font-size=\"13\">npm</text></g><g class=\"ds-hi-node ds-lit\"><rect x=\"46\" y=\"110\" width=\"90\" height=\"36\" rx=\"10\" class=\"ds-nd\"/><text x=\"60\" y=\"133\" class=\"ds-nt ds-mono\" font-size=\"13\">PyPI</text></g><path d=\"M136 128 L 176 128\" class=\"ds-wire ds-wire-lit\"/><g><rect x=\"176\" y=\"100\" width=\"200\" height=\"46\" rx=\"10\" class=\"ds-nd\"/><text x=\"190\" y=\"120\" class=\"ds-nt ds-mono\" font-size=\"13\">docs.pydantic.dev</text><text x=\"190\" y=\"137\" class=\"ds-ns ds-mono\" font-size=\"11\">names 'pydantic' 214 times</text></g><g><circle cx=\"398\" cy=\"123\" r=\"9\" class=\"ds-ok-dot\"/><path d=\"M393.5 123.2 l3.2 3.2 l6 -6.4\" class=\"ds-ok-tick\"/></g><rect x=\"260\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell\"/><rect x=\"279\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell\"/><rect x=\"298\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell\"/><rect x=\"317\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell\"/><rect x=\"336\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell\"/><rect x=\"355\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell ds-cell-empty\"/><rect x=\"374\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" class=\"ds-cell ds-cell-empty\"/><rect x=\"260\" y=\"40\" width=\"128\" height=\"4\" rx=\"2\" class=\"ds-bar-track\"/><rect x=\"260\" y=\"40\" width=\"91\" height=\"4\" rx=\"2\" class=\"ds-bar-fill\"/><text x=\"260\" y=\"62\" class=\"ds-nt ds-mono\" font-size=\"11.5\"><tspan class=\"ds-hi\">complete</tspan> — every page the sitemap lists</text></svg></div>",
+      "css": ".ds-figure { position: relative; background: var(--surface, #17171b); border: 1px solid var(--line, #2a2a31); border-radius: 14px; padding: 18px; box-shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.85), 0 2px 0 0 rgba(255, 255, 255, 0.02) inset; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-cap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 12px; font-size: 12.5px; color: var(--text-3, #858591); } .ds-cap code { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--text-2, #a9a9b3); } .ds-diagram { display: block; width: 100%; height: auto; } .ds-mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; } .ds-diagram .ds-nt { fill: var(--text, #ececee); } .ds-diagram .ds-ns { fill: var(--text-3, #858591); } .ds-diagram .ds-hi { fill: var(--accent, #cf9fff); } .ds-diagram .ds-nd { fill: var(--surface, #17171b); stroke: var(--line, #2a2a31); stroke-width: 1; } .ds-diagram .ds-nd-call { fill: var(--deep, #0e0e11); stroke: var(--accent-line, rgba(207, 159, 255, 0.34)); } .ds-diagram .ds-lit .ds-nd { stroke: var(--accent, #cf9fff); fill: var(--accent-dim, rgba(207, 159, 255, 0.13)); } .ds-diagram .ds-wire { fill: none; stroke: var(--wire, #55555f); stroke-width: 1.5; stroke-linecap: round; } .ds-diagram .ds-wire-lit { stroke: var(--accent-line, rgba(207, 159, 255, 0.34)); } .ds-diagram .ds-cell { fill: var(--accent, #cf9fff); } .ds-diagram .ds-cell-empty { fill: none; stroke: #3a3a44; stroke-width: 1; } .ds-diagram .ds-bar-track { fill: var(--line-soft, #202027); } .ds-diagram .ds-bar-fill { fill: var(--accent, #cf9fff); } .ds-diagram .ds-ok-dot { fill: var(--accent, #cf9fff); } .ds-diagram .ds-ok-tick { fill: none; stroke: var(--accent-ink, #170b24); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Recorded Run",
+    "overview": "The site does not describe DocsForge; it plays one run of it back. A name goes into a prompt at the top of the page and, in the product's own theme, three registries answer, one page verifies, 85 pages land and a bar completes. Every figure on the site is a run that actually happened — pydantic's 214 mentions, Effect's 703 pages, the 36/813 progress line — and every drawing is authored inline SVG built from the same custom properties the page chrome uses. Each later section is one part of that machine shown at work: resolve, verify, harvest, detect, coverage, architecture. The page reads as the product's own console, opened to the public.\n\nThe world is near-black and quiet. Four greys make the ground (page, well, soft, surface); hairlines, not gaps, separate things; a single lavender is spent only on what lights up. Words are Inter; anything the software would print — a tool name, a path, a count, a caption, a version — is JetBrains Mono. Density is editorial: one 1100px column, rows that split five-to-seven between words and the figure, wide bands between sections. Depth is tonal, not cast; the one diffuse shadow exists to seat the two showcase surfaces. Nothing on the site is uppercase, letter-spaced open, or iconised.\n\nMotion is playback, never decoration, and it is strictly an enhancement: with script off or reduced motion on, every reveal and every diagram is simply shown at rest, complete. Confirmed rejections: no light mode; no raster imagery or illustration; no icon-card feature grid; no metric tiles; no emoji; no external scripts.",
+    "keyCharacteristics": [
+      "One chromatic colour, lavender, on a near-black four-step grey ladder; red appears only where a harvest fell short",
+      "Inter for what a person wrote, JetBrains Mono for what the software prints",
+      "Authored inline SVG diagrams from a node / wire / cell / bar / tick vocabulary, coloured by the theme's own custom properties, with wide and narrow drawings per figure",
+      "1px hairline separation everywhere; 14px radii on things you rest content in, 8px on things you tap or type in",
+      "Tonal depth with a single diffuse shadow; a blurred sticky nav; one faint lavender glow behind the hero figure",
+      "Content complete at rest; motion added only by `.js` + `.in` when reduced motion is off"
+    ],
+    "rules": [
+      { "name": "The One Lavender Rule", "body": "Lavender is the only chromatic colour on the site and it marks what the product prints or lights — a name, a number, the route that fired, the page that landed, the action. It is never a decoration, a background wash, or a second-tier emphasis.", "section": "colors" },
+      { "name": "The Tint Does the Area Rule", "body": "Solid lavender never fills an area larger than a button. Where an area must read as lit — a node, an active tab, a callout — it takes the 13% tint bounded by the 34% line.", "section": "colors" },
+      { "name": "The Red Means Incomplete Rule", "body": "Red appears only where coverage fell short of the whole. A UI that has nothing incomplete to report has no red on it.", "section": "colors" },
+      { "name": "The Mono Prints Rule", "body": "Anything the software would print — a tool name, an argument, an environment key, a path, a count, a version, a caption on a recorded run, a transcript — is set in JetBrains Mono. Anything a person wrote is Inter. The face is the class of the string, never its emphasis.", "section": "typography" },
+      { "name": "The Tighter-as-it-Grows Rule", "body": "Headings track tighter as they grow: -0.01em at 18–24px, -0.02em at headline, -0.03em at display; line-height 1.1 throughout; `text-wrap: balance` on every heading and `pretty` on every lead and paragraph.", "section": "typography" },
+      { "name": "The Sentence-case Rule", "body": "No text on the site is uppercase or letter-spaced open. Labels are small mono in sentence case; hierarchy comes from size, weight and face, never from capitals.", "section": "typography" },
+      { "name": "The Five-Seven Rule", "body": "Every two-column composition splits 5fr/7fr: the words take five, the figure takes seven, and consecutive rows flip which side the figure sits on. Below 900px (1024px for the hero) it is one column, figure below words.", "section": "layout" },
+      { "name": "The Hairline Rhythm Rule", "body": "Sibling rows in a list — features, tools, config keys — are separated by a 1px soft hairline and their own padding, never by whitespace alone or by boxing each row.", "section": "layout" },
+      { "name": "The Ladder, Not Shadow Rule", "body": "Height is a rung on the grey ladder plus a hairline. The seat shadow is reserved for the figure and the closing card; a new surface takes a rung and a border, never a shadow.", "section": "elevation" },
+      { "name": "The Complete at Rest Rule", "body": "A figure or block is drawn finished, then motion is subtracted from it only when script has run and motion is allowed. No content, figure or number exists only as the end state of an animation.", "section": "components" },
+      { "name": "The One Ease Rule", "body": "Every transition and keyframe uses `cubic-bezier(0.16, 1, 0.3, 1)`; the only linear motion is the dash that flows along an active wire.", "section": "components" }
+    ],
+    "dos": [
+      "Do draw every figure as authored inline SVG using the theme's custom properties (`var(--surface)`, `var(--line)`, `var(--accent)`), from the node / wire / cell / bar / tick vocabulary, and give each a full-sentence `aria-label`.",
+      "Do ship a narrow twin for any diagram that cannot be read at 360px, swapped at 640px.",
+      "Do put words in the 5fr column and the figure in the 7fr column, and flip consecutive rows.",
+      "Do separate list rows with a 1px soft hairline (#202027) and box surfaces with a 1px hairline (#2a2a31).",
+      "Do set anything the software prints — tool names, arguments, keys, paths, counts, versions, captions — in JetBrains Mono at 11–13.5px, sentence case.",
+      "Do keep the focus ring at 2px lavender, 3px offset, and let the token input's border turn lavender on focus.",
+      "Do keep text at or above 4.5:1 on surface (#17171b); tertiary text stays at #858591 for that reason.",
+      "Do gate every reveal and diagram animation behind `.js` and `prefers-reduced-motion: no-preference`, and use the one ease.",
+      "Do use the seat shadow only on the figure and the closing card."
+    ],
+    "donts": [
+      "Don't add a light mode; `color-scheme: dark` and the pinned tokens are the whole palette.",
+      "Don't fill an area larger than a button with solid lavender; use the 13% tint bounded by the 34% line.",
+      "Don't use red for anything but incomplete coverage.",
+      "Don't introduce an icon-card feature grid or metric tiles; the figures strip is a hairline band of mono numbers, and features are rows with a drawing.",
+      "Don't use raster imagery, illustration, icon fonts or emoji; the only pictographs are the wordmark square, the inline external-link arrow, and the diagram tick.",
+      "Don't set any text in uppercase or with open letter-spacing.",
+      "Don't hide content behind motion or load an external script; every page must read complete with script off and at 400px.",
+      "Don't give a surface a shadow to lift it; move it a rung on the grey ladder and edge it with a hairline."
+    ]
+  }
+}

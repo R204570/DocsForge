@@ -1,137 +1,102 @@
 """
-Build the public site from Stitch's exports.
+Build the public site from its sources.
 
-The three pages under docsforge/server/site/ were designed in Stitch (project
-"DocsForge Landing", design system "DocsForge Dark" — the web chat's palette).
-Stitch exports HTML that leans on the Tailwind play-CDN and leaves nav and
-footer links as placeholders. This turns those exports into what the server
-serves: one nav across the pages, real links, the version chip as a
-placeholder the server fills, and Tailwind compiled to a static stylesheet so
-each page is self-contained (fonts still come from Google Fonts, with a system
-fallback).
+The three pages under docsforge/server/site/ are hand-authored in
+scripts/site_src/: one HTML file per page, one stylesheet (site.css), one
+behaviour script (site.js), and the client picker for /connect
+(picker.html). This assembles them into what the server serves: the shared
+nav and footer stamped into each page, the stylesheet and script inlined so
+every page is self-contained (fonts still come from Google Fonts, with a
+system fallback), and two placeholders left for the server to fill at
+request time — `{{VERSION}}` from the package and `{{BASE_URL}}` from the
+request.
 
-    python scripts/build_site.py scripts/site_exports
+    python scripts/build_site.py
 
-`scripts/site_exports/` holds the raw exports (home.html, tools.html,
-connect.html); replace one with a fresh download to change a page.
-
-Needs Node (npx) for the Tailwind compiler; nothing else. Re-run after editing
-a page in Stitch and downloading its HTML again.
+No toolchain: plain files in, plain files out. Re-run after any edit.
 """
 
 from __future__ import annotations
 
 import pathlib
 import re
-import subprocess
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "site_src"))
+from diagrams import DIAGRAMS  # noqa: E402
 
 REPO = "https://github.com/R204570/DocsForge"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC = ROOT / "scripts" / "site_src"
 SITE = ROOT / "docsforge" / "server" / "site"
-TAILWIND = "tailwindcss@3.4.17"
 
-#: Stitch export name -> served file name.
-PAGES = {"home": "index", "tools": "tools", "connect": "connect"}
+PAGES = ("index", "tools", "connect")
 
 
 def nav(active: str) -> str:
-    """One nav for every page. `active` is the page's own label, lower-case."""
-    items = [("How it works", "/#how-it-works", "hidden md:inline"),
-             ("Tools", "/tools", ""),
-             ("Connect", "/connect", ""),
-             ("Storage", "/connect#storage", "hidden md:inline")]
-    out = ['<nav class="flex items-center gap-4 md:gap-7 text-sm font-medium text-[#a9a9b3]">']
-    for label, href, extra in items:
-        on = label.lower() == active
-        cls = ("text-[#ececee] border-b border-[#cf9fff] pb-px" if on
-               else "hover:text-[#ececee] transition-colors")
-        current = ' aria-current="page"' if on else ""
-        out.append(f'        <a href="{href}" class="{extra + " " if extra else ""}{cls}"{current}>{label}</a>')
-    out.append(f'        <a href="{REPO}" target="_blank" rel="noopener noreferrer" '
-               f'class="hover:text-[#ececee] transition-colors flex items-center gap-1">GitHub '
-               f'<span class="font-mono text-[10px]">↗</span></a>')
-    out.append("      </nav>")
-    return "\n".join(out)
+    """One nav for every page. `active` is the page's file name."""
+    items = [("How it works", "/#how-it-works", "wide", ""),
+             ("Tools", "/tools", "", "tools"),
+             ("Connect", "/connect", "", "connect"),
+             ("Storage", "/connect#storage", "wide", "")]
+    links = []
+    for label, href, cls, page in items:
+        on = page == active
+        attrs = f' class="{cls}"' if cls else ""
+        attrs += ' aria-current="page"' if on else ""
+        links.append(f'      <a href="{href}"{attrs}>{label}</a>')
+    links.append(f'      <a href="{REPO}" class="ext" target="_blank" rel="noopener noreferrer">GitHub '
+                 '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 8 L8 2 M3.5 2 H8 V6.5"/></svg></a>')
+    return ('<header class="top">\n  <div class="wrap">\n'
+            '    <a href="/" class="mark"><i></i>DocsForge</a>\n'
+            '    <nav class="nav" aria-label="Site">\n' + "\n".join(links) + '\n    </nav>\n'
+            '    <span class="chip">v{{VERSION}}</span>\n'
+            '  </div>\n</header>')
 
 
-def normalise(page: str, html: str) -> str:
-    """Real links, one nav, the version chip as a placeholder."""
-    html, n = re.subn(r"<nav\b[^>]*>.*?</nav>", nav("" if page == "home" else page),
-                      html, count=1, flags=re.S)
-    assert n == 1, (page, "nav")
-    # wordmark -> home
-    html, n = re.subn(r'<a href="#"(\s+class="[^"]*flex items-center gap-2[^"]*")', r'<a href="/"\1', html, count=1)
-    assert n == 1, (page, "wordmark")
-    # the hero CTA on the home page
-    html = html.replace('href="#connect"', 'href="/connect"')
-    # GitHub placeholders
-    html = html.replace('href="https://github.com/issues"', f'href="{REPO}/issues"')
-    html = html.replace('href="https://github.com"', f'href="{REPO}"')
-    for label, href in (("GitHub", REPO), ("Issues", f"{REPO}/issues"), ("Contribute", f"{REPO}#readme")):
-        html = re.sub(rf'<a href="#"(\s+class="[^"]*")>{label}</a>',
-                      rf'<a href="{href}" target="_blank" rel="noopener noreferrer"\1>{label}</a>', html)
-    # the chip crowds a 400px header: below `sm` the nav matters more
-    chip = re.compile(r'<div class="flex items-center">(\s*<span class="font-mono[^>]*>\s*v\d+\.\d+\.\d+)')
-    assert len(chip.findall(html)) == 1, (page, "chip wrapper")
-    html = chip.sub(r'<div class="hidden sm:flex items-center">\1', html)
-    # the server fills the base URL in from the request that asked for the page
-    html, n = re.subn(r"https://YOUR-HOST", "{{BASE_URL}}", html)
-    assert n == 0, (page, "a YOUR-HOST placeholder survived", n)
+FOOT = f'''<footer class="foot">
+  <div class="wrap">
+    <div class="l"><b>DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <nav aria-label="Project">
+      <a href="{REPO}" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="{REPO}/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+      <a href="{REPO}#readme" target="_blank" rel="noopener noreferrer">Contribute</a>
+    </nav>
+  </div>
+</footer>'''
+
+
+def build(page: str, css: str, js: str, picker: str) -> str:
+    html = (SRC / f"{page}.html").read_text(encoding="utf-8")
+    for name, draw in DIAGRAMS.items():
+        html = html.replace(f"<!--SVG:{name}-->", draw())
+    assert "<!--SVG:" not in html, (page, "an unknown diagram marker")
+    for marker, value in (("<!--STYLE-->", f"<style>\n{css}\n  </style>"),
+                          ("<!--NAV-->", nav(page)),
+                          ("<!--FOOT-->", FOOT),
+                          ("<!--PICKER-->", picker if page == "connect" else ""),
+                          ("<!--SCRIPT-->", f"<script>\n{js}\n</script>")):
+        assert html.count(marker) == (1 if marker != "<!--PICKER-->" or page == "connect" else 0) \
+            or marker == "<!--PICKER-->", (page, marker)
+        html = html.replace(marker, value)
+    # what must hold for every served page
+    assert "<script src=" not in html, (page, "an external script")
+    assert "{{VERSION}}" in html, (page, "version chip placeholder")
     assert ("{{BASE_URL}}" in html) == (page == "connect"), (page, "base url placeholder")
-    # the server fills the version in from the package
-    html, n = re.subn(r"(?<![\w.])v\d+\.\d+\.\d+(?![\w.])", "v{{VERSION}}", html)
-    assert n == 1, (page, "version chip", n)
     assert 'href="#"' not in html, (page, "unresolved href")
-    return html
-
-
-def compile_tailwind(page: str, html: str, work: pathlib.Path) -> str:
-    """Replace the play-CDN with a compiled, inlined stylesheet.
-
-    Each page carries its own `tailwind.config`, and they do not agree on
-    names (`brand.surface` differs between two of them), so each is compiled
-    against its own config rather than a merge.
-    """
-    m = re.search(r"tailwind\.config\s*=\s*(\{.*?\})\s*</script>", html, re.S)
-    assert m, (page, "no tailwind.config")
-    src = work / f"{page}.src.html"
-    src.write_text(html, encoding="utf-8")
-    cfg = work / f"{page}.config.cjs"
-    cfg.write_text(f"module.exports = Object.assign({m.group(1)}, "
-                   f"{{ content: [{src.as_posix()!r}] }});\n", encoding="utf-8")
-    (work / "in.css").write_text("@tailwind base;\n@tailwind components;\n@tailwind utilities;\n",
-                                 encoding="utf-8")
-    out = work / f"{page}.css"
-    r = subprocess.run(["npx", "-y", TAILWIND, "-c", str(cfg), "-i", str(work / "in.css"),
-                        "-o", str(out), "--minify"], capture_output=True, text=True,
-                       shell=sys.platform == "win32")
-    if r.returncode:
-        sys.exit(f"tailwind failed for {page}:\n{r.stdout}\n{r.stderr}")
-    css = out.read_text(encoding="utf-8")
-    html, n1 = re.subn(r'\s*<script src="https://cdn\.tailwindcss\.com"></script>', "", html)
-    html, n2 = re.subn(r"\s*<script>\s*tailwind\.config\s*=.*?</script>", "", html, flags=re.S)
-    assert n1 == 1 and n2 == 1, (page, "cdn/config removal", n1, n2)
-    html = html.replace("</head>", f"  <style>{css}</style>\n</head>", 1)
-    # Self-contained means nothing fetched from elsewhere: the page's own
-    # inline script (the client picker on /connect) is part of the page.
-    assert "<script src=" not in html, (page, "an external script survived")
+    assert "YOUR-HOST" not in html, (page, "host placeholder")
     return html
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(__doc__)
-        return 2
-    exports = pathlib.Path(sys.argv[1]).resolve()
-    work = exports / "_build"
-    work.mkdir(exist_ok=True)
+    css = (SRC / "site.css").read_text(encoding="utf-8")
+    js = (SRC / "site.js").read_text(encoding="utf-8")
+    picker = (SRC / "picker.html").read_text(encoding="utf-8")
     SITE.mkdir(exist_ok=True)
-    for page, served in PAGES.items():
-        html = (exports / f"{page}.html").read_text(encoding="utf-8")
-        html = compile_tailwind(page, normalise(page, html), work)
-        (SITE / f"{served}.html").write_text(html, encoding="utf-8")
-        print(f"{served}.html  {len(html):,} bytes")
+    for page in PAGES:
+        html = build(page, css, js, picker)
+        (SITE / f"{page}.html").write_text(html, encoding="utf-8")
+        print(f"{page}.html  {len(html):,} bytes")
     return 0
 
 
