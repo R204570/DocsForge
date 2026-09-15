@@ -406,6 +406,51 @@ def test_deleting_one_version_leaves_the_others(store):
     assert store.technologies()[1] == 0
 
 
+def test_the_suite_stays_off_the_developers_database_after_app_is_imported():
+    """2026-09-15: `app.py` re-reads `.env` on import, several tests import it
+    mid-session, and conftest had *popped* DOCSFORGE_DB -- so from that moment
+    the developer's real DSN was back, and the first lazily built store after
+    it was the production database. Kept empty instead, `load_dotenv` leaves
+    it alone. Trivially true on a machine with no `.env`; the guard is for
+    the one that has."""
+    from docsforge.server import app  # noqa: F401  -- the re-read
+
+    assert os.environ.get("DOCSFORGE_DB", "") == ""
+    assert os.environ.get("DATABASE_URL", "") == ""
+    assert build_store().kind == "files"
+
+
+# ── harvest records live in the store every instance shares ─────
+def test_postgres_keeps_harvest_records():
+    """`harvest_jobs` publishes each harvest's status here so that a second
+    instance -- another Vercel function, another machine -- can report it."""
+    store = _pg_or_skip()
+    record = {"id": "effect-1", "label": "effect", "state": "running",
+              "phase": "harvesting", "pages": 7, "expected": 20,
+              "updated": 1000.0, "result": ""}
+    store.publish_harvest(record)
+    assert [r["id"] for r in store.harvests()] == ["effect-1"]
+
+    store.publish_harvest({**record, "state": "done", "pages": 20, "updated": 1001.0})
+    (row,) = store.harvests()
+    assert row["state"] == "done" and row["pages"] == 20, "the same id is replaced, not duplicated"
+
+    store.forget_harvest("effect-1")
+    assert store.harvests() == []
+
+
+def test_the_store_is_the_ledger_only_when_it_is_a_database(tmp_path):
+    from docsforge.tools import forge_tools as ft
+    from docsforge.tools import harvest_jobs
+
+    ft.reset_store(FileStore(tmp_path))
+    assert harvest_jobs.SHARED() is None, "files already reach every process on this machine"
+
+    pg = _pg_or_skip()
+    ft.reset_store(pg)
+    assert harvest_jobs.SHARED() is pg
+
+
 # ── postgres specifics ───────────────────────────────────
 def test_postgres_ranks_content_matches():
     store = _pg_or_skip()

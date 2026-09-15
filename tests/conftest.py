@@ -26,6 +26,18 @@ _PRODUCTION_VARS = ("DOCSFORGE_DB", "DATABASE_URL", "DOCSFORGE_KB_ROOT",
                     "DOCSFORGE_OUT_ROOT", "DOCSFORGE_SEARCH",
                     "DOCSFORGE_MAX_CHARS")
 
+#: The ones to leave *set to nothing* rather than absent. `load_dotenv` never
+#: overrides a variable that is set, even to an empty string -- and `app.py`
+#: re-reads `.env` whenever a test imports it, which several do mid-session.
+#: Popped, the developer's real DSN was back in the environment from that
+#: moment on, and the first code path after it to build a store lazily
+#: (harvest status records, 2026-09-15) connected to the production database
+#: from inside the suite. Every variable here is read through `or`/`strip()`,
+#: so empty means "not configured"; the two left out are import-time
+#: constants an empty value would break, and a re-read cannot reach them.
+_KEEP_EMPTY = ("DOCSFORGE_DB", "DATABASE_URL", "DOCSFORGE_KB_ROOT",
+               "DOCSFORGE_SEARCH")
+
 
 @pytest.fixture(autouse=True)
 def _isolate_resolution_memory(tmp_path, monkeypatch):
@@ -50,7 +62,11 @@ def _isolate_resolution_memory(tmp_path, monkeypatch):
 def _isolate_storage_env():
     """Keep the suite off whatever the developer has configured for real use."""
     saved = {k: os.environ.pop(k, None) for k in _PRODUCTION_VARS}
+    for key in _KEEP_EMPTY:
+        os.environ[key] = ""
     yield
+    for key in _KEEP_EMPTY:
+        os.environ.pop(key, None)
     for key, value in saved.items():
         if value is not None:
             os.environ[key] = value

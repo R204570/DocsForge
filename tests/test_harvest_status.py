@@ -185,6 +185,35 @@ def test_a_harvest_whose_process_died_is_reported_as_stopped(kb):
     assert "**running**" not in out
 
 
+def test_a_harvest_that_failed_on_another_instance_is_reported(kb, monkeypatch):
+    """Live on Vercel, 2026-09-15: `harvest_status()` listed `markdownify-1`
+    as failed, and two calls later -- on another instance -- said nothing had
+    finished, failed or stopped in fifteen minutes. The record is now in the
+    store every instance shares, and the tool reads it from there."""
+    class Ledger:
+        rows = {"markdownify-1": {
+            "id": "markdownify-1", "label": "markdownify", "state": FAILED,
+            "phase": "resolving", "url": "", "pages": 0, "expected": None,
+            "started": time.time() - 3, "updated": time.time(),
+            "finished": time.time(), "pid": 7, "result": "",
+            "error": "OSError: [Errno 16] Device or resource busy "
+                     "(at engine.py:396 in _resolves_private)"}}
+
+        def publish_harvest(self, record): self.rows[record["id"]] = record
+        def harvests(self): return list(self.rows.values())
+        def forget_harvest(self, job_id): self.rows.pop(job_id, None)
+
+    monkeypatch.setattr(harvest_jobs, "SHARED", lambda: Ledger())
+    assert not list(harvest_jobs.state_dir().glob("*.json")), "nothing on this machine"
+
+    out = ft.tool_harvest_status()
+    assert "markdownify-1" in out and "FAILED" in out
+    assert "none finished, failed or stopped" not in out
+
+    out = ft.tool_harvest_status("markdownify-1")
+    assert "**failed**" in out and "Errno 16" in out
+
+
 # ── waiting ──────────────────────────────────────────────────
 def test_wait_returns_as_soon_as_the_harvest_settles(kb):
     job, gate = _held()

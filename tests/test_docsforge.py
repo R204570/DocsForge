@@ -434,6 +434,43 @@ def test_guard_allows_loopback_when_opted_in():
         f.close()
 
 
+def test_guard_lets_the_request_report_a_name_the_resolver_cannot_answer(monkeypatch):
+    """Live on Vercel, 2026-09-15: `detect_source_type` on a real host answered
+    normally, and on `https://nope-91827.example.com/` answered
+    `OSError: [Errno 16] Device or resource busy (at engine.py:396 in
+    _resolves_private)`. That runtime reports a name it cannot resolve as
+    `EAI_SYSTEM` (a plain OSError) rather than `EAI_NONAME` (a gaierror), and
+    the guard caught only the latter — so `find_docs`, which probes guessed
+    domains that mostly do not exist, died on its first miss before any fetch.
+    A lookup the guard cannot complete is not a private address: the request
+    that follows repeats the lookup and reports the real error."""
+    def busy(host, *args, **kwargs):
+        raise OSError(16, "Device or resource busy")
+    monkeypatch.setattr(df.socket, "getaddrinfo", busy)
+
+    f = df.Fetcher(df.Options(verbose=False, allow_private=False))
+    try:
+        f.guard("https://nope-91827.example.com/")       # must not raise
+        assert df._private_address_of("nope-91827.example.com") == ""
+    finally:
+        f.close()
+
+
+def test_guard_still_refuses_a_private_answer_when_lookups_are_flaky(monkeypatch):
+    """Tolerating a failed lookup must not tolerate a private one: the same
+    guard, given an answer, judges it exactly as before."""
+    def private(host, *args, **kwargs):
+        return [(2, 1, 6, "", ("10.0.0.7", 0))]
+    monkeypatch.setattr(df.socket, "getaddrinfo", private)
+
+    f = df.Fetcher(df.Options(verbose=False, allow_private=False))
+    try:
+        with pytest.raises(df.ForgeError, match="resolves to 10.0.0.7"):
+            f.guard("https://intranet.example/")
+    finally:
+        f.close()
+
+
 def test_guard_rejects_non_http_schemes():
     f = df.Fetcher(df.Options(verbose=False, allow_private=True))
     try:
