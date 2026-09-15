@@ -389,21 +389,44 @@ def _is_private_address(ip) -> bool:
                 or ip.is_reserved or ip.is_multicast or ip.is_unspecified)
 
 
-def _resolves_private(host: str) -> bool:
+def _addresses(host: str) -> list:
+    """Every address `host` resolves to, or nothing when the lookup itself
+    could not be completed. The request that follows performs the same lookup
+    and reports whatever it finds, which is the real error.
+
+    `OSError`, not only `socket.gaierror`. A name the resolver does not know
+    normally comes back as `EAI_NONAME`, which CPython raises as `gaierror`;
+    a resolver that fails *systemically* answers `EAI_SYSTEM` instead, and
+    CPython raises that as a plain `OSError` carrying the libc errno. Vercel's
+    runtime answers the latter for every name that does not exist —
+    `[Errno 16] Device or resource busy` — and since `find_docs` probes
+    guessed domains that mostly do not exist, the first miss crashed the whole
+    resolution before a single page was fetched, while a URL to a real host
+    went through untouched. Locally the same miss is a `gaierror`, which is
+    why no test saw it.
+
+    Catching the parent class opens nothing: the request's own lookup goes
+    through the same resolver a moment later, so a name this could not
+    resolve is a name it cannot connect to either, and an address that does
+    come back is still judged exactly as before.
+    """
     if not host:
-        return False
+        return []
     try:
         infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return False  # let the actual request produce the real error
+    except OSError:                 # gaierror is one of these; EAI_SYSTEM is another
+        return []
+    out = []
     for info in infos:
         try:
-            ip = ipaddress.ip_address(info[4][0])
+            out.append(ipaddress.ip_address(info[4][0]))
         except ValueError:
             continue
-        if _is_private_address(ip):
-            return True
-    return False
+    return out
+
+
+def _resolves_private(host: str) -> bool:
+    return any(_is_private_address(ip) for ip in _addresses(host))
 
 
 def _private_address_of(host: str) -> str:
@@ -414,18 +437,7 @@ def _private_address_of(host: str) -> str:
     in the site, and the one fact that distinguishes them — what the name
     actually resolved to — was the one thing not reported.
     """
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return ""
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if _is_private_address(ip):
-            return str(ip)
-    return ""
+    return next((str(ip) for ip in _addresses(host) if _is_private_address(ip)), "")
 
 
 # ─────────────────────────────────────────────────────────────

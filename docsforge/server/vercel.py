@@ -16,9 +16,12 @@ the MCP endpoint at `/mcp` behind the bearer token. Same routes as
   Large harvests are done from a long-lived DocsForge — `python main.py` on
   any machine — pointed at the same database; they are readable here at once.
 
-* **Only /tmp is writable.** The caches DocsForge keeps on disk (harvest
-  status, resolution cache, selection policy, logs) go there. They are
-  caches; losing them costs nothing but a repeat lookup.
+* **Only /tmp is writable, and only by this instance.** The caches DocsForge
+  keeps on disk (harvest status, resolution cache, selection policy, logs)
+  go there. They are caches; losing them costs nothing but a repeat lookup.
+  Harvest status also goes to the database, because two requests are not
+  promised the same instance either: a harvest that failed on one was
+  invisible from the next until the record went where the pages go.
 
 Configuration is the platform's environment, never a file:
 

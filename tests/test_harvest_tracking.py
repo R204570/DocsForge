@@ -8,6 +8,7 @@ not the panel, not the log, not the tool — and then the documentation appeared
 in DocsStore some minutes later as though from nowhere.
 """
 import json
+import threading
 import time
 
 import pytest
@@ -17,7 +18,11 @@ from docsforge.tools.harvest_jobs import DONE, FAILED, RUNNING, STALLED, Job, Pr
 
 
 @pytest.fixture(autouse=True)
-def _clean():
+def _clean(monkeypatch):
+    # These test the module, not the store: no ledger unless a test wires
+    # one in. The hook the tool layer installs builds the knowledge-base
+    # store lazily, and a module test has no business doing that.
+    monkeypatch.setattr(harvest_jobs, "SHARED", lambda: None)
     harvest_jobs.clear()
     yield
     harvest_jobs.clear()
@@ -386,3 +391,168 @@ def test_a_forge_error_inside_the_harvest_thread_keeps_its_own_words():
     job = harvest_jobs.start("x", work)
     harvest_jobs.wait(job, seconds=5)
     assert job.state == FAILED and job.error == "nothing verified for 'x'"
+
+
+# ── a record reaches every instance that shares the store ──────
+# Found on Vercel, 2026-09-15. `harvest_status()` listed `markdownify-1` as
+# failed; two calls later the same query answered "none finished, failed or
+# stopped in the last 15 minutes". Nothing had expired -- the second call
+# landed on another instance, with its own /tmp and its own memory. A record
+# on disk reaches every process on one machine; these are what it takes to
+# reach every instance on one database.
+
+class FakeLedger:
+    """What another instance can see: rows in the shared store, not files."""
+
+    def __init__(self):
+        self.rows: dict[str, dict] = {}
+        self.published = 0
+
+    def publish_harvest(self, record: dict) -> None:
+        self.rows[record["id"]] = dict(record)
+        self.published += 1
+
+    def harvests(self) -> list[dict]:
+        return [dict(row) for row in self.rows.values()]
+
+    def forget_harvest(self, job_id: str) -> None:
+        self.rows.pop(job_id, None)
+
+
+def _row(**fields) -> dict:
+    """A record as another *instance* left it in the ledger -- never on disk."""
+    data = {
+        "id": "markdownify-1", "label": "markdownify", "state": FAILED,
+        "phase": "resolving", "url": "", "pages": 0, "expected": None,
+        "started": time.time() - 3, "updated": time.time(),
+        "finished": time.time(), "pid": 7,
+        "error": "OSError: [Errno 16] Device or resource busy "
+                 "(at engine.py:396 in _resolves_private)",
+        "result": "",
+    }
+    data.update(fields)
+    return data
+
+
+@pytest.fixture
+def ledger(monkeypatch):
+    shared = FakeLedger()
+    monkeypatch.setattr(harvest_jobs, "SHARED", lambda: shared)
+    return shared
+
+
+def test_a_harvest_that_failed_on_another_instance_is_reported(ledger):
+    ledger.rows["markdownify-1"] = _row()
+    assert not harvest_jobs._JOBS, "this process started nothing"
+    assert not list(harvest_jobs.state_dir().glob("*.json")), "and holds no file"
+
+    recent = harvest_jobs.recent()
+    assert [j.id for j in recent] == ["markdownify-1"]
+    assert recent[0].state == FAILED and recent[0].mine is False
+    assert harvest_jobs.get("markdownify-1").error.startswith("OSError: [Errno 16]")
+    assert "FAILED" in recent[0].line()
+
+
+def test_a_harvest_running_on_another_instance_is_reported_and_then_stalls(ledger):
+    ledger.rows["effect-1"] = _row(id="effect-1", label="effect", state=RUNNING,
+                                   phase="harvesting", pages=7, expected=20,
+                                   finished=0.0, error="")
+    assert [j.id for j in harvest_jobs.running()] == ["effect-1"]
+
+    ledger.rows["effect-1"]["updated"] = time.time() - harvest_jobs.STALE_AFTER - 1
+    assert not harvest_jobs.running()
+    assert harvest_jobs.get("effect-1").state == STALLED
+
+
+def test_a_job_here_is_published_to_the_ledger_as_it_runs_and_when_it_ends(ledger):
+    gate = threading.Event()
+
+    def work(progress: Progress) -> str:
+        progress.phase = "harvesting"
+        gate.wait(5)
+        return "stored 3 pages"
+
+    job = harvest_jobs.start("effect", work)
+    try:
+        assert ledger.rows[job.id]["state"] == RUNNING, "visible before it ends"
+        for _ in range(40):                      # the worker is a thread; give it a moment
+            if ledger.rows[job.id]["phase"] == "harvesting":
+                break
+            time.sleep(0.05)
+        assert ledger.rows[job.id]["phase"] == "harvesting",             "a phase move is pushed at once, not on the next heartbeat"
+    finally:
+        gate.set()
+    assert harvest_jobs.wait(job, 5)
+
+    row = ledger.rows[job.id]
+    assert row["state"] == DONE and row["result"] == "stored 3 pages"
+
+
+def test_a_failure_here_is_published_with_its_reason(ledger):
+    def work(progress: Progress) -> str:
+        raise OSError(16, "Device or resource busy")
+
+    job = harvest_jobs.start("markdownify", work)
+    assert harvest_jobs.wait(job, 5)
+    assert ledger.rows[job.id]["state"] == FAILED
+    assert ledger.rows[job.id]["error"].startswith("OSError: [Errno 16]")
+
+
+def test_the_fresher_copy_of_a_record_is_believed(ledger):
+    """A harvest run here is in both places, one heartbeat apart at most."""
+    now = time.time()
+    _write_record(id="effect-1", pages=7, updated=now - 5)
+    ledger.rows["effect-1"] = _row(id="effect-1", label="other", state=RUNNING,
+                                   phase="harvesting", pages=9, expected=20,
+                                   finished=0.0, error="", updated=now)
+    assert harvest_jobs.running()[0].progress.pages == 9
+
+    _write_record(id="effect-1", pages=11, updated=now + 1)
+    assert harvest_jobs.running()[0].progress.pages == 11
+
+
+def test_ids_do_not_collide_with_another_instances_harvest(ledger):
+    ledger.rows["effect-1"] = _row(id="effect-1", label="effect")
+    job = harvest_jobs.start("effect", lambda p: "ok")
+    assert harvest_jobs.wait(job, 5)
+    assert job.id == "effect-2"
+    assert set(ledger.rows) == {"effect-1", "effect-2"}, "neither overwrote the other"
+
+
+def test_an_expired_ledger_record_is_swept(ledger):
+    gone = time.time() - harvest_jobs.KEEP_RECORDS_FOR - 1
+    ledger.rows["old-1"] = _row(id="old-1", state=DONE, finished=gone, updated=gone)
+    assert harvest_jobs.recent() == []
+    assert "old-1" not in ledger.rows
+
+
+def test_clear_empties_the_ledger_too(ledger):
+    ledger.rows["markdownify-1"] = _row()
+    harvest_jobs.clear()
+    assert ledger.rows == {}
+
+
+def test_a_ledger_that_fails_never_fails_a_harvest(monkeypatch):
+    class Broken:
+        def publish_harvest(self, record):
+            raise RuntimeError("database gone")
+
+        def harvests(self):
+            raise RuntimeError("database gone")
+
+        def forget_harvest(self, job_id):
+            raise RuntimeError("database gone")
+
+    monkeypatch.setattr(harvest_jobs, "SHARED", lambda: Broken())
+    job = harvest_jobs.start("effect", lambda p: "ok")
+    assert harvest_jobs.wait(job, 5)
+    assert job.state == DONE and job.result == "ok"
+    assert [j.id for j in harvest_jobs.recent()] == [job.id], "still reported from here"
+
+
+def test_a_hook_that_raises_means_no_ledger(monkeypatch):
+    def boom():
+        raise RuntimeError("store not configured")
+    monkeypatch.setattr(harvest_jobs, "SHARED", boom)
+    _write_record()
+    assert [j.id for j in harvest_jobs.running()] == ["other-1"]

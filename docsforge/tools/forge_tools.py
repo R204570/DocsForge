@@ -224,6 +224,25 @@ def reset_store(new=None):
     return _STORE
 
 
+def _shared_ledger():
+    """The knowledge-base store, when harvest records can live in it.
+
+    A database is read by every DocsForge pointed at it; a directory of files
+    is read by the processes on one machine. Found on Vercel: each instance
+    has its own `/tmp`, so a harvest that failed on one instance was listed
+    by `harvest_status` once and denied by the next instance to answer. The
+    record now goes where the pages go, and `harvest_jobs` reads it back from
+    there through this hook -- through `store()`, not a cached backend, so a
+    database that was down at startup starts receiving records the moment
+    it is back.
+    """
+    backend = store()
+    return backend if hasattr(backend, "harvests") else None
+
+
+harvest_jobs.SHARED = _shared_ledger
+
+
 # A single fetch_docs call should not be able to start an open-ended crawl by
 # accident, so it keeps a ceiling. A harvest is explicitly asking for the whole
 # manual, and any page count there is a guess at how big someone else's

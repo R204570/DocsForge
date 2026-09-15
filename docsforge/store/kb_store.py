@@ -644,6 +644,20 @@ create table if not exists section (
 
 create index if not exists section_search_idx on section using gin (search);
 create index if not exists section_page_idx on section (page_id, ordinal);
+
+-- Harvest status records, shared by every process that shares this store.
+-- The JSON records under DOCSFORGE_HARVEST_STATE reach every process on one
+-- machine; a serverless host gives each instance its own /tmp, so a harvest
+-- that failed on one instance was invisible from the next -- harvest_status
+-- listed it once and then reported that nothing had run. Status, not state:
+-- nothing is ever resumed from a row, and one whose heartbeat stopped reads
+-- as stalled. `updated` is the record's own clock, epoch seconds, so a reader
+-- can tell the fresher of two copies of the same harvest without parsing.
+create table if not exists harvest (
+    id       text primary key,
+    updated  double precision not null,
+    record   jsonb not null
+);
 """
 
 
@@ -848,6 +862,36 @@ class PostgresStore:
                     (tech, version)).rowcount
             cx.commit()
         return n
+
+    # -- harvest status -----------------------------------------
+    # The store is the one thing every DocsForge on a database has in common,
+    # which makes it the one place a harvest's status can be read from all of
+    # them. `harvest_jobs` writes through these and never depends on them
+    # succeeding: a status row that could not be written costs a stale line,
+    # not a harvest.
+    def publish_harvest(self, record: dict) -> None:
+        from psycopg.types.json import Jsonb
+
+        self.migrate()
+        with self._connect() as cx:
+            cx.execute(
+                "insert into harvest (id, updated, record) values (%s, %s, %s) "
+                "on conflict (id) do update "
+                "   set updated = excluded.updated, record = excluded.record",
+                (str(record["id"]), float(record.get("updated") or 0.0), Jsonb(record)))
+            cx.commit()
+
+    def harvests(self) -> list[dict]:
+        self.migrate()
+        with self._connect() as cx:
+            rows = cx.execute("select record from harvest order by updated desc").fetchall()
+        return [row[0] for row in rows]
+
+    def forget_harvest(self, job_id: str) -> None:
+        self.migrate()
+        with self._connect() as cx:
+            cx.execute("delete from harvest where id = %s", (job_id,))
+            cx.commit()
 
     # -- reading ------------------------------------------------
     def technologies(self, offset: int = 0, limit: int | None = None,

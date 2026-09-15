@@ -32,6 +32,15 @@ on a heartbeat while it runs, and every process reads all of them. The record is
 status, not state: nothing is ever resumed from it, and when its heartbeat stops
 it is reported **stalled**, never "running". A record that outlives its process
 is a record whose process died, and saying so is the whole point.
+
+A file reaches every process on one machine and no further. A serverless host
+gives each instance its own `/tmp`, so on Vercel a harvest that failed on one
+instance was listed by `harvest_status` once and, two calls later on another
+instance, "none finished, failed or stopped in the last 15 minutes" — the same
+lie, one machine wider. So the same record also goes to the **shared ledger**
+when there is one: the knowledge-base store, which is the one thing every
+DocsForge on a database has in common. The tool layer wires it in (`SHARED`);
+this module reads both and believes the fresher copy.
 """
 
 from __future__ import annotations
@@ -45,7 +54,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from docsforge.core.engine import ForgeError
 
@@ -75,6 +84,33 @@ STALE_AFTER = 30.0
 KEEP_RECORDS_FOR = 900.0
 
 RUNNING, DONE, FAILED, STALLED = "running", "done", "failed", "stalled"
+
+
+class Ledger(Protocol):
+    """Where records are shared beyond this machine — see `SHARED`."""
+
+    def publish_harvest(self, record: dict) -> None: ...
+    def harvests(self) -> list[dict]: ...
+    def forget_harvest(self, job_id: str) -> None: ...
+
+
+#: Returns the shared ledger, or None when records stay on this machine. Set
+#: by the tool layer to hand back the knowledge-base store when that store is
+#: a database (`PostgresStore` implements `Ledger`; a directory of files is
+#: already what the records under `state_dir()` are, so a file store adds
+#: nothing). A callable rather than an object because the store is built
+#: lazily and can be swapped — a database that was down at startup and came
+#: back must start receiving records without anyone re-wiring this.
+SHARED: Callable[[], Ledger | None] = lambda: None
+
+
+def _shared() -> Ledger | None:
+    """The ledger, or None. Never raises: status must not fail a harvest, and
+    an unreachable database is the store's to report, not this module's."""
+    try:
+        return SHARED()
+    except Exception:                              # noqa: BLE001
+        return None
 
 
 def state_dir() -> Path:
@@ -259,6 +295,12 @@ def _publish(job: Job) -> None:
         os.replace(tmp, path)
     except Exception:                              # noqa: BLE001
         pass
+    ledger = _shared()
+    if ledger is not None:
+        try:
+            ledger.publish_harvest(job.as_dict())
+        except Exception:                          # noqa: BLE001
+            pass
 
 
 def _forget_record(job_id: str) -> None:
@@ -266,6 +308,12 @@ def _forget_record(job_id: str) -> None:
         _record_path(job_id).unlink(missing_ok=True)
     except Exception:                              # noqa: BLE001
         pass
+    ledger = _shared()
+    if ledger is not None:
+        try:
+            ledger.forget_harvest(job_id)
+        except Exception:                          # noqa: BLE001
+            pass
 
 
 def _job_from_record(data: dict) -> Job | None:
@@ -300,8 +348,14 @@ def _job_from_record(data: dict) -> Job | None:
     return job
 
 
-def _records() -> list[Job]:
-    """Every other process's jobs, and a sweep of the expired ones."""
+def _expired(job: Job, now: float) -> bool:
+    """A finished record nobody will ask about any more."""
+    settled = job.finished or job.updated
+    return bool(job.state != RUNNING and settled and now - settled > KEEP_RECORDS_FOR)
+
+
+def _disk_records() -> list[Job]:
+    """This machine's records, and a sweep of the expired ones."""
     directory = state_dir()
     out: list[Job] = []
     try:
@@ -318,8 +372,7 @@ def _records() -> list[Job]:
         job = _job_from_record(data)
         if job is None:
             continue
-        settled = job.finished or job.updated
-        if job.state != RUNNING and settled and now - settled > KEEP_RECORDS_FOR:
+        if _expired(job, now):
             try:
                 path.unlink(missing_ok=True)
             except Exception:                      # noqa: BLE001
@@ -327,6 +380,52 @@ def _records() -> list[Job]:
             continue
         out.append(job)
     return out
+
+
+def _rows_of(ledger: Ledger) -> list[dict]:
+    """Every record in the ledger, expired ones included — or nothing, when
+    it cannot be read."""
+    try:
+        return [row for row in ledger.harvests() if isinstance(row, dict)]
+    except Exception:                              # noqa: BLE001
+        return []
+
+
+def _shared_records() -> list[Job]:
+    """The ledger's records, and a sweep of the expired ones."""
+    ledger = _shared()
+    if ledger is None:
+        return []
+    out: list[Job] = []
+    now = time.time()
+    for data in _rows_of(ledger):
+        job = _job_from_record(data)
+        if job is None:
+            continue
+        if _expired(job, now):
+            try:
+                ledger.forget_harvest(job.id)
+            except Exception:                      # noqa: BLE001
+                pass
+            continue
+        out.append(job)
+    return out
+
+
+def _records() -> list[Job]:
+    """Every other process's jobs — this machine's records and the shared
+    ledger's — and a sweep of the expired ones.
+
+    A harvest run here is in both, and the two copies can differ by one
+    heartbeat; a harvest run on another instance is only in the ledger. The
+    fresher copy is believed either way, which is what `updated` is for.
+    """
+    seen: dict[str, Job] = {}
+    for job in _disk_records() + _shared_records():
+        held = seen.get(job.id)
+        if held is None or job.updated > held.updated:
+            seen[job.id] = job
+    return list(seen.values())
 
 
 def _merged() -> list[Job]:
@@ -361,7 +460,13 @@ def _new_id(label: str) -> str:
                 taken.add(int(suffix))
     except Exception:                              # noqa: BLE001
         pass
-    taken |= {int(k.rsplit("-", 1)[-1]) for k in _JOBS
+    # And whatever another instance has published to the ledger, expired rows
+    # included: two instances that both mint `markdownify-1` overwrite each
+    # other's record, which is the collision the counter exists to prevent.
+    ledger = _shared()
+    known = list(_JOBS) + [str(row.get("id") or "")
+                           for row in (_rows_of(ledger) if ledger is not None else [])]
+    taken |= {int(k.rsplit("-", 1)[-1]) for k in known
               if k.startswith(f"{safe}-") and k.rsplit("-", 1)[-1].isdigit()}
 
     number = _COUNTER
@@ -702,3 +807,10 @@ def clear() -> None:
             path.unlink(missing_ok=True)
     except Exception:                              # noqa: BLE001
         pass
+    ledger = _shared()
+    if ledger is not None:
+        for row in _rows_of(ledger):
+            try:
+                ledger.forget_harvest(str(row.get("id") or ""))
+            except Exception:                      # noqa: BLE001
+                pass

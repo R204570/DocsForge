@@ -892,9 +892,10 @@ What a serverless host changes, and the code says so rather than pretending:
   the same `DOCSFORGE_DB` — and are readable through Vercel at once. Raise the
   deadline (to below `maxDuration`, 300 s by default here) if your client
   waits that long on a tool call.
-- **Only `/tmp` is writable.** Caches (harvest status, resolution cache,
-  logs) go there and are lost between instances; that costs a repeat lookup,
-  nothing more.
+- **Only `/tmp` is writable, per instance.** Caches (resolution cache, logs)
+  go there and are lost between instances; that costs a repeat lookup,
+  nothing more. Harvest status is kept in the database as well, so
+  `harvest_status` answers the same from whichever instance takes the call.
 - **Misconfiguration is visible.** With no database or no token the site
   still serves and `/mcp` answers `503` with the reason; `/health` reports
   `degraded` when the configured database could not be reached.

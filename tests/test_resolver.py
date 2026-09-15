@@ -371,6 +371,44 @@ def test_remember_files_nothing_when_nothing_was_learned(tmp_path, monkeypatch):
     assert "mojo" in saved, "a real refusal is still filed"
 
 
+# ── a guessed domain that does not exist is a miss, not a crash ─────
+# Live on Vercel, 2026-09-15: `find_docs("markdownify")` and
+# `learn_technology` answered `OSError: [Errno 16] Device or resource busy
+# (at engine.py:396 in _resolves_private)` at 0s, in resolution, before any
+# fetch — while `detect_source_type` on a real host worked. That runtime
+# reports a name it cannot resolve as EAI_SYSTEM, a plain OSError, and the
+# guard caught only gaierror; the domain lap's first nonexistent guess took
+# the whole resolution down with it.
+def test_a_guessed_domain_that_does_not_exist_is_skipped_not_fatal(monkeypatch):
+    import requests
+    from docsforge.core import engine
+
+    def busy(host, *args, **kwargs):
+        raise OSError(16, "Device or resource busy")
+    monkeypatch.setattr(engine.socket, "getaddrinfo", busy)
+
+    fetcher = engine.Fetcher(engine.Options(delay=0.0, verbose=False,
+                                            allow_private=False))
+    asked = []
+
+    def unreachable(url, **kwargs):
+        # What requests says when its own lookup fails the same way.
+        asked.append(url)
+        raise requests.ConnectionError(
+            f"Failed to establish a new connection to {url}: "
+            f"[Errno 16] Device or resource busy")
+    monkeypatch.setattr(fetcher.session, "get", unreachable)
+
+    try:
+        got = resolver._probe_origins(
+            [("org", "https://markdownify.org"), ("dev", "https://markdownify.dev")],
+            "markdownify", fetcher)
+    finally:
+        fetcher.close()
+    assert got == []
+    assert asked == ["https://markdownify.org", "https://markdownify.dev"],         "every guess was tried; the first miss did not end the lap"
+
+
 # --- A redirect onto a code host is not an ownership claim -------------------
 #
 # Live regression. `mojo.dev` redirects onto `github.com/gdejohn/procrastination`
