@@ -1106,10 +1106,12 @@ def tool_list_knowledge_base() -> str:
     flight = _in_flight()
 
     if not techs:
-        return flight + ("Nothing is stored yet. Learn a technology with "
-                "`learn_technology(name=\"...\")` — you do not need a URL.")
+        return flight + (f"DocsForge build `{BUILD}` — nothing is stored yet. "
+                f"Learn a technology with "
+                f"`learn_technology(name=\"...\")` — you do not need a URL.")
 
-    lines = [f"{len(techs)} technolog{'y' if len(techs) == 1 else 'ies'} "
+    lines = [f"DocsForge build `{BUILD}` — "
+             f"{len(techs)} technolog{'y' if len(techs) == 1 else 'ies'} "
              f"stored in {backend.kind} ({backend.location}):", ""]
     for tech in techs:
         flag = _coverage_flag(tech.get("complete", True))
@@ -1129,7 +1131,54 @@ def tool_list_knowledge_base() -> str:
             lines.append(f"    versions: {labels}")
     lines += ["", "Pass `version=` to read_knowledge_base to pick one; "
                   "it defaults to the newest version stored."]
+    lines.append(_capacity_note(backend))
     return flight + "\n".join(lines)
+
+
+#: Where a store stops being roomy and starts being a deadline. A plan runs
+#: out of disk long before anyone thinks to look, and the first symptom is a
+#: harvest failing at the very end, after all the crawling is done.
+STORAGE_WARN_AT = 0.75
+
+#: What the smallest plans give you, used only when nothing says otherwise.
+#: Override with DOCSFORGE_DB_LIMIT_GB where the plan is known.
+DEFAULT_LIMIT_GB = 8.0
+
+
+def _capacity_note(backend) -> str:
+    """How much room is left, said before the database says it.
+
+    Only once it is worth saying. A line reporting 0.3% of 8 GB on every
+    listing is noise, and noise on every call is how a warning stops being
+    read.
+    """
+    try:
+        used = (backend.footprint() or {}).get("bytes") or 0
+    except Exception:                              # noqa: BLE001
+        return ""
+    if not used:
+        return ""
+    limit = float(os.environ.get("DOCSFORGE_DB_LIMIT_GB") or DEFAULT_LIMIT_GB) * 1024 ** 3
+    gb = used / 1024 ** 3
+    if used < limit * STORAGE_WARN_AT:
+        return f"\nStorage: {gb:.2f} GB of about {limit / 1024 ** 3:.0f} GB."
+    return (
+        f"\n**Storage: {gb:.2f} GB of about {limit / 1024 ** 3:.0f} GB — "
+        f"{used / limit:.0%} full.** A harvest that runs out of room fails at "
+        f"the end, after the crawling is done, so clear space or raise the "
+        f"plan before the next large one. The full-text index is most of the "
+        f"growth, not the Markdown."
+    )
+
+
+#: Which build is answering. When a fix appeared not to have landed, nothing
+#: in any tool result could distinguish "the deploy did not take" from "the
+#: fix missed the line" — the EBUSY error that persisted after a merge cost
+#: two people an afternoon of exactly that guesswork. Vercel sets this for
+#: every deployment; anywhere else it says `local`, which is equally the
+#: answer to "which build is this".
+BUILD = (os.environ.get("VERCEL_GIT_COMMIT_SHA")
+         or os.environ.get("DOCSFORGE_BUILD") or "local")[:7]
 
 
 def stored_name(name: str) -> str | None:

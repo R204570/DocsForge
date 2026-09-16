@@ -146,6 +146,14 @@ class FileStore:
     #: Nothing to share: a file store opens no connections.
     session = staticmethod(_no_session)
 
+    def footprint(self) -> dict:
+        """Bytes on disk under the store root. Best effort, like Postgres's."""
+        try:
+            total = sum(f.stat().st_size for f in self.root.rglob("*") if f.is_file())
+            return {"bytes": total}
+        except Exception:                          # noqa: BLE001
+            return {}
+
     # -- index --------------------------------------------------
     def _load(self) -> dict:
         if not self.index_path.exists():
@@ -1005,6 +1013,33 @@ class PostgresStore:
         with self._borrow() as cx:
             cx.execute("delete from harvest where id = %s", (job_id,))
             cx.commit()
+
+    # -- capacity -----------------------------------------------
+    def footprint(self) -> dict:
+        """How much room the store is using, and how much is left.
+
+        A plan runs out of disk long before anyone thinks to look, and the
+        first symptom is a harvest failing at the very end, after all the
+        crawling is done. The GIN index is the part that grows: Postgres
+        TOASTs and compresses text columns over 2 KB, so a megabyte of
+        Markdown lands well under a megabyte on disk while its index does not.
+
+        `pg_database_size` is the honest total — it counts indexes, TOAST and
+        bloat, which summing `length(content)` does not. Best effort: a
+        database that will not answer this still answers everything else, and
+        a store that cannot report its size must not fail the listing.
+        """
+        self.migrate()
+        try:
+            with self._borrow() as cx:
+                total = cx.execute("select pg_database_size(current_database())"
+                                   ).fetchone()[0]
+                indexes = cx.execute(
+                    "select coalesce(sum(pg_total_relation_size(indexrelid)), 0) "
+                    "from pg_stat_user_indexes").fetchone()[0]
+            return {"bytes": int(total), "index_bytes": int(indexes)}
+        except Exception:                          # noqa: BLE001
+            return {}
 
     # -- reading ------------------------------------------------
     def technologies(self, offset: int = 0, limit: int | None = None,

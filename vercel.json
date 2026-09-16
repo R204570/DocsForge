@@ -3,7 +3,8 @@
   "functions": {
     "docsforge/server/vercel.py": {
       "maxDuration": 300,
-      "excludeFiles": "{tests/**,scripts/**,venv/**,.venv/**,knowledge_base/**,logs/**,measurements/**,Project Development/**,docsforge/server/static/**,**/__pycache__/**,*.md.bak,shot-*.png}"
+      "excludeFiles": "{tests/**,scripts/**,venv/**,.venv/**,knowledge_base/**,logs/**,measurements/**,Project Development/**,docsforge/server/static/**,**/__pycache__/**,*.md.bak,shot-*.png}",
+      "memory": 2048
     }
   }
 }

@@ -708,3 +708,87 @@ def test_a_redirect_loop_gives_up_rather_than_spinning():
 def test_the_stub_size_bound_keeps_a_long_page_out_of_it():
     big = '<meta http-equiv="refresh" content="0; url=/b">' + ("x" * 5000)
     assert df._redirect_target(big, "https://d.dev/a") == ""
+
+
+# ── which build is answering, and how full the store is ───
+#
+# When the EBUSY fix appeared not to have landed, nothing in any tool result
+# could distinguish "the deploy did not take" from "the fix missed the line".
+# And a plan runs out of disk long before anyone thinks to look: the first
+# symptom is a harvest failing at the very end, after all the crawling.
+
+def test_the_listing_names_the_build_it_came_from(monkeypatch, tmp_path):
+    from docsforge.store.kb_store import FileStore
+    from docsforge.tools import forge_tools as ft
+    monkeypatch.setattr(ft, "BUILD", "abc1234")
+    monkeypatch.setattr(ft, "store", lambda: FileStore(tmp_path))
+    assert "build `abc1234`" in ft.tool_list_knowledge_base()
+
+
+def test_an_empty_store_still_names_the_build(monkeypatch, tmp_path):
+    """The case that matters most: "nothing is stored" is exactly the answer
+    you get from a deployment pointed at the wrong database."""
+    from docsforge.store.kb_store import FileStore
+    from docsforge.tools import forge_tools as ft
+    monkeypatch.setattr(ft, "BUILD", "abc1234")
+    monkeypatch.setattr(ft, "store", lambda: FileStore(tmp_path))
+    out = ft.tool_list_knowledge_base()
+    assert "nothing is stored yet" in out and "build `abc1234`" in out
+
+
+def test_the_build_falls_back_to_local_off_a_platform(monkeypatch):
+    import importlib
+    from docsforge.tools import forge_tools as ft
+    monkeypatch.delenv("VERCEL_GIT_COMMIT_SHA", raising=False)
+    monkeypatch.delenv("DOCSFORGE_BUILD", raising=False)
+    importlib.reload(ft)
+    assert ft.BUILD == "local"
+    importlib.reload(ft)
+
+
+def test_a_roomy_store_reports_its_size_quietly(monkeypatch):
+    from docsforge.tools import forge_tools as ft
+
+    class Store:
+        def footprint(self):
+            return {"bytes": 200 * 1024 ** 2}          # 0.2 GB of 8
+    note = ft._capacity_note(Store())
+    assert "0.20 GB" in note
+    assert "**" not in note, "a quiet line, not a warning"
+
+
+def test_a_nearly_full_store_says_so_loudly(monkeypatch):
+    from docsforge.tools import forge_tools as ft
+
+    class Store:
+        def footprint(self):
+            return {"bytes": int(7.2 * 1024 ** 3)}     # 90% of 8
+    note = ft._capacity_note(Store())
+    assert "90% full" in note
+    assert "fails at the end" in note, "say what running out actually costs"
+
+
+def test_the_plan_size_can_be_stated(monkeypatch):
+    from docsforge.tools import forge_tools as ft
+    monkeypatch.setenv("DOCSFORGE_DB_LIMIT_GB", "1")
+
+    class Store:
+        def footprint(self):
+            return {"bytes": int(0.9 * 1024 ** 3)}
+    assert "90% full" in ft._capacity_note(Store())
+
+
+def test_a_store_that_cannot_report_its_size_does_not_break_the_listing():
+    """Best effort: a database that will not answer this still answers
+    everything else."""
+    from docsforge.tools import forge_tools as ft
+
+    class Mute:
+        def footprint(self):
+            raise RuntimeError("no permission")
+
+    class Empty:
+        def footprint(self):
+            return {}
+    assert ft._capacity_note(Mute()) == ""
+    assert ft._capacity_note(Empty()) == ""
