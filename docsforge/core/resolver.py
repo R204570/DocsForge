@@ -101,6 +101,55 @@ class Resolution:
         }
 
 
+def _same_page(url: str) -> str:
+    """The key two URLs share when they are the same page.
+
+    Scheme and host are case-insensitive by the URL spec; a path is not, and
+    lowercasing one would merge `/API` with `/api` on the hosts where those
+    differ. A trailing slash never does.
+    """
+    parts = urlparse(url)
+    host = (parts.hostname or "").lower()
+    port = f":{parts.port}" if parts.port else ""
+    return (f"{parts.scheme.lower()}://{host}{port}"
+            f"{parts.path.rstrip('/')}"
+            + (f"?{parts.query}" if parts.query else ""))
+
+
+def dedupe(candidates: list[Candidate]) -> list[Candidate]:
+    """One entry per page, keeping the first and merging what the rest knew.
+
+    Every lap contributes candidates and several of them reach the same page
+    by different routes — a registry homepage and a domain guess, or two names
+    that redirect onto one site. Concatenating without merging cost twice:
+    `find_docs("pydantic")` printed each candidate twice with identical
+    confidence and evidence, and `verify` fetched each copy separately.
+
+    First wins, because callers concatenate in order of preference. What the
+    duplicate knew is not thrown away: a verdict beats "not checked yet",
+    signals are unioned, and confidence takes the higher of the two — so
+    merging can only ever sharpen the entry that survives, never blunt it.
+    """
+    merged: dict[str, Candidate] = {}
+    for cand in candidates:
+        key = _same_page(cand.url)
+        held = merged.get(key)
+        if held is None:
+            merged[key] = cand
+            continue
+        if held.verified is None and cand.verified is not None:
+            held.verified = cand.verified
+            held.reason = cand.reason or held.reason
+            held.evidence = cand.evidence or held.evidence
+            held.authority = max(held.authority, cand.authority)
+        for signal in cand.signals:
+            if signal not in held.signals:
+                held.signals.append(signal)
+        held.confidence = max(held.confidence, cand.confidence)
+        held.release = held.release or cand.release
+    return list(merged.values())
+
+
 # ─────────────────────────────────────────────────────────────
 # Names
 # ─────────────────────────────────────────────────────────────
@@ -522,6 +571,56 @@ def _indexes_only_articles(body: str, url: str) -> bool:
     return articles / len(links) >= _ARTICLE_SHARE
 
 
+#: Subdomains a project puts its documentation on, best first. Kept to two:
+#: each costs a request on every candidate host, and between them they cover
+#: what the convention actually is. `developer.` is the one large vendors use
+#: where `docs.` would have meant the company's own internal handbook.
+DOCS_SUBDOMAINS = ("docs", "developer")
+
+
+def _docs_subdomain(origin: str, fetcher: Fetcher) -> list[Candidate]:
+    """The project's documentation subdomain, if it publishes on one.
+
+    Asked before the apex's own paths, and only for a corpus it actually
+    serves: a `docs.` host that 404s, or that redirects straight back to the
+    apex, produces nothing and costs one request. What it must not do is
+    *lower* the bar — a subdomain is admitted on exactly the evidence an apex
+    path is, `_indexes_only_articles` included, because "the documentation
+    lives here" is a claim about location and not about quality.
+    """
+    host = _host(origin)
+    if not host or host.count(".") < 1:
+        return []
+    scheme = urlparse(origin).scheme or "https"
+
+    out: list[Candidate] = []
+    for label in DOCS_SUBDOMAINS:
+        if host.startswith(f"{label}."):
+            continue
+        target = f"{scheme}://{label}.{host}/llms.txt"
+        try:
+            r = fetcher.get(target, timeout=PROBE_TIMEOUT, allow_redirects=True)
+        except ForgeError:
+            continue
+        if r.status_code != 200:
+            continue
+        ctype = (r.headers.get("content-type") or "").lower()
+        if "html" in ctype:
+            continue
+        body = getattr(r, "text", "") or ""
+        if _indexes_only_articles(body, r.url):
+            continue
+        # Above the apex's own 0.95, and deliberately: both are the site
+        # describing itself for machines, and when a project publishes two the
+        # subdomain is the one scoped to the thing that was asked for.
+        out.append(Candidate(r.url, f"probe:{label}.llms.txt", 0.96,
+                             f"{target} exists and is not HTML — "
+                             f"{label}.{host} is where this project says its "
+                             f"documentation lives"))
+        break
+    return out
+
+
 def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
     """Look for a documentation root on a host the registry pointed at.
 
@@ -535,7 +634,24 @@ def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
         return []
     origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
 
+    # The documentation subdomain first, because on a company that ships more
+    # than one product the apex is the company and only the subdomain is the
+    # library. Measured 2026-09-16: `pydantic.dev/llms.txt` answers 200, this
+    # loop took it at 0.95 and broke, and `learn_technology("pydantic")`
+    # stored 24 pages of Pydantic Logfire — pricing, customer evidence, a
+    # competition winner — under the name of the validation library, at 0.97
+    # confidence with nothing in the result suggesting anything was wrong.
+    # `docs.pydantic.dev` carries the library: 2,003,603 characters against
+    # the apex dump's 684,669, and a different corpus rather than a longer one.
+    #
+    # One extra request, and only where it can change the answer: a host that
+    # already *is* the documentation host is not asked for a second one.
     out: list[Candidate] = []
+    if not _is_docs_host(origin):
+        out += _docs_subdomain(origin, fetcher)
+    if out and out[-1].confidence >= 0.95:
+        return out
+
     for path in DOC_PATHS:
         target = urljoin(origin + "/", path.lstrip("/"))
         try:
@@ -659,7 +775,7 @@ def _probe_origins(origins: list[tuple[str, str]], slug: str, fetcher: Fetcher,
     way in, and the ladder's whole claim is that more laps never mean a lower
     bar.
     """
-    live: list[tuple[int, int, str, str, str]] = []
+    live: list[tuple[int, int, str, str, str, str]] = []
     for label, origin in origins:
         try:
             r = fetcher.get(origin, timeout=DOMAIN_TIMEOUT, allow_redirects=True)
@@ -685,7 +801,8 @@ def _probe_origins(origins: list[tuple[str, str]], slug: str, fetcher: Fetcher,
         if not why:
             continue
         landed = getattr(r, "url", "") or origin
-        live.append((_domain_score(origin, landed, html, slug), text, label, landed, why))
+        live.append((_domain_score(origin, landed, html, slug), text, label,
+                     landed, why, origin))
 
     # A project can own several of these and put different things on them:
     # `kubernetes.dev` is the contributor portal and `kubernetes.io` the
@@ -693,8 +810,41 @@ def _probe_origins(origins: list[tuple[str, str]], slug: str, fetcher: Fetcher,
     # Rank on deliberate evidence first and volume of text only as a tiebreak.
     live.sort(reverse=True)
 
+    # Several of them can also be the *same* site. `pydantic.io` 301s to
+    # `pydantic.dev`, so two origins landed on one page and each was explored
+    # whole: `find_docs("pydantic")` probed `/llms.txt` twice, verified both
+    # copies, and printed every candidate twice with identical confidence and
+    # evidence. Collapse on where the request actually *landed*, not on the
+    # name that was guessed, and keep the names that redirect into it as what
+    # they are — further evidence of ownership. `explore` now bounds distinct
+    # destinations rather than guesses, so the same budget reaches further.
+    #
+    # Which of the collapsed rows is kept cannot be left to the sort. Two rows
+    # for one page score identically and hold identical text, so the tiebreak
+    # fell through to the *label*, compared descending: `pydantic.io` beat
+    # `pydantic.dev` on the letter `i`, and the candidate came back sourced
+    # `domain:io` and claiming that pydantic.dev redirects onto itself. The
+    # origin that did not redirect is the canonical one, and it wins.
+    def _canonical(row) -> bool:
+        return _host(row[5]) == _host(row[3])
+
+    by_landing: dict[str, tuple] = {}
+    aliases: dict[str, list[str]] = {}
+    for row in live:
+        key = f"{_host(row[3])}{urlparse(row[3]).path.rstrip('/')}"
+        held = by_landing.get(key)
+        if held is None:
+            by_landing[key] = row
+            aliases[key] = []
+            continue
+        if _canonical(row) and not _canonical(held):
+            by_landing[key] = row            # the redirect target, not the alias
+            aliases[key].append(held[2])
+        else:
+            aliases[key].append(row[2])
+
     out: list[Candidate] = []
-    for _score, _text, label, landed, why in live[:explore]:
+    for key, (_score, _text, label, landed, why, _origin) in list(by_landing.items())[:explore]:
         # The homepage is usually marketing with the docs one click away, so
         # the docs root under it outranks it.
         for found in probe_docs_root(landed, fetcher):
@@ -708,6 +858,10 @@ def _probe_origins(origins: list[tuple[str, str]], slug: str, fetcher: Fetcher,
                  if not is_forge(landed) else
                  f"{slug}.{label} redirects onto {_host(landed)}, a code host "
                  f"owned by no one project; the page there carries {why}")
+        also = aliases.get(key) or []
+        if also:
+            claim += (f"; {', '.join(f'{slug}.{a}' for a in also)} "
+                      f"redirect{'s' if len(also) == 1 else ''} onto it")
         out.append(Candidate(landed, f"domain:{label}", 0.75, claim))
     return out
 
@@ -1378,7 +1532,7 @@ REJECT_TTL = 7 * 86400
 #:      Django's. Every wrong answer of 2026-09-10 was cached under rules 3
 #:      with a 30-day TTL, and this is what stops them being served until
 #:      October.
-RULES = 4
+RULES = 5
 
 
 def _cache_file() -> Path:
@@ -1564,7 +1718,7 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
             # than the lap asserting it on the way in.
             verify(cand, name, fetcher, {}, state=state)
             if cand.verified:
-                result.candidates = (shaped + result.candidates)[:limit]
+                result.candidates = dedupe(shaped + result.candidates)[:limit]
                 result.best = cand
                 result.resolved_via = f"shape:{cand.source}"
                 result.note = (
@@ -1574,7 +1728,7 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
                 )
                 return result
         if shaped:
-            result.candidates = (result.candidates + shaped)[:limit]
+            result.candidates = dedupe(result.candidates + shaped)[:limit]
 
     # ── L4: evidence the failed candidates already gave away ──
     if budget is None or not budget.exhausted:
@@ -1596,7 +1750,7 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
             if state is not None:
                 state.record(cand.url)
             if cand.verified:
-                result.candidates = (evidence + result.candidates)[:limit]
+                result.candidates = dedupe(evidence + result.candidates)[:limit]
                 result.best = cand
                 result.resolved_via = f"evidence:{cand.source}"
                 result.note = (
@@ -1606,7 +1760,7 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
                 )
                 return result
         if evidence:
-            result.candidates = (result.candidates + evidence)[:limit]
+            result.candidates = dedupe(result.candidates + evidence)[:limit]
 
     # ── L5: fuzzy search, the last and least certain lap ──
     if budget is None or not budget.exhausted:
@@ -1618,7 +1772,7 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
             if state is not None:
                 state.record(cand.url)
             if cand.verified:
-                result.candidates = (searched + result.candidates)[:limit]
+                result.candidates = dedupe(searched + result.candidates)[:limit]
                 result.best = cand
                 result.resolved_via = "search"
                 result.note = (
@@ -1628,7 +1782,7 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
                 )
                 return result
         if searched:
-            result.candidates = (result.candidates + searched)[:limit]
+            result.candidates = dedupe(result.candidates + searched)[:limit]
 
     if result.best is None and budget is not None and budget.exhausted:
         result.note = f"{result.note} Resolution {budget.why()}.".strip()
@@ -1675,7 +1829,10 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
     try:
         # 1. The project's own domain. Checked first because the data says so:
         #    it produced every correct answer and none of the wrong ones.
-        domain = from_domains(name, fetcher, state=state)
+        # Deduped before anything reads it, not after: `verify` fetches every
+        # candidate it is handed, so a page left in the list twice is a second
+        # request as well as a second line of output.
+        domain = dedupe(from_domains(name, fetcher, state=state))
         if verify_best:
             # Read them all, then compare. Stopping at the first to pass made
             # the ordering the decision -- see `best_verified`.
@@ -1718,13 +1875,8 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
             if cand.confidence < 0.9 and not _looks_like_docs(cand.url):
                 extra += probe_docs_root(cand.url, fetcher)
 
-        seen, ranked = set(), []
-        for cand in sorted(found + extra, key=lambda c: c.confidence, reverse=True):
-            key = cand.url.rstrip("/")
-            if key in seen:
-                continue
-            seen.add(key)
-            ranked.append(cand)
+        ranked = dedupe(sorted(found + extra,
+                               key=lambda c: c.confidence, reverse=True))
         result.candidates = ranked[:limit]
 
         facts = _facts_from(found, result.ecosystem)

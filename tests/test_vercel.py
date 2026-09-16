@@ -92,15 +92,37 @@ def test_importing_the_entrypoint_marks_the_process_ephemeral():
     assert harvest_jobs.EPHEMERAL is True
 
 
-def test_an_unfinished_harvest_says_it_is_lost_not_continuing(monkeypatch):
+def test_an_unfinished_harvest_promises_nothing_it_cannot_keep(monkeypatch):
+    """It used to say "discarded — nothing partial was stored", which reads as
+    a verdict and is not one: the thread runs on while the instance lives, and
+    `harvest_status` answered "1 harvest running … let it finish" one call
+    later. A caller shown both in consecutive calls cannot act on either.
+
+    So the message promises only what the shared record delivers — that the
+    answer is knowable — and still promises no continuation."""
     monkeypatch.setattr(harvest_jobs, "EPHEMERAL", True)
     job = harvest_jobs.Job(id="mojo-1", label="mojo", started=time.time() - 30)
     message = ft._still_harvesting(job)
-    assert "discarded" in message and "Nothing partial was stored" in message
-    assert "python main.py" in message
+
     assert "continues in the background" not in message
+    assert "may keep running" in message and "cut off at any moment" in message
+    assert "mojo-1" in message, "the id is what makes it followable at all"
+    assert "harvest_status" in message
+    assert "stopped reporting" in message, "how to tell it died"
+    assert "python main.py" in message
     # and the load-bearing line survives: do not call again here
-    assert "do not call learn_technology" in message
+    assert "Do not call learn_technology" in message
+
+
+def test_the_unfinished_message_names_the_tool_that_was_called(monkeypatch):
+    """Telling a `harvest_docs` caller not to call `learn_technology` again is
+    advice about a tool they did not use."""
+    monkeypatch.setattr(harvest_jobs, "EPHEMERAL", True)
+    job = harvest_jobs.Job(id="mojo-1", label="mojo", started=time.time() - 30)
+    assert "Do not call harvest_docs" in ft._still_harvesting(job, "harvest_docs")
+
+    monkeypatch.setattr(harvest_jobs, "EPHEMERAL", False)
+    assert "Do not call harvest_docs" in ft._still_harvesting(job, "harvest_docs")
 
 
 def test_on_vercel_writable_paths_go_to_tmp(monkeypatch):

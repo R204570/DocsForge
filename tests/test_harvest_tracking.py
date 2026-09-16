@@ -556,3 +556,98 @@ def test_a_hook_that_raises_means_no_ledger(monkeypatch):
     monkeypatch.setattr(harvest_jobs, "SHARED", boom)
     _write_record()
     assert [j.id for j in harvest_jobs.running()] == ["other-1"]
+
+
+# ── what the shared ledger costs while a harvest runs ─────
+#
+# The local record is a file and stays on HEARTBEAT. The ledger is a database,
+# possibly managed and across the network, and it opens a connection per
+# write: at a two-second beat a 695-page harvest spends its whole crawl
+# opening an SSL connection every two seconds, on the critical path of the
+# fetch loop, against a plan whose backend count is the binding constraint.
+
+class _Ledger:
+    def __init__(self):
+        self.writes = []
+
+    def publish_harvest(self, record):
+        self.writes.append(record["state"] + ":" + record.get("phase", ""))
+
+    def harvests(self):
+        return []
+
+    def forget_harvest(self, job_id):
+        pass
+
+
+def _with_ledger(monkeypatch):
+    ledger = _Ledger()
+    monkeypatch.setattr(harvest_jobs, "SHARED", lambda: ledger)
+    return ledger
+
+
+def test_a_running_heartbeat_does_not_write_to_the_ledger_every_beat(monkeypatch):
+    ledger = _with_ledger(monkeypatch)
+    job = harvest_jobs.Job(id="x-1", label="x", started=time.time())
+    harvest_jobs._publish(job, force=True)          # the opening record
+    for _ in range(10):                             # ten beats, no time passing
+        harvest_jobs._publish(job)
+    assert len(ledger.writes) == 1, ledger.writes
+
+
+def test_a_beat_after_the_ledger_interval_does_reach_it(monkeypatch):
+    ledger = _with_ledger(monkeypatch)
+    job = harvest_jobs.Job(id="x-1", label="x", started=time.time())
+    harvest_jobs._publish(job, force=True)
+    job._ledgered = time.time() - (harvest_jobs.LEDGER_BEAT + 1)
+    harvest_jobs._publish(job)
+    assert len(ledger.writes) == 2
+
+
+def test_the_ledger_beat_stays_inside_the_staleness_window():
+    """A live harvest whose ledger copy is older than STALE_AFTER reads as
+    stopped from another instance — the throttle must not cause that."""
+    assert harvest_jobs.LEDGER_BEAT * 2 < harvest_jobs.STALE_AFTER
+
+
+def test_a_phase_change_reaches_the_ledger_at_once(monkeypatch):
+    """Transitions are what another instance is waiting to see; delaying one
+    by up to LEDGER_BEAT makes a finished harvest look like a working one."""
+    ledger = _with_ledger(monkeypatch)
+    job = harvest_jobs.start("x", lambda p: p.__setattr__("phase", "storing") or "done")
+    assert harvest_jobs.wait(job, 5)
+    phases = [w for w in ledger.writes]
+    assert any(w.startswith("running:storing") for w in phases), phases
+    assert any(w.startswith("done") for w in phases), phases
+
+
+def test_an_ending_always_reaches_the_ledger(monkeypatch):
+    ledger = _with_ledger(monkeypatch)
+    job = harvest_jobs.start("x", lambda p: "stored")
+    assert harvest_jobs.wait(job, 5)
+    assert any(w.startswith("done") for w in ledger.writes), ledger.writes
+
+
+def test_a_failure_always_reaches_the_ledger(monkeypatch):
+    ledger = _with_ledger(monkeypatch)
+
+    def boom(p):
+        raise RuntimeError("nope")
+    job = harvest_jobs.start("x", boom)
+    assert harvest_jobs.wait(job, 5)
+    assert any(w.startswith("failed") for w in ledger.writes), ledger.writes
+
+
+def test_running_and_recent_read_the_ledger_once_between_them(monkeypatch):
+    """`list_knowledge_base` wants both, and used to fetch the whole ledger
+    twice to get them."""
+    reads = {"n": 0}
+
+    class Counting(_Ledger):
+        def harvests(self):
+            reads["n"] += 1
+            return []
+
+    monkeypatch.setattr(harvest_jobs, "SHARED", lambda: Counting())
+    harvest_jobs.snapshot()
+    assert reads["n"] == 1

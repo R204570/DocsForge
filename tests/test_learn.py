@@ -87,7 +87,7 @@ def test_a_resolved_name_is_harvested_under_that_name(kb, monkeypatch):
         seen.update(url=url, name=name, version=version)
         return "Harvested **effect** v3 — 2 pages"
 
-    monkeypatch.setattr(ft, "tool_harvest_docs", fake_harvest)
+    monkeypatch.setattr(ft, "_harvest_now", fake_harvest)
     out = ft.tool_learn_technology("Effect.ts", version="v3")
 
     assert seen["url"] == "https://x.dev/docs/"
@@ -102,7 +102,7 @@ def test_a_resolved_name_is_harvested_under_that_name(kb, monkeypatch):
 def test_every_spelling_files_under_the_same_name(kb, monkeypatch, spelling):
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
     seen = {}
-    monkeypatch.setattr(ft, "tool_harvest_docs",
+    monkeypatch.setattr(ft, "_harvest_now",
                         lambda url, name=None, **kw: seen.setdefault("name", name) or "ok")
     ft.tool_learn_technology(spelling)
     assert seen["name"] == "effect"
@@ -112,7 +112,7 @@ def test_an_unverifiable_name_refuses_to_harvest(kb, monkeypatch):
     # The whole point of verification: never hand back a plausible wrong
     # project, and never quietly harvest one.
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution(verified=False))
-    monkeypatch.setattr(ft, "tool_harvest_docs",
+    monkeypatch.setattr(ft, "_harvest_now",
                         lambda *a, **k: pytest.fail("must not harvest unverified"))
 
     with pytest.raises(ft.ForgeError) as excinfo:
@@ -126,7 +126,7 @@ def test_an_unverifiable_name_refuses_to_harvest(kb, monkeypatch):
 def test_asking_for_a_version_that_is_not_stored_harvests_it(kb, monkeypatch):
     stored("effect", "v3")
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
-    monkeypatch.setattr(ft, "tool_harvest_docs", lambda *a, **k: "Harvested v2")
+    monkeypatch.setattr(ft, "_harvest_now", lambda *a, **k: "Harvested v2")
     out = ft.tool_learn_technology("effect", version="v2")
     assert "not version 'v2'" in out and "have: v3" in out
 

@@ -140,7 +140,7 @@ def test_a_large_output_is_bounded_and_the_omission_disclosed(monkeypatch):
 def test_internal_stages_nest_under_the_tool_call(monkeypatch):
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
     monkeypatch.setattr(
-        ft, "tool_harvest_docs",
+        ft, "_harvest_now",
         lambda url, name=None, max_pages=0, js=False, version=None, **kw: "Harvested — 2 pages")
 
     ft.run_tool("learn_technology", {"name": "effect"})
@@ -156,7 +156,7 @@ def test_internal_stages_nest_under_the_tool_call(monkeypatch):
 def test_learn_technology_traces_resolution_and_harvest_stages(monkeypatch):
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
     monkeypatch.setattr(
-        ft, "tool_harvest_docs",
+        ft, "_harvest_now",
         lambda url, name=None, max_pages=0, js=False, version=None, **kw: (
             kw["trace"].event("stub harvest", message="2 pages") or "Harvested **effect** — 2 pages"
         ))
@@ -308,7 +308,7 @@ def test_a_harvest_past_the_deadline_keeps_tracing_after_run_tool_returns(monkey
 
     monkeypatch.setattr(ft, "_resolve", slow_resolve)
     monkeypatch.setattr(
-        ft, "tool_harvest_docs",
+        ft, "_harvest_now",
         lambda url, name=None, max_pages=0, js=False, version=None, **kw: "Harvested — 1 page")
     # Force the "did not finish in time" branch without a real 25s wait.
     monkeypatch.setattr(harvest_jobs, "wait", lambda job, seconds=None: False)

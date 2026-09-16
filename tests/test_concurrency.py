@@ -236,3 +236,42 @@ def test_the_cap_is_per_host_not_global():
         with pace.host("https://b.dev/1"):
             pass
     assert pace.peak == {"a.dev": 1, "b.dev": 1}
+
+
+# ── one connection per read tool call ─────────────────────
+
+def test_the_read_tools_run_inside_one_store_session(monkeypatch):
+    """Measured against Postgres: `list_knowledge_base()` opened four
+    connections and `read_knowledge_base()` three, one per operation. Through
+    `run_tool` they now open one each."""
+    from docsforge.tools import forge_tools as ft
+    opened = []
+
+    class Store:
+        kind, location = "postgres", "test"
+
+        def session(self):
+            import contextlib
+
+            @contextlib.contextmanager
+            def held():
+                opened.append("session")
+                yield
+            return held()
+
+        def technologies(self, *a, **kw):
+            return [], 0
+
+    monkeypatch.setattr(ft, "store", lambda: Store())
+    ft.run_tool("list_knowledge_base", {})
+    assert opened == ["session"]
+
+
+def test_a_harvest_does_not_hold_a_connection_while_it_crawls(monkeypatch):
+    """The whole point of naming the pooled tools rather than inferring them:
+    a harvest spends its call fetching pages, and holding a connection across
+    that is the problem, not a smaller version of it."""
+    from docsforge.tools import forge_tools as ft
+    assert "learn_technology" not in ft._POOLED
+    assert "harvest_docs" not in ft._POOLED
+    assert "list_knowledge_base" in ft._POOLED
