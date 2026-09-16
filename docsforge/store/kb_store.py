@@ -27,7 +27,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -114,6 +116,14 @@ class Store(Protocol):
     kind: str
     location: str
 
+    def session(self): ...
+
+
+@contextmanager
+def _no_session():
+    """A store with nothing to pool. Files have no connections to share."""
+    yield
+
 
 # ─────────────────────────────────────────────────────────────
 # Files
@@ -132,6 +142,9 @@ class FileStore:
         self.root = Path(root).resolve()
         self.index_path = self.root / "index.json"
         self.location = str(self.root)
+
+    #: Nothing to share: a file store opens no connections.
+    session = staticmethod(_no_session)
 
     # -- index --------------------------------------------------
     def _load(self) -> dict:
@@ -671,6 +684,27 @@ create table if not exists harvest (
 INDEX_CHARS = 300_000
 
 
+#: Per-session limits, set on the connection so they apply wherever DocsForge
+#: runs rather than depending on how the server was configured.
+#:
+#: `statement_timeout` bounds one query, and on a single-CPU managed plan that
+#: is what stops one pathological full-text search pinning the processor while
+#: every other tool call queues behind it — a database-wide stall presenting
+#: as a dozen unrelated timeouts. Generous, because a GIN search across a
+#: 2 MB corpus is legitimately slow; anything past it is not working.
+#:
+#: `idle_in_transaction_session_timeout` is the one that protects the
+#: *connection* count. A transaction left open by a killed serverless
+#: invocation holds its backend until something reaps it, and on a plan with
+#: twenty backends a handful of those is the whole budget. The writer commits
+#: per page and can legitimately pause between them, so this sits well above a
+#: page fetch.
+STATEMENT_TIMEOUT_MS = 30_000
+IDLE_TX_TIMEOUT_MS = 60_000
+SESSION_LIMITS = (f"-c statement_timeout={STATEMENT_TIMEOUT_MS} "
+                  f"-c idle_in_transaction_session_timeout={IDLE_TX_TIMEOUT_MS}")
+
+
 class PostgresStore:
     kind = "postgres"
 
@@ -679,6 +713,8 @@ class PostgresStore:
         parsed = urlparse(dsn)
         self.location = f"{parsed.hostname}:{parsed.port or 5432}{parsed.path}"
         self._ready = False
+        #: The connection the current `session()` is serving from, per thread.
+        self._local = threading.local()
 
     def _connect(self):
         try:
@@ -686,14 +722,91 @@ class PostgresStore:
         except ImportError as e:
             raise StoreError("Postgres storage needs: pip install psycopg[binary]") from e
         try:
-            return psycopg.connect(self.dsn, connect_timeout=8)
+            return psycopg.connect(self.dsn, connect_timeout=8,
+                                   options=SESSION_LIMITS)
         except Exception as e:
-            raise StoreError(f"cannot reach the DocsStore database ({self.location}): {e}") from e
+            raise StoreError(self._why_unreachable(e)) from e
+
+    @contextmanager
+    def session(self):
+        """Serve everything inside this block from one connection.
+
+        Measured against Postgres: one `list_knowledge_base()` opened four
+        connections, `read_knowledge_base()` three, `search_knowledge_base()`
+        two — each operation opening and closing its own. That is fine against
+        a database with connections to spare and is the binding constraint
+        against a managed 1 GB plan allowing on the order of twenty backends,
+        because a serverless host runs invocations concurrently and scales
+        instances freely: ten concurrent searches were twenty connections, and
+        `too many clients already` arrives as an unexplained tool failure.
+
+        Deliberately *not* wrapped around every tool. A harvest spends its
+        whole call fetching pages over the network, and holding a connection
+        open across that is the problem this is meant to avoid, not a smaller
+        version of it. The read tools are the ones that are short, frequent
+        and database-bound, and they are the ones that open a session.
+
+        Thread-local, because a connection is not safe to share between
+        threads, and nestable, so a tool that calls another does not close a
+        connection out from under its caller.
+        """
+        held = getattr(self._local, "cx", None)
+        if held is not None:
+            yield held                      # an outer session already owns it
+            return
+        cx = self._connect()
+        self._local.cx = cx
+        try:
+            yield cx
+        finally:
+            self._local.cx = None
+            try:
+                cx.close()
+            except Exception:               # noqa: BLE001
+                pass
+
+    @contextmanager
+    def _borrow(self):
+        """A connection for one operation: the session's, or its own.
+
+        The session's is committed but not closed — it belongs to the block
+        that opened it. Its own is both, which is what `with connect()` has
+        always done here.
+        """
+        held = getattr(self._local, "cx", None)
+        if held is not None:
+            yield held
+            held.commit()
+            return
+        with self._connect() as cx:
+            yield cx
+
+    def _why_unreachable(self, e: Exception) -> str:
+        """Say what a failed connection actually means.
+
+        "too many clients already" is not a DocsForge outage and not a bad
+        DSN; it is the database's backend limit, and it arrives as a random
+        tool failure unless it is named. A managed 1 GB plan allows on the
+        order of twenty backends with some reserved, while a serverless host
+        runs invocations concurrently and scales instances freely — so this is
+        a capacity message, and it says which lever moves it.
+        """
+        text = str(e)
+        if "too many clients" in text.lower() or "53300" in text:
+            return (
+                f"the DocsStore database ({self.location}) is at its "
+                f"connection limit — every backend is in use. This is the "
+                f"database's ceiling, not a DocsForge failure: point "
+                f"DOCSFORGE_DB at the connection pooler's port if the plan "
+                f"offers one (Aiven ships PgBouncer), or raise the plan's "
+                f"limit. The call can simply be retried."
+            )
+        return f"cannot reach the DocsStore database ({self.location}): {e}"
 
     def migrate(self) -> None:
         if self._ready:
             return
-        with self._connect() as cx:
+        with self._borrow() as cx:
             self._upgrade_v1(cx)
             cx.execute(SCHEMA)
             self._upgrade_v2(cx)
@@ -852,7 +965,7 @@ class PostgresStore:
 
     def delete(self, tech: str, version: str | None = None) -> int:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             if version is None:
                 n = cx.execute("delete from technology where name = %s", (tech,)).rowcount
             else:
@@ -873,7 +986,7 @@ class PostgresStore:
         from psycopg.types.json import Jsonb
 
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             cx.execute(
                 "insert into harvest (id, updated, record) values (%s, %s, %s) "
                 "on conflict (id) do update "
@@ -883,13 +996,13 @@ class PostgresStore:
 
     def harvests(self) -> list[dict]:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             rows = cx.execute("select record from harvest order by updated desc").fetchall()
         return [row[0] for row in rows]
 
     def forget_harvest(self, job_id: str) -> None:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             cx.execute("delete from harvest where id = %s", (job_id,))
             cx.commit()
 
@@ -919,7 +1032,7 @@ class PostgresStore:
             having count(v.id) > 0
              order by t.name
         """
-        with self._connect() as cx:
+        with self._borrow() as cx:
             rows = cx.execute(sql, params).fetchall()
             total = len(rows)
             if limit is not None:
@@ -938,7 +1051,7 @@ class PostgresStore:
 
     def versions(self, tech: str) -> list[dict]:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             rows = cx.execute("""
                 select v.version, v.source, v.strategy, v.complete,
                        to_char(v.harvested_at, 'YYYY-MM-DD HH24:MI'),
@@ -1000,7 +1113,7 @@ class PostgresStore:
 
     def pages(self, tech: str, version: str | None = None) -> list[dict]:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             vid = self._version_id(cx, tech, version)
             rows = cx.execute(
                 "select ordinal, title, url, length(content) from page "
@@ -1009,7 +1122,7 @@ class PostgresStore:
 
     def page(self, tech: str, version: str | None, ordinal: int) -> dict:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             vid = self._version_id(cx, tech, version)
             row = cx.execute(
                 "select ordinal, title, url, content from page "
@@ -1021,7 +1134,7 @@ class PostgresStore:
     def read(self, tech: str, section: str | None = None,
              version: str | None = None) -> tuple[str, str, int]:
         self.migrate()
-        with self._connect() as cx:
+        with self._borrow() as cx:
             vid = self._version_id(cx, tech, version)
             if not section:
                 rows = cx.execute("select title, url, content from page where version_id = %s "
@@ -1118,7 +1231,7 @@ class PostgresStore:
         # page stored whole and findable only by its opening. Sections exist to
         # be searched, so this is the read path that makes writing them mean
         # something.
-        with self._connect() as cx:
+        with self._borrow() as cx:
             rows = cx.execute(f"""
                 with hit as (
                     select p.id, p.ordinal, p.title, p.url, p.version_id,

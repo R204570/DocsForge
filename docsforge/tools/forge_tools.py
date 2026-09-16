@@ -12,6 +12,7 @@ Claude Code get byte-identical behaviour from the same code path.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -1077,8 +1078,8 @@ def _in_flight() -> str:
     through. Successful harvests need no line — they appear in the listing
     itself. A failed background harvest leaves no other trace, so it gets one.
     """
-    live = harvest_jobs.running()
-    failed = [j for j in harvest_jobs.recent() if j.state == "failed"]
+    live, ended = harvest_jobs.snapshot()
+    failed = [j for j in ended if j.state == "failed"]
     if not live and not failed:
         return ""
 
@@ -1692,12 +1693,12 @@ def tool_harvest_status(harvest: str = "", wait: int = 0) -> str:
                 break
             time.sleep(0.25)
 
-    jobs = [j for j in harvest_jobs.running() + harvest_jobs.recent()
-            if _matches(j, wanted)]
+    live_now, ended = harvest_jobs.snapshot()
+    jobs = [j for j in live_now + ended if _matches(j, wanted)]
 
     if wanted and not jobs:
         known = stored_name(wanted)
-        others = harvest_jobs.running()
+        others = live_now
         note = ""
         if others:
             note = ("\n\nRunning right now: "
@@ -2325,6 +2326,19 @@ BY_NAME = {t.name: t for t in TOOLS}
 #: that never does costs nothing extra here.
 _TRACED = {t.name for t in TOOLS if "trace" in inspect.signature(t.fn).parameters}
 
+#: Tools whose whole call is database work, and which therefore run inside one
+#: `store().session()`. Measured against Postgres: `list_knowledge_base` opened
+#: four connections and `read_knowledge_base` three, each operation opening and
+#: closing its own — so ten concurrent calls were forty against a managed plan
+#: allowing around twenty backends, and the failure arrives as an unexplained
+#: tool error rather than as a database message.
+#:
+#: Named rather than inferred. The rule is not "tools that touch the store" —
+#: `learn_technology` and `harvest_docs` do, and they must *not* hold a
+#: connection for the minutes they spend crawling.
+_POOLED = {"list_knowledge_base", "read_knowledge_base", "search_knowledge_base",
+           "harvest_status", "forget_documentation", "scan_project"}
+
 #: The trace id `run_tool` minted for the most recent call *on this thread*.
 #: app.py reads it immediately after relaying a provider's `tool_end` event
 #: -- reliable because both happen on the same thread, in the order the call
@@ -2415,7 +2429,13 @@ def run_tool_checked(name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
     try:
         if name in _TRACED:
             kwargs["trace"] = inner
-        result = tool.fn(**kwargs)
+        # Short, frequent, database-bound calls serve themselves from one
+        # connection instead of one per operation -- see `PostgresStore.session`.
+        # The harvesting tools are excluded on purpose: they spend their call
+        # fetching pages over the network, and holding a connection open across
+        # that is the problem this avoids, not a smaller version of it.
+        with (store().session() if name in _POOLED else contextlib.nullcontext()):
+            result = tool.fn(**kwargs)
         duration_ms = (time.perf_counter() - started) * 1000
         # A detached trace means the call returned but the work did not stop
         # -- a harvest past its deadline, still running on its own thread and

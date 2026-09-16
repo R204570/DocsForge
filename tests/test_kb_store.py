@@ -9,6 +9,8 @@ exactly the same behaviour.
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -555,3 +557,155 @@ def test_a_question_about_something_absent_still_finds_nothing(tmp_path):
     store = _adk_store(tmp_path, ADK_PAGES)
     assert store.search("kubernetes ingress controller annotations",
                         tech="adk") == []
+
+
+# ── the connection budget ────────────────────────────────
+#
+# Measured against Postgres, 2026-09-16: one `list_knowledge_base()` opened
+# four connections, `read_knowledge_base()` three, `search_knowledge_base()`
+# two — each operation opening and closing its own. Against a managed 1 GB
+# plan allowing on the order of twenty backends, with a serverless host
+# running invocations concurrently and scaling instances freely, the count
+# per call is what multiplies.
+
+class _CountingStore(PostgresStore):
+    """A PostgresStore whose connections are counted and never real."""
+
+    def __init__(self):
+        super().__init__("postgresql://nobody@127.0.0.1:1/none")
+        self.opened = 0
+
+    def _connect(self):
+        self.opened += 1
+        return _FakeConn()
+
+
+class _FakeConn:
+    def __init__(self):
+        self.closed = False
+        self.commits = 0
+
+    def execute(self, *a, **kw):
+        return self
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        self.closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+        return False
+
+
+def test_operations_inside_a_session_share_one_connection():
+    store = _CountingStore()
+    store._ready = True
+    with store.session():
+        with store._borrow():
+            pass
+        with store._borrow():
+            pass
+        with store._borrow():
+            pass
+    assert store.opened == 1, "three operations, one connection"
+
+
+def test_a_session_closes_its_connection_when_the_block_ends():
+    store = _CountingStore()
+    store._ready = True
+    with store.session() as cx:
+        assert not cx.closed
+    assert cx.closed
+
+
+def test_an_operation_inside_a_session_commits_but_does_not_close():
+    """The connection belongs to the block that opened it; an operation that
+    closed it would pull it out from under everything after."""
+    store = _CountingStore()
+    store._ready = True
+    with store.session() as cx:
+        with store._borrow():
+            pass
+        assert cx.commits == 1 and not cx.closed
+
+
+def test_sessions_nest_without_closing_the_outer_one():
+    store = _CountingStore()
+    store._ready = True
+    with store.session() as outer:
+        with store.session() as inner:
+            assert inner is outer
+        assert not outer.closed
+    assert outer.closed
+
+
+def test_without_a_session_each_operation_opens_its_own():
+    """Unchanged behaviour where nothing opened a session — a harvest must not
+    hold a connection across the minutes it spends crawling."""
+    store = _CountingStore()
+    store._ready = True
+    for _ in range(3):
+        with store._borrow():
+            pass
+    assert store.opened == 3
+
+
+def test_a_session_is_not_shared_between_threads():
+    """psycopg connections are not safe to share, so the session is
+    thread-local and a worker thread gets its own."""
+    import threading
+    store = _CountingStore()
+    store._ready = True
+    seen = []
+    with store.session() as mine:
+        def other():
+            with store.session() as theirs:
+                seen.append(theirs is mine)
+        t = threading.Thread(target=other)
+        t.start()
+        t.join()
+    assert seen == [False]
+
+
+def test_a_file_store_answers_session_too():
+    """Callers ask the store for a session without asking which store it is."""
+    with FileStore(Path(tempfile.mkdtemp())).session():
+        pass
+
+
+def test_the_connection_limit_is_named_rather_than_left_as_a_driver_error():
+    """`too many clients already` is the database's ceiling, not a DocsForge
+    outage and not a bad DSN — and it arrives as an unexplained tool failure
+    unless it is named."""
+    store = PostgresStore("postgresql://nobody@127.0.0.1:1/none")
+    why = store._why_unreachable(
+        Exception('connection failed: FATAL:  sorry, too many clients already'))
+    assert "connection limit" in why
+    assert "pooler" in why, "and which lever moves it"
+    assert "retried" in why
+
+
+def test_an_ordinary_connection_failure_still_says_what_it_was():
+    store = PostgresStore("postgresql://nobody@127.0.0.1:1/none")
+    why = store._why_unreachable(Exception("could not translate host name"))
+    assert "cannot reach the DocsStore database" in why
+    assert "could not translate host name" in why
+
+
+def test_every_connection_carries_a_statement_timeout():
+    """One pathological full-text query must not pin a single-CPU plan while
+    every other tool call queues behind it."""
+    from docsforge.store import kb_store as ks
+    assert "statement_timeout" in ks.SESSION_LIMITS
+    assert "idle_in_transaction_session_timeout" in ks.SESSION_LIMITS

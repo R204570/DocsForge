@@ -279,9 +279,29 @@ def _record_path(job_id: str) -> Path:
     return state_dir() / f"{job_id}.json"
 
 
-def _publish(job: Job) -> None:
+#: How often a *running* harvest's heartbeat reaches the shared ledger.
+#:
+#: The local file is cheap and stays on `HEARTBEAT`. The ledger is a database,
+#: possibly a managed one across the network, and it opens a connection per
+#: write: at a two-second beat a 695-page harvest spends the whole crawl
+#: opening an SSL connection every two seconds — connection churn on the
+#: critical path of the fetch loop, against a plan whose backend count is the
+#: binding constraint. Nothing needs two-second granularity from another
+#: instance; `STALE_AFTER` is 30s, so this has only to stay comfortably
+#: inside that for a live harvest to keep reading as live.
+LEDGER_BEAT = 8.0
+
+
+def _publish(job: Job, force: bool = False) -> None:
     """Write this job's record. Never raises: a harvest must not fail because
-    a status file could not be written."""
+    a status file could not be written.
+
+    `force` sends it to the shared ledger regardless of the beat. Every state
+    transition does — a start, a phase change, an ending — because those are
+    what another instance is actually waiting to see, and delaying one by up
+    to `LEDGER_BEAT` would make a harvest that finished look like a harvest
+    still working. Only the page counter between beats is throttled.
+    """
     job.updated = time.time()
     try:
         directory = state_dir()
@@ -295,10 +315,16 @@ def _publish(job: Job) -> None:
         os.replace(tmp, path)
     except Exception:                              # noqa: BLE001
         pass
+
+    if not force and job.state == RUNNING:
+        since = job.updated - getattr(job, "_ledgered", 0.0)
+        if since < LEDGER_BEAT:
+            return
     ledger = _shared()
     if ledger is not None:
         try:
             ledger.publish_harvest(job.as_dict())
+            job._ledgered = job.updated            # type: ignore[attr-defined]
         except Exception:                          # noqa: BLE001
             pass
 
@@ -428,14 +454,32 @@ def _records() -> list[Job]:
     return list(seen.values())
 
 
-def _merged() -> list[Job]:
-    """This process's jobs plus everyone else's, ours winning on collision."""
+def _merged(records: list[Job] | None = None) -> list[Job]:
+    """This process's jobs plus everyone else's, ours winning on collision.
+
+    `records` lets a caller that needs both the running and the finished jobs
+    read the ledger once and split the answer, rather than twice. Measured
+    against Postgres: `list_knowledge_base()` opened four connections, two of
+    them the same `select record from harvest` run back to back because
+    `running()` and `recent()` each fetched their own copy. On a managed plan
+    allowing on the order of twenty backends, halving that is not a
+    micro-optimisation.
+    """
     with _LOCK:
         mine = dict(_JOBS)
     seen = dict(mine)
-    for job in _records():
+    for job in _records() if records is None else records:
         seen.setdefault(job.id, job)
     return list(seen.values())
+
+
+def snapshot() -> tuple[list[Job], list[Job]]:
+    """Every harvest, split into running and ended, from one read of the
+    ledger. What a caller wanting both should use."""
+    jobs = _merged(_records())
+    return (sorted((j for j in jobs if j.state == RUNNING), key=lambda j: j.started),
+            sorted((j for j in jobs if j.state != RUNNING),
+                   key=lambda j: j.finished, reverse=True))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -528,11 +572,11 @@ def start(label: str, work: Callable[[Progress], str],
         _prune()
 
     def moved() -> None:
-        _publish(job)
+        _publish(job, force=True)          # a transition, not a tick
         _announce(job)
 
     object.__setattr__(job.progress, "_moved", moved)
-    _publish(job)
+    _publish(job, force=True)              # the record must exist immediately
     _announce(job)
 
     def run() -> None:
@@ -639,7 +683,7 @@ def reserve(label: str) -> Job:
     with _LOCK:
         job = Job(id=_new_id(label), label=label, started=time.time(),
                   pid=os.getpid())
-    _publish(job)
+    _publish(job, force=True)
     _announce(job)
     return job
 
@@ -740,15 +784,17 @@ def get(job_id: str) -> Job | None:
 
 
 def running() -> list[Job]:
-    """Harvests believed to be working, in this process or any other."""
-    return sorted((j for j in _merged() if j.state == RUNNING),
-                  key=lambda j: j.started)
+    """Harvests believed to be working, in this process or any other.
+
+    A caller that also wants the finished ones should call `snapshot()`
+    instead and pay for one read of the ledger rather than two.
+    """
+    return snapshot()[0]
 
 
 def recent() -> list[Job]:
     """Finished, failed and stalled jobs, newest first."""
-    return sorted((j for j in _merged() if j.state != RUNNING),
-                  key=lambda j: j.finished, reverse=True)
+    return snapshot()[1]
 
 
 #: How long a short-lived host may linger for its own harvests. **Zero, the
