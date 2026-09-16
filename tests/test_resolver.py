@@ -872,3 +872,89 @@ def test_each_registry_reports_its_current_release():
 def test_a_registry_without_a_release_leaves_it_blank():
     npm = resolver._npm("x", _Scripted({"homepage": "https://x.dev/"}))
     assert npm and npm[0].release == ""
+
+
+# --- one page, one candidate -------------------------------------------------
+#
+# Measured live, 2026-09-16: `find_docs("pydantic")` printed both candidates
+# twice with identical confidence and evidence, and fetched pydantic.dev seven
+# times for one resolution. `pydantic.io` 301s onto `pydantic.dev`, so two
+# origins landed on the same page and `_probe_origins` explored each one whole
+# — probing `/llms.txt`, then verifying both copies of every candidate it
+# produced. Nothing was wrong with the answer; it was said twice and paid for
+# twice.
+
+#: Long enough to clear the two-character floor in `from_domains`.
+ALIASED = "zorp"
+
+
+def _redirecting_pair():
+    """Two origins for one site: `zorp.io` lands on `zorp.dev`."""
+    page = ('<h1>zorp</h1><pre>pip install zorp</pre>'
+            '<a href="https://github.com/zorp/zorp">source</a>' + ("zorp " * 60))
+    return FakeFetcher({
+        "https://zorp.dev": FakeResponse(page, url="https://zorp.dev/"),
+        "https://zorp.io": FakeResponse(page, url="https://zorp.dev/"),
+        "https://zorp.dev/llms.txt": FakeResponse("# zorp docs\n" + "zorp " * 60,
+                                                  ctype="text/plain",
+                                                  url="https://zorp.dev/llms.txt"),
+    })
+
+
+def test_two_names_landing_on_one_site_produce_one_set_of_candidates():
+    fetcher = _redirecting_pair()
+    found = resolver.from_domains(ALIASED, fetcher)
+    assert len(found) == len({c.url for c in found}), [c.url for c in found]
+
+
+def test_a_redirected_alias_is_not_probed_a_second_time():
+    fetcher = _redirecting_pair()
+    resolver.from_domains(ALIASED, fetcher)
+    probes = [u for u in fetcher.asked if u == "https://zorp.dev/llms.txt"]
+    assert len(probes) == 1, fetcher.asked
+
+
+def test_the_origin_that_did_not_redirect_is_the_one_kept():
+    """The sort tiebreaks on the label, so `io` beat `dev` on the letter `i`
+    and the candidate came back sourced `domain:io`, claiming that pydantic.dev
+    redirects onto itself. The redirect target is the canonical name."""
+    fetcher = _redirecting_pair()
+    home = [c for c in resolver.from_domains(ALIASED, fetcher) if c.confidence == 0.75]
+    assert home and home[0].source == "domain:dev", home[0].source
+    assert "zorp.io redirects onto it" in home[0].evidence
+
+
+def test_a_collapsed_alias_is_still_reported_as_evidence():
+    """Two names pointing at one site is a stronger ownership claim than one,
+    so collapsing them must not silently drop the second."""
+    fetcher = _redirecting_pair()
+    home = [c for c in resolver.from_domains(ALIASED, fetcher) if c.confidence == 0.75]
+    assert "zorp.io" in home[0].evidence
+
+
+def test_dedupe_keeps_the_first_and_merges_what_the_rest_knew():
+    first = Candidate("https://x.dev/docs", "domain:dev", 0.80, "found by domain")
+    second = Candidate("https://x.dev/docs/", "pypi:Documentation", 0.92,
+                       "declared by pypi", True, "reads like x's docs")
+    second.signals = ["own-domain"]
+    merged = resolver.dedupe([first, second])
+    assert len(merged) == 1
+    assert merged[0].source == "domain:dev", "the first entry survives"
+    assert merged[0].confidence == 0.92, "the higher confidence wins"
+    assert merged[0].verified is True, "a verdict beats not-checked-yet"
+    assert merged[0].signals == ["own-domain"]
+
+
+def test_dedupe_never_lowers_a_verdict_that_was_already_reached():
+    verified = Candidate("https://x.dev/docs", "a", 0.9, "e", True, "confirmed")
+    unchecked = Candidate("https://x.dev/docs", "b", 0.4, "e2")
+    merged = resolver.dedupe([verified, unchecked])
+    assert merged[0].verified is True and merged[0].reason == "confirmed"
+
+
+def test_dedupe_does_not_merge_paths_that_differ_only_in_case():
+    """Hosts are case-insensitive; paths are not, and `/API` is a real page
+    somewhere that is not `/api`."""
+    merged = resolver.dedupe([Candidate("https://X.dev/API", "a", 0.5),
+                              Candidate("https://x.dev/api", "b", 0.5)])
+    assert len(merged) == 2
