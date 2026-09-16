@@ -958,3 +958,87 @@ def test_dedupe_does_not_merge_paths_that_differ_only_in_case():
     merged = resolver.dedupe([Candidate("https://X.dev/API", "a", 0.5),
                               Candidate("https://x.dev/api", "b", 0.5)])
     assert len(merged) == 2
+
+
+# --- the company is not the library ------------------------------------------
+#
+# Measured live, 2026-09-16. `find_docs("pydantic")` answered
+# `https://pydantic.dev/llms.txt` at 0.97, verified, and `learn_technology`
+# stored what that led to: **24 pages of Pydantic Logfire** — the observability
+# product — including "Pricing, enterprise and security", "Customer evidence"
+# and a competition winner's congratulations, filed under the name of the
+# validation library. Nothing in the result suggested anything was wrong; the
+# harvest was complete, confident and about the wrong software.
+#
+# `pydantic.dev` is the company and `docs.pydantic.dev` is the library. The
+# apex answers `/llms.txt` with a 15 KB index, `probe_docs_root` took it at
+# 0.95 and broke out of the loop, and the registry lap — which would have seen
+# PyPI's Documentation field — never ran, because the domain lap had already
+# won. Asking the documentation subdomain first is what separates them:
+# 695 pages and 2,145,530 characters against 24 and 681,899.
+
+def test_the_docs_subdomain_is_asked_before_the_apexs_own_paths():
+    fetcher = FakeFetcher({
+        "https://x.dev/llms.txt": FakeResponse("# x, the company\n" + "x " * 60,
+                                               ctype="text/plain",
+                                               url="https://x.dev/llms.txt"),
+        "https://docs.x.dev/llms.txt": FakeResponse("# x, the library\n" + "x " * 60,
+                                                    ctype="text/plain",
+                                                    url="https://docs.x.dev/llms.txt"),
+    })
+    found = resolver.probe_docs_root("https://x.dev", fetcher)
+    assert found and found[0].url == "https://docs.x.dev/llms.txt", found[0].url
+    assert found[0].confidence > 0.95, "it has to outrank the apex's own 0.95"
+
+
+def test_the_apex_still_wins_when_there_is_no_docs_subdomain():
+    """The overwhelmingly common shape, and it must cost one request and no
+    change of answer."""
+    fetcher = FakeFetcher({
+        "https://x.dev/llms.txt": FakeResponse("# x docs\n" + "x " * 60,
+                                               ctype="text/plain",
+                                               url="https://x.dev/llms.txt"),
+    })
+    found = resolver.probe_docs_root("https://x.dev", fetcher)
+    assert found and found[0].url == "https://x.dev/llms.txt"
+
+
+def test_a_docs_host_is_not_asked_for_a_docs_host_of_its_own():
+    fetcher = FakeFetcher({
+        "https://docs.x.dev/llms.txt": FakeResponse("# x docs\n" + "x " * 60,
+                                                    ctype="text/plain",
+                                                    url="https://docs.x.dev/llms.txt"),
+    })
+    resolver.probe_docs_root("https://docs.x.dev", fetcher)
+    assert not any("docs.docs.x.dev" in u for u in fetcher.asked), fetcher.asked
+
+
+def test_a_docs_subdomain_serving_html_is_not_taken_as_a_corpus():
+    """`llms.txt` that comes back as a rendered 404 page is not a corpus, and
+    admitting one would hand the harvest a site's error template."""
+    fetcher = FakeFetcher({
+        "https://docs.x.dev/llms.txt": FakeResponse("<h1>Not found</h1>",
+                                                    url="https://docs.x.dev/llms.txt"),
+        "https://x.dev/llms.txt": FakeResponse("# x docs\n" + "x " * 60,
+                                               ctype="text/plain",
+                                               url="https://x.dev/llms.txt"),
+    })
+    found = resolver.probe_docs_root("https://x.dev", fetcher)
+    assert found and found[0].url == "https://x.dev/llms.txt"
+
+
+def test_a_docs_subdomain_publishing_only_articles_is_refused_like_any_other():
+    """A subdomain does not get a softer bar than the apex — `_indexes_only_articles`
+    is what stopped pytorch.org/llms.txt becoming a newsroom harvest, and it
+    applies here identically."""
+    newsroom = "# Blog\n\n## Posts\n" + "\n".join(
+        f"- [Announcing thing {i}](https://docs.x.dev/blog/{i})" for i in range(40))
+    fetcher = FakeFetcher({
+        "https://docs.x.dev/llms.txt": FakeResponse(newsroom, ctype="text/plain",
+                                                    url="https://docs.x.dev/llms.txt"),
+        "https://x.dev/llms.txt": FakeResponse("# x docs\n" + "x " * 60,
+                                               ctype="text/plain",
+                                               url="https://x.dev/llms.txt"),
+    })
+    found = resolver.probe_docs_root("https://x.dev", fetcher)
+    assert found and found[0].url == "https://x.dev/llms.txt"

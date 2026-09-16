@@ -44,6 +44,14 @@ DECIDERS = (
     "_path_identity",       # whether a registry-nominated path names it
     "probe_docs_root",      # which URLs are offered as a docs root at all
     "_indexes_only_articles",   # whether a published llms.txt is a newsroom
+    # The same gap again, found the same way. `_probe_origins` decides which
+    # of several origins that landed on one page is the candidate, and
+    # `dedupe` decides what survives when two laps reach the same URL --
+    # both change which candidate comes back, and neither was watched, so
+    # the commit that rewrote them left `RULES` at 4 in silence.
+    "_probe_origins",       # which surviving origin becomes the candidate
+    "_docs_subdomain",      # whether the docs host outranks the apex
+    "dedupe",               # which of two routes to one page is kept
 )
 
 
@@ -93,8 +101,15 @@ def fingerprint() -> str:
 #: a name resolves to changed, so the fingerprint was re-pinned and RULES
 #: was not bumped — a bump would have thrown away every cached resolution
 #: for a change that made no decision differently.
-FINGERPRINT = "3f2b9744ec1462ea"
-EXPECTED_RULES = 4
+#:
+#: RULES 5 (2026-09-16): two changes, one bump, because one bump is all the
+#: cache needs. A page reached by two routes is now one candidate rather than
+#: two, and a project's `docs.` subdomain is asked for before the apex's own
+#: paths — `pydantic` resolved to `pydantic.dev/llms.txt` and stored 24 pages
+#: of Logfire marketing where `docs.pydantic.dev` had the library's 695.
+#: Every entry cached under rules 4 was decided without either.
+FINGERPRINT = "18c2e143eb57da68"
+EXPECTED_RULES = 5
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

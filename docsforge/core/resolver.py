@@ -571,6 +571,56 @@ def _indexes_only_articles(body: str, url: str) -> bool:
     return articles / len(links) >= _ARTICLE_SHARE
 
 
+#: Subdomains a project puts its documentation on, best first. Kept to two:
+#: each costs a request on every candidate host, and between them they cover
+#: what the convention actually is. `developer.` is the one large vendors use
+#: where `docs.` would have meant the company's own internal handbook.
+DOCS_SUBDOMAINS = ("docs", "developer")
+
+
+def _docs_subdomain(origin: str, fetcher: Fetcher) -> list[Candidate]:
+    """The project's documentation subdomain, if it publishes on one.
+
+    Asked before the apex's own paths, and only for a corpus it actually
+    serves: a `docs.` host that 404s, or that redirects straight back to the
+    apex, produces nothing and costs one request. What it must not do is
+    *lower* the bar — a subdomain is admitted on exactly the evidence an apex
+    path is, `_indexes_only_articles` included, because "the documentation
+    lives here" is a claim about location and not about quality.
+    """
+    host = _host(origin)
+    if not host or host.count(".") < 1:
+        return []
+    scheme = urlparse(origin).scheme or "https"
+
+    out: list[Candidate] = []
+    for label in DOCS_SUBDOMAINS:
+        if host.startswith(f"{label}."):
+            continue
+        target = f"{scheme}://{label}.{host}/llms.txt"
+        try:
+            r = fetcher.get(target, timeout=PROBE_TIMEOUT, allow_redirects=True)
+        except ForgeError:
+            continue
+        if r.status_code != 200:
+            continue
+        ctype = (r.headers.get("content-type") or "").lower()
+        if "html" in ctype:
+            continue
+        body = getattr(r, "text", "") or ""
+        if _indexes_only_articles(body, r.url):
+            continue
+        # Above the apex's own 0.95, and deliberately: both are the site
+        # describing itself for machines, and when a project publishes two the
+        # subdomain is the one scoped to the thing that was asked for.
+        out.append(Candidate(r.url, f"probe:{label}.llms.txt", 0.96,
+                             f"{target} exists and is not HTML — "
+                             f"{label}.{host} is where this project says its "
+                             f"documentation lives"))
+        break
+    return out
+
+
 def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
     """Look for a documentation root on a host the registry pointed at.
 
@@ -584,7 +634,24 @@ def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
         return []
     origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
 
+    # The documentation subdomain first, because on a company that ships more
+    # than one product the apex is the company and only the subdomain is the
+    # library. Measured 2026-09-16: `pydantic.dev/llms.txt` answers 200, this
+    # loop took it at 0.95 and broke, and `learn_technology("pydantic")`
+    # stored 24 pages of Pydantic Logfire — pricing, customer evidence, a
+    # competition winner — under the name of the validation library, at 0.97
+    # confidence with nothing in the result suggesting anything was wrong.
+    # `docs.pydantic.dev` carries the library: 2,003,603 characters against
+    # the apex dump's 684,669, and a different corpus rather than a longer one.
+    #
+    # One extra request, and only where it can change the answer: a host that
+    # already *is* the documentation host is not asked for a second one.
     out: list[Candidate] = []
+    if not _is_docs_host(origin):
+        out += _docs_subdomain(origin, fetcher)
+    if out and out[-1].confidence >= 0.95:
+        return out
+
     for path in DOC_PATHS:
         target = urljoin(origin + "/", path.lstrip("/"))
         try:
@@ -1465,7 +1532,7 @@ REJECT_TTL = 7 * 86400
 #:      Django's. Every wrong answer of 2026-09-10 was cached under rules 3
 #:      with a 30-day TTL, and this is what stops them being served until
 #:      October.
-RULES = 4
+RULES = 5
 
 
 def _cache_file() -> Path:
