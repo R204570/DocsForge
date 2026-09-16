@@ -52,6 +52,13 @@ DECIDERS = (
     "_probe_origins",       # which surviving origin becomes the candidate
     "_docs_subdomain",      # whether the docs host outranks the apex
     "dedupe",               # which of two routes to one page is kept
+    # A third time. The facts a candidate is verified against were built
+    # inline in `_resolve_uncached`, which is too broad to fingerprint, so
+    # changing them from "the first registry to answer" to "the candidate's
+    # own registry" -- which lifts a veto and changes who wins -- left the
+    # stamp at 5 in silence. Now a named function, so it can be watched.
+    "_facts_for",           # which registry's claims a candidate is judged by
+    "release_from",         # whose release number the winner carries
 )
 
 
@@ -108,8 +115,16 @@ def fingerprint() -> str:
 #: paths — `pydantic` resolved to `pydantic.dev/llms.txt` and stored 24 pages
 #: of Logfire marketing where `docs.pydantic.dev` had the library's 695.
 #: Every entry cached under rules 4 was decided without either.
-FINGERPRINT = "18c2e143eb57da68"
-EXPECTED_RULES = 5
+#:
+#: RULES 6 (2026-09-17): a candidate is judged against its own registry's
+#: claims, not the first registry's to answer. `click` on PyPI was verified
+#: against npm's ecosystem and npm's repository — its own `pip install` line
+#: was an `install-mismatch` veto, its link to its own source could never be
+#: `repo-backlink`, and it was stored as version 0.1.0, npm's number. An
+#: entry cached under rules 5 can be a refusal for a name that now resolves,
+#: an `npm` ecosystem for a PyPI project, or a release from the wrong one.
+FINGERPRINT = "fbc0c144926d4c32"
+EXPECTED_RULES = 6
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

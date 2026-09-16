@@ -298,6 +298,139 @@ def test_the_reported_ecosystem_is_the_one_that_answered():
     assert got.ecosystem == "pypi"
 
 
+# --- the release follows the winner, exactly as the ecosystem does -----------
+#
+# Measured live, 2026-09-16, twice. `learn_technology("click")` resolved to
+# click.palletsprojects.com — the real PyPI project — and stored it as version
+# **0.1.0**: the `dist-tags.latest` of an unrelated npm package that shares the
+# word. PyPI's click was at 8.5.0. `result.release` was taken from the first
+# candidate in registry-query order with any release at all, npm's, before
+# verification had chosen anything, and never revisited. The ecosystem beside
+# it got exactly that correction the day this bug was found for *it* — with a
+# comment stating the principle — and the release did not.
+
+def _colliding(name="click"):
+    """The same word on two registries: an npm package nobody asked for at
+    0.1.0, and the PyPI project that verifies at 9.9.9."""
+    return FakeFetcher({
+        f"https://registry.npmjs.org/{name}": registry(
+            {"dist-tags": {"latest": "0.1.0"},
+             "repository": {"url": f"git+https://github.com/someone/{name}.git"}}),
+        f"https://pypi.org/pypi/{name}/json": registry(
+            {"info": {"version": "9.9.9",
+                      "project_urls": {"Documentation": f"https://{name}.example.dev/"}}}),
+        f"https://{name}.example.dev/": FakeResponse(
+            f"<h1>{name}</h1><pre>pip install {name}</pre>" + f"{name} " * 40,
+            url=f"https://{name}.example.dev/"),
+    })
+
+
+def test_the_release_is_the_winning_registrys_not_the_first_to_answer():
+    got = resolver.resolve("click", fetcher=_colliding())
+    assert got.best is not None and got.best.url == "https://click.example.dev/"
+    assert got.ecosystem == "pypi"
+    assert got.release == "9.9.9", got.release
+
+
+def test_a_probed_docs_root_carries_its_registrys_release():
+    """PyPI names a homepage, DocsForge finds /llms.txt beneath it, and that
+    is the winner. It is still PyPI's project."""
+    fetcher = FakeFetcher({
+        "https://registry.npmjs.org/zorp": registry(
+            {"dist-tags": {"latest": "0.1.0"},
+             "repository": {"url": "git+https://github.com/someone/zorp.git"}}),
+        "https://pypi.org/pypi/zorp/json": registry(
+            {"info": {"version": "9.9.9",
+                      "project_urls": {"Homepage": "https://zorp.example.dev/"}}}),
+        "https://zorp.example.dev/llms.txt": FakeResponse(
+            "# zorp " + "zorp " * 40, ctype="text/plain",
+            url="https://zorp.example.dev/llms.txt"),
+    })
+    got = resolver.resolve("zorp", fetcher=fetcher)
+    assert got.best is not None and got.best.url == "https://zorp.example.dev/llms.txt"
+    assert got.release == "9.9.9", got.release
+
+
+def test_a_probed_docs_root_is_still_not_a_registry_nomination():
+    """Carrying the release must not carry the `pypi:` prefix with it — that
+    prefix means "a registry nominated this exact URL" to `_path_identity`,
+    and a path DocsForge guessed is not that."""
+    fetcher = FakeFetcher({
+        "https://pypi.org/pypi/zorp/json": registry(
+            {"info": {"version": "9.9.9",
+                      "project_urls": {"Homepage": "https://zorp.example.dev/"}}}),
+        "https://zorp.example.dev/llms.txt": FakeResponse(
+            "# zorp " + "zorp " * 40, ctype="text/plain",
+            url="https://zorp.example.dev/llms.txt"),
+    })
+    got = resolver.resolve("zorp", ecosystem="pypi", fetcher=fetcher)
+    assert got.best.source.startswith("probe:"), got.best.source
+
+
+def test_a_pip_install_line_is_not_held_against_the_pypi_project():
+    """Found writing the fixture above. `install-mismatch` is a veto below
+    two strong signals, and it fired on the real project's own `pip install`
+    line because the ecosystem it was judged against was npm's — the first
+    registry to answer. A smaller project than click, with only its domain
+    and its install line to show, was refused outright for sharing a word
+    with an npm package."""
+    got = resolver.resolve("click", fetcher=_colliding())
+    assert got.best is not None
+    assert "install:pypi" in got.best.signals, got.best.signals
+    assert not any(s.startswith("install-mismatch") for s in got.best.signals)
+
+
+def test_a_candidate_is_judged_against_its_own_registrys_repository():
+    """`repo-backlink` compares the page against the repository the registry
+    declared. Pooled first-wins, that was npm's repository for a PyPI page,
+    so the real project could never earn it for linking to its own source."""
+    fetcher = FakeFetcher({
+        "https://registry.npmjs.org/zorp": registry(
+            {"dist-tags": {"latest": "0.1.0"},
+             "repository": {"url": "git+https://github.com/squatter/zorp.git"}}),
+        "https://pypi.org/pypi/zorp/json": registry(
+            {"info": {"version": "9.9.9",
+                      "project_urls": {"Documentation": "https://zorp-docs.example/",
+                                       "Source": "https://github.com/real/zorp"}}}),
+        "https://zorp-docs.example/": FakeResponse(
+            '<a href="https://github.com/real/zorp">source</a>' + "zorp " * 40,
+            url="https://zorp-docs.example/"),
+    })
+    got = resolver.resolve("zorp", fetcher=fetcher)
+    docs = next(c for c in got.candidates if c.url == "https://zorp-docs.example/")
+    assert "repo-backlink" in docs.signals, docs.signals
+
+
+def test_a_probe_winner_corrects_the_ecosystem_too():
+    """The ecosystem correction keyed on the source prefix, so a `probe:`
+    winner beneath a PyPI homepage left the ecosystem at whichever registry
+    answered first."""
+    fetcher = FakeFetcher({
+        "https://registry.npmjs.org/zorp": registry(
+            {"dist-tags": {"latest": "0.1.0"},
+             "repository": {"url": "git+https://github.com/someone/zorp.git"}}),
+        "https://pypi.org/pypi/zorp/json": registry(
+            {"info": {"version": "9.9.9",
+                      "project_urls": {"Homepage": "https://zorp.example.dev/"}}}),
+        "https://zorp.example.dev/llms.txt": FakeResponse(
+            "# zorp " + "zorp " * 40, ctype="text/plain",
+            url="https://zorp.example.dev/llms.txt"),
+    })
+    got = resolver.resolve("zorp", fetcher=fetcher)
+    assert got.best.source.startswith("probe:")
+    assert got.ecosystem == "pypi"
+
+
+def test_release_from_never_borrows_another_registrys_number():
+    found = [Candidate("https://a", "npm:homepage", 0.5, release="0.1.0", registry="npm"),
+             Candidate("https://b", "pypi:Documentation", 0.9, release="9.9.9",
+                       registry="pypi")]
+    assert resolver.release_from(found, "pypi") == "9.9.9"
+    assert resolver.release_from(found, "npm") == "0.1.0"
+    assert resolver.release_from(found, "crates") == ""
+    assert resolver.release_from(found, "") == ""
+
+
 def test_nothing_is_returned_as_best_when_nothing_verifies():
     # Better to report failure than to hand back a plausible wrong project.
     fetcher = FakeFetcher({
@@ -1042,3 +1175,15 @@ def test_a_docs_subdomain_publishing_only_articles_is_refused_like_any_other():
     })
     found = resolver.probe_docs_root("https://x.dev", fetcher)
     assert found and found[0].url == "https://x.dev/llms.txt"
+
+
+def test_a_remembered_resolution_keeps_its_release(tmp_path, monkeypatch):
+    """The cache stored everything but the release, so the second
+    `learn_technology` for a name — the one served from memory — filed its
+    harvest under the date where the first had filed it under the version."""
+    monkeypatch.setenv("DOCSFORGE_RESOLVE_CACHE", str(tmp_path / "r.json"))
+    got = resolver.resolve("click", fetcher=_colliding())
+    assert got.release == "9.9.9"
+    resolver.remember("click", got)
+    again = resolver.recall("click")
+    assert again is not None and again.release == "9.9.9", again

@@ -62,6 +62,10 @@ from docsforge import __version__
 
 HEADERS = {"User-Agent": f"docsforge/{__version__}"}
 TIMEOUT = 25
+#: `requests` allows thirty. A documentation site that needs more than ten
+#: hops to reach a page is not documenting anything, and each hop is a guard
+#: check and a request.
+MAX_REDIRECTS = 10
 
 # Extensions that are never worth following during a crawl.
 SKIP_EXT = (
@@ -289,10 +293,44 @@ class Fetcher:
 
     # -- primitives --------------------------------------------
     def get(self, url: str, **kw) -> requests.Response:
+        """One request, every hop of it guarded.
+
+        `guard` used to see only the URL a caller passed in. `requests` then
+        followed any `3xx` on its own — `allow_redirects` defaults on, and
+        most callers here pass it explicitly — and the guard never saw where
+        it went. So a page that answered `302 Location: http://127.0.0.1/...`
+        walked straight past the check that refused `127.0.0.1` directly:
+        reproduced 2026-09-17 with a loopback server behind a redirector,
+        secret returned as documentation. Evaluation.md §2.1.
+
+        Redirects are followed here instead, each target guarded before it is
+        fetched, and the response that comes back is shaped as `requests`
+        would have shaped it — `url` is where the request landed, `history`
+        holds the hops — because the resolver reads `r.url` to learn that
+        `terraform.io` lives on `developer.hashicorp.com` and must go on
+        learning it. Every HTTP call in the package comes through here, so
+        there is exactly one place for this to live.
+        """
         self.guard(url)
         kw.setdefault("timeout", TIMEOUT)
+        follow = kw.pop("allow_redirects", True)
         try:
-            return self.session.get(url, **kw)
+            r = self.session.get(url, allow_redirects=False, **kw)
+            history: list[requests.Response] = []
+            while follow and r.is_redirect:
+                if len(history) >= MAX_REDIRECTS:
+                    raise ForgeError(f"Too many redirects fetching {url} "
+                                     f"({MAX_REDIRECTS} followed)")
+                location = r.headers.get("location")
+                if not location:
+                    break
+                target = urljoin(r.url, location)
+                self.guard(target)              # the whole point
+                history.append(r)
+                r.close()
+                r = self.session.get(target, allow_redirects=False, **kw)
+            r.history = history
+            return r
         except requests.RequestException as e:
             raise ForgeError(f"Request failed for {url}: {e}") from e
 
@@ -326,10 +364,36 @@ class Fetcher:
     def _render(self, url: str) -> str:
         self.guard(url)
         page = self._page()
+        refused: list[str] = []
+
+        def gate(route, request):
+            # Every request the page makes -- the navigation, its redirects,
+            # every subresource -- passes here before it leaves. `page.goto`
+            # follows redirects on its own, HTTP and JavaScript alike, and
+            # gave the guard no say in where they went; this does. A refused
+            # one is aborted before a body is read, and the first refusal is
+            # what the caller is told, since the page it gets back would
+            # otherwise be silently missing whatever was blocked.
+            try:
+                self.guard(request.url)
+            except ForgeError as e:
+                if not refused:
+                    refused.append(str(e))
+                route.abort("blockedbyclient")
+                return
+            route.continue_()
+
         try:
+            page.route("**/*", gate)
             page.goto(url, wait_until="networkidle", timeout=30000)
+            if refused:
+                raise ForgeError(refused[0])
             return page.content()
+        except ForgeError:
+            raise
         except Exception as e:
+            if refused:
+                raise ForgeError(refused[0]) from e
             raise ForgeError(f"JS render failed for {url}: {e}") from e
         finally:
             page.close()

@@ -65,6 +65,16 @@ class Candidate:
     #: What a site that publishes one version at a time is documenting.
     #: Last, so the positional construction the tests use stays valid.
     release: str = ""
+    #: Which registry this candidate descends from, when any: set on what
+    #: `from_registries` returns and inherited by a docs root probed beneath
+    #: it. What a candidate is *judged against*. The same word exists on
+    #: several registries, on different projects, and a PyPI project's page
+    #: tested against npm's claims — npm's ecosystem, npm's repository —
+    #: earns `install-mismatch` for its own `pip install` line and can never
+    #: earn `repo-backlink` for linking to its own source. Carried as data
+    #: rather than read off `source`, because a probed root's source must
+    #: stay `probe:` — see `_path_identity`.
+    registry: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -513,6 +523,24 @@ def _facts_from(found: list[Candidate], ecosystem: str) -> dict:
     return facts
 
 
+def _facts_for(candidate: Candidate, found: list[Candidate], pooled: dict) -> dict:
+    """What this candidate is judged against: its own registry's claims.
+
+    A candidate that came from a registry is tested against that registry —
+    its ecosystem, the repository and homepage it declared — and nothing
+    another registry said about a different project with the same word. One
+    that came from none (the project's own domain, a shape guess) is tested
+    against the pool, as before.
+
+    Named rather than inlined because it decides which URL comes back, and
+    the tripwire in `test_rules_stamp` can only watch what it can name.
+    """
+    if not candidate.registry:
+        return pooled
+    return _facts_from([c for c in found if c.registry == candidate.registry],
+                       candidate.registry)
+
+
 def from_registries(name: str, ecosystem: str, fetcher: Fetcher) -> tuple[list[Candidate], str]:
     """Ask the package registries where this library documents itself.
 
@@ -526,10 +554,21 @@ def from_registries(name: str, ecosystem: str, fetcher: Fetcher) -> tuple[list[C
         got = REGISTRIES[eco](name, fetcher)
         if got:
             hit = hit or eco
+            for cand in got:
+                cand.registry = eco
             found += got
             if ecosystem:
                 break
     return found, hit
+
+
+def release_from(found: list[Candidate], ecosystem: str) -> str:
+    """The current release according to one registry, or "" when it is not
+    among `found` — never another registry's for the same word."""
+    if ecosystem not in REGISTRIES:
+        return ""
+    return next((c.release for c in found
+                 if c.release and c.registry == ecosystem), "")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1532,7 +1571,7 @@ REJECT_TTL = 7 * 86400
 #:      Django's. Every wrong answer of 2026-09-10 was cached under rules 3
 #:      with a 30-day TTL, and this is what stops them being served until
 #:      October.
-RULES = 5
+RULES = 6
 
 
 def _cache_file() -> Path:
@@ -1575,11 +1614,17 @@ def recall(name: str) -> Resolution | None:
         result.note = entry.get("note") or f"Recently could not resolve {name!r}."
         return result
     cand = Candidate(entry["url"], "memory", 0.95, entry.get("evidence", ""),
-                     True, entry.get("reason", "remembered from an earlier run"))
+                     True, entry.get("reason", "remembered from an earlier run"),
+                     release=entry.get("release", "") or "")
     cand.signals = list(entry.get("signals") or [])
     result.candidates = [cand]
     result.best = cand
     result.note = entry.get("note", "")
+    # Remembered with the rest, since 2026-09-17. It was not, so the second
+    # `learn_technology` for any name — the one served from memory — filed
+    # its harvest under the date where the first had filed it under the
+    # release. A cache that changes the answer is not a cache.
+    result.release = entry.get("release", "") or ""
     return result
 
 
@@ -1622,6 +1667,7 @@ def remember(name: str, result: Resolution) -> None:
         "signals": list(best.signals) if best else [],
         "ecosystem": result.ecosystem,
         "resolved_via": result.resolved_via,
+        "release": result.release,
         "note": result.note,
     }
     _save_cache(data)
@@ -1854,7 +1900,17 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
         found, hit = from_registries(name, result.ecosystem, fetcher)
         if hit:
             result.ecosystem = result.ecosystem or hit
-            result.release = next((c.release for c in found if c.release), "")
+            # Provisional, like the ecosystem beside it, and scoped to it. It
+            # used to be the release of the first candidate in query order
+            # with any release at all — npm's, always, for any name that also
+            # exists on npm — and it was never revisited once verification
+            # chose a winner. So `click` resolved to click.palletsprojects.com
+            # via PyPI and was stored as version 0.1.0: the `dist-tags.latest`
+            # of an unrelated npm package that shares the word. Measured live,
+            # 2026-09-16, twice, with `markdownify` the second. The ecosystem
+            # got the correction below the day this bug was found for it;
+            # the release never did.
+            result.release = release_from(found, result.ecosystem)
         if not found:
             # No registry knows it. That used to end the search, which is what
             # made every multi-word name unreachable — no registry knows
@@ -1873,17 +1929,34 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
         extra: list[Candidate] = []
         for cand in list(found):
             if cand.confidence < 0.9 and not _looks_like_docs(cand.url):
-                extra += probe_docs_root(cand.url, fetcher)
+                for probed in probe_docs_root(cand.url, fetcher):
+                    # The docs root under PyPI's homepage is PyPI's project,
+                    # and it carries that registry's release. Carried as data
+                    # rather than by re-tagging `source`: a `pypi:` prefix
+                    # means "a registry nominated this exact URL" to
+                    # `_path_identity`, and a guessed path is not that.
+                    probed.release = probed.release or cand.release
+                    probed.registry = probed.registry or cand.registry
+                    extra.append(probed)
 
         ranked = dedupe(sorted(found + extra,
                                key=lambda c: c.confidence, reverse=True))
         result.candidates = ranked[:limit]
 
+        # What the registries claimed — per registry, not pooled. Pooled and
+        # first-wins, the facts were always the first registry to answer:
+        # `click` on PyPI was judged against npm's ecosystem and npm's
+        # repository, so its own `pip install` line counted *against* it as
+        # `install-mismatch` — a veto, below two strong signals — and a link
+        # to its own source could never be `repo-backlink`. A candidate is
+        # judged against the registry it came from; one that came from none
+        # is judged against the pool, as before.
         facts = _facts_from(found, result.ecosystem)
         if verify_best:
             for cand in result.candidates:
                 verify(cand, name, fetcher,
-                       dict(facts, via_domain=cand.source.startswith("domain:")),
+                       dict(_facts_for(cand, found, facts),
+                            via_domain=cand.source.startswith("domain:")),
                        state=state)
             picked = best_verified(result.candidates)
             if picked is not None:
@@ -1893,9 +1966,15 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                 # The ecosystem is whichever registry actually produced the
                 # answer, not whichever one happened to reply first: the
                 # same name often exists in several, on different projects.
-                won = picked.source.split(":", 1)[0]
+                won = picked.registry
                 if won in REGISTRIES:
                     result.ecosystem = won
+                # And the release is the winner's own — the same principle,
+                # applied to the field that was left out of it. A winner that
+                # carries none (the project's own domain, verified here on
+                # registry agreement) takes its ecosystem's, which is the
+                # most that can honestly be said about it.
+                result.release = picked.release or release_from(found, result.ecosystem)
             if result.best is None:
                 result.note = (
                     f"Found {len(result.candidates)} candidate(s) for {name!r} but none "
@@ -1906,6 +1985,7 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                                     verify_best, limit)
         elif result.candidates:
             result.best = result.candidates[0]
+            result.release = result.best.release or result.release
         return result
     finally:
         if own:

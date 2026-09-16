@@ -471,6 +471,188 @@ def test_guard_still_refuses_a_private_answer_when_lookups_are_flaky(monkeypatch
         f.close()
 
 
+# ── the guard sees every hop ─────────────────────────────
+#
+# Evaluation.md §2.1, reproduced 2026-09-17 with two local servers: `guard`
+# saw only the URL a caller passed in, `requests` followed the `302` on its
+# own, and a loopback server's body came back as documentation. The guard
+# that refused 127.0.0.1 directly never saw it arrive by redirect.
+
+class _Hop:
+    """A response `requests` could have returned, with no socket behind it."""
+
+    def __init__(self, status, url, location=None, body=""):
+        self.status_code = status
+        self.url = url
+        self.headers = {"location": location} if location else {}
+        self.text = body
+        self.history = []
+        self.closed = False
+
+    @property
+    def is_redirect(self):
+        return "location" in self.headers and self.status_code in (301, 302, 303, 307, 308)
+
+    def close(self):
+        self.closed = True
+
+
+class _Session:
+    """Answers each URL from a script, refusing to follow anything itself."""
+
+    def __init__(self, script):
+        self.script = script
+        self.asked = []
+        self.headers = {}
+
+    def get(self, url, **kw):
+        assert kw.get("allow_redirects") is False, "the session must never hop on its own"
+        self.asked.append(url)
+        return self.script[url]
+
+    def close(self):
+        pass
+
+
+def _hopping(script, monkeypatch, private=("127.0.0.1", "10.0.0.7")):
+    monkeypatch.setattr(df, "_resolves_private", lambda host: host in private)
+    f = df.Fetcher(df.Options(verbose=False, allow_private=False))
+    f.session = _Session(script)
+    return f
+
+
+def test_a_redirect_to_a_private_address_is_refused_before_it_is_fetched(monkeypatch):
+    f = _hopping({
+        "https://public.example/docs": _Hop(302, "https://public.example/docs",
+                                            location="http://127.0.0.1/latest/meta-data/"),
+    }, monkeypatch)
+    with pytest.raises(df.ForgeError, match="private/loopback"):
+        f.get("https://public.example/docs", allow_redirects=True)
+    assert f.session.asked == ["https://public.example/docs"],         "the private address must never have been requested"
+
+
+def test_a_redirect_between_public_hosts_lands_where_requests_would_have(monkeypatch):
+    """The resolver reads `r.url` to learn that terraform.io lives on
+    developer.hashicorp.com. It must go on learning it."""
+    f = _hopping({
+        "https://x.io": _Hop(301, "https://x.io", location="https://x.dev/"),
+        "https://x.dev/": _Hop(200, "https://x.dev/", body="home"),
+    }, monkeypatch)
+    r = f.get("https://x.io", allow_redirects=True)
+    assert r.status_code == 200 and r.url == "https://x.dev/"
+    assert [h.status_code for h in r.history] == [301]
+    assert r.history[0].closed, "a hop's body is not kept open"
+
+
+def test_a_relative_location_is_resolved_against_the_hop_that_sent_it(monkeypatch):
+    f = _hopping({
+        "https://x.dev/docs": _Hop(302, "https://x.dev/docs", location="/docs/"),
+        "https://x.dev/docs/": _Hop(200, "https://x.dev/docs/", body="docs"),
+    }, monkeypatch)
+    assert f.get("https://x.dev/docs").url == "https://x.dev/docs/"
+
+
+def test_a_caller_that_declined_redirects_gets_the_redirect(monkeypatch):
+    f = _hopping({
+        "https://x.io": _Hop(302, "https://x.io", location="http://127.0.0.1/"),
+    }, monkeypatch)
+    r = f.get("https://x.io", allow_redirects=False)
+    assert r.status_code == 302, "not followed, so nothing to refuse"
+    assert f.session.asked == ["https://x.io"]
+
+
+def test_a_private_address_reached_on_the_third_hop_is_still_refused(monkeypatch):
+    """Every hop, not just the first."""
+    f = _hopping({
+        "https://a.example": _Hop(302, "https://a.example", location="https://b.example"),
+        "https://b.example": _Hop(302, "https://b.example", location="https://c.example"),
+        "https://c.example": _Hop(302, "https://c.example", location="http://10.0.0.7/admin"),
+    }, monkeypatch)
+    with pytest.raises(df.ForgeError, match="private/loopback"):
+        f.get("https://a.example")
+    assert "http://10.0.0.7/admin" not in f.session.asked
+
+
+def test_a_redirect_loop_is_cut_off(monkeypatch):
+    f = _hopping({
+        "https://x.dev/a": _Hop(302, "https://x.dev/a", location="/b"),
+        "https://x.dev/b": _Hop(302, "https://x.dev/b", location="/a"),
+    }, monkeypatch)
+    with pytest.raises(df.ForgeError, match="Too many redirects"):
+        f.get("https://x.dev/a")
+    assert len(f.session.asked) == df.MAX_REDIRECTS + 1
+
+
+def test_a_redirect_to_a_non_http_scheme_is_refused(monkeypatch):
+    f = _hopping({
+        "https://x.dev/": _Hop(302, "https://x.dev/", location="file:///etc/passwd"),
+    }, monkeypatch)
+    with pytest.raises(df.ForgeError, match="Only http/https"):
+        f.get("https://x.dev/")
+
+
+# ── and the browser ──────────────────────────────────────
+
+class _Route:
+    def __init__(self, url):
+        self.request = type("R", (), {"url": url})()
+        self.decision = None
+
+    def abort(self, reason=""):
+        self.decision = "abort"
+
+    def continue_(self):
+        self.decision = "continue"
+
+
+class _Page:
+    """A page whose navigation walks a redirect chain through the route."""
+
+    def __init__(self, chain):
+        self.chain = chain
+        self.gate = None
+        self.decisions = []
+
+    def route(self, pattern, handler):
+        self.gate = handler
+
+    def goto(self, url, **kw):
+        for hop in self.chain:
+            route = _Route(hop)
+            self.gate(route, route.request)
+            self.decisions.append((hop, route.decision))
+            if route.decision == "abort":
+                raise RuntimeError("net::ERR_BLOCKED_BY_CLIENT")
+
+    def content(self):
+        return "<html>rendered</html>"
+
+    def close(self):
+        pass
+
+
+def test_the_browser_is_refused_a_redirect_to_a_private_address(monkeypatch):
+    """`page.goto` follows redirects on its own, HTTP and JavaScript alike;
+    request interception is where the guard gets a say."""
+    monkeypatch.setattr(df, "_resolves_private", lambda host: host == "127.0.0.1")
+    page = _Page(["https://public.example/", "http://127.0.0.1/secret"])
+    f = df.Fetcher(df.Options(verbose=False, allow_private=False, js=True))
+    monkeypatch.setattr(f, "_page", lambda: page)
+    with pytest.raises(df.ForgeError, match="private/loopback"):
+        f._render("https://public.example/")
+    assert page.decisions == [("https://public.example/", "continue"),
+                              ("http://127.0.0.1/secret", "abort")]
+
+
+def test_the_browser_renders_a_public_page_as_before(monkeypatch):
+    monkeypatch.setattr(df, "_resolves_private", lambda host: False)
+    page = _Page(["https://public.example/", "https://public.example/app.js"])
+    f = df.Fetcher(df.Options(verbose=False, allow_private=False, js=True))
+    monkeypatch.setattr(f, "_page", lambda: page)
+    assert f._render("https://public.example/") == "<html>rendered</html>"
+    assert all(d == "continue" for _, d in page.decisions)
+
+
 def test_guard_rejects_non_http_schemes():
     f = df.Fetcher(df.Options(verbose=False, allow_private=True))
     try:
