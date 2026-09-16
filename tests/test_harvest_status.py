@@ -285,10 +285,16 @@ def test_an_idle_status_says_so(kb):
     assert "list_knowledge_base" in out
 
 
-def test_a_serverless_host_says_no_harvest_can_run_here(kb, monkeypatch):
+def test_a_serverless_host_says_a_harvest_here_is_not_guaranteed(kb, monkeypatch):
+    """"Cannot keep working after a request ends" is not true of Fluid
+    compute, which reuses an instance across invocations — and it contradicted
+    the running harvest `harvest_status` was reporting in the same breath.
+    What is true is that nothing here is guaranteed to outlive the response
+    and nothing can outrun the request ceiling."""
     monkeypatch.setattr(harvest_jobs, "EPHEMERAL", True)
     out = ft.tool_harvest_status()
-    assert "cannot keep working after a request ends" in out
+    assert "does not guarantee" in out
+    assert "request ceiling" in out
     assert "python main.py" in out
 
 
@@ -302,7 +308,7 @@ def test_learn_technology_points_a_slow_harvest_at_the_status_tool(kb, monkeypat
     got.candidates = [cand]; got.best = cand
     monkeypatch.setattr(harvest_jobs, "DEADLINE", 0.3)
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: got)
-    monkeypatch.setattr(ft, "tool_harvest_docs", lambda **kw: time.sleep(2) or "done")
+    monkeypatch.setattr(ft, "_harvest_now", lambda **kw: time.sleep(2) or "done")
 
     out = ft.tool_learn_technology("effect")
 

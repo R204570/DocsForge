@@ -644,16 +644,24 @@ def reserve(label: str) -> Job:
     return job
 
 
-def hand_off(label: str, kwargs: dict) -> Job | None:
+def hand_off(label: str, kwargs: dict, tool: str = "learn_technology") -> Job | None:
     """Ask the long-lived server to run this harvest, or None if none answers.
 
     The server publishes its own status record, so the id comes back and every
     other process — this one included — can watch it exactly as before.
+
+    `tool` names which one to run there. It used to be implicit, because
+    `learn_technology` was the only tool that handed anything off; sending
+    `harvest_docs`'s own arguments to `learn_technology` would have resolved
+    a name the caller never gave and harvested whatever that found. A server
+    too old to know the field runs `learn_technology`, which is what it did
+    before — so a new client against an old server is no worse off than it
+    was, and the `url` it sends is simply ignored.
     """
     import urllib.error
     import urllib.request
 
-    payload = json.dumps({"label": label, "kwargs": kwargs}).encode()
+    payload = json.dumps({"label": label, "kwargs": kwargs, "tool": tool}).encode()
     request = urllib.request.Request(
         SERVER.rstrip("/") + "/api/harvests", data=payload, method="POST",
         headers={"Content-Type": "application/json"})

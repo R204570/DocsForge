@@ -15,6 +15,7 @@ because what is under test is who waits for the harvest, not the harvest.
 
 import os
 import sys
+import threading
 import time
 
 import pytest
@@ -52,7 +53,7 @@ def resolution(url="https://x.dev/docs/", verified=True, name="effect", release=
 def _stub(monkeypatch, harvest, deadline=0.3):
     monkeypatch.setattr(harvest_jobs, "DEADLINE", deadline)
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
-    monkeypatch.setattr(ft, "tool_harvest_docs", harvest)
+    monkeypatch.setattr(ft, "_harvest_now", harvest)
 
 
 # ── the fast path must not have moved ────────────────────
@@ -194,8 +195,8 @@ def test_a_background_harvest_counts_the_pages_it_fetches(kb, monkeypatch):
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
 
     progress = harvest_jobs.Progress()
-    out = ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect",
-                               progress=progress)
+    out = ft._harvest_now(url="https://x.dev/docs/", name="effect",
+                          progress=progress)
 
     assert isinstance(seen["fetcher"], ft._CountingFetcher)
     assert progress.pages == 3
@@ -216,7 +217,7 @@ def _unversioned_harvest(declared: str = ""):
 
 def test_the_registrys_release_labels_an_unversioned_site_and_says_so(kb, monkeypatch):
     monkeypatch.setattr(ft, "harvest", _unversioned_harvest())
-    out = ft.tool_harvest_docs(url="https://angular.dev/", name="angular", release_hint="20.2.1")
+    out = ft._harvest_now(url="https://angular.dev/", name="angular", release_hint="20.2.1")
     assert "20.2.1" in out
     assert "registry's current release" in out and "URLs name no version" in out
     assert any(v.get("version") == "20.2.1" for v in ft.store().versions("angular"))
@@ -224,7 +225,7 @@ def test_the_registrys_release_labels_an_unversioned_site_and_says_so(kb, monkey
 
 def test_the_sites_own_declaration_outranks_the_registry(kb, monkeypatch):
     monkeypatch.setattr(ft, "harvest", _unversioned_harvest(declared="19.0.0"))
-    out = ft.tool_harvest_docs(url="https://angular.dev/", name="angular", release_hint="20.2.1")
+    out = ft._harvest_now(url="https://angular.dev/", name="angular", release_hint="20.2.1")
     assert "19.0.0" in out and "20.2.1" not in out
     assert "registry's current release" not in out
 
@@ -234,7 +235,7 @@ def test_a_version_in_the_url_outranks_the_registry(kb, monkeypatch):
         stats["discovered"] = 1; stats["whole"] = True
         return [ft.Doc("https://docs.pydantic.dev/2.11/overview", "Overview", "body")], "sitemap"
     monkeypatch.setattr(ft, "harvest", fake_harvest)
-    out = ft.tool_harvest_docs(url="https://docs.pydantic.dev/2.11/", name="pydantic", release_hint="2.12.0")
+    out = ft._harvest_now(url="https://docs.pydantic.dev/2.11/", name="pydantic", release_hint="2.12.0")
     assert "2.11" in out and "2.12.0" not in out
 
 
@@ -250,7 +251,115 @@ def test_learn_technology_hands_the_release_to_the_harvest(kb, monkeypatch):
     monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution(release="20.2.1"))
     def fake_tool_harvest(url, **kw):
         seen.update(kw); return "harvested"
-    monkeypatch.setattr(ft, "tool_harvest_docs", fake_tool_harvest)
+    monkeypatch.setattr(ft, "_harvest_now", fake_tool_harvest)
     monkeypatch.setattr(harvest_jobs, "DEADLINE", 5)
     ft.tool_learn_technology(name="angular")
     assert seen.get("release_hint") == "20.2.1"
+
+
+# ── harvest_docs is watchable too ─────────────────────────
+#
+# Live against Vercel, 16 September 2026:
+#
+#   harvest_docs(url="https://docs.pydantic.dev/latest/")
+#       -> the connector stopped responding. Twice.
+#   harvest_status()
+#       -> no running job, no failed job, nothing.
+#
+# `learn_technology` had the record, the duplicate check and the deadline;
+# `harvest_docs` ran its crawl inline and registered nothing, so a harvest
+# larger than one request left no trace of ever having existed. A caller who
+# cannot tell "still crawling" from "died four minutes ago" can only retry,
+# which starts the whole crawl again.
+
+def _slow_crawl(gate, seen=None):
+    def crawl(url, name=None, progress=None, **kw):
+        if seen is not None:
+            seen["url"] = url
+        if progress is not None:
+            progress.pages = 7
+        gate.wait(timeout=30)
+        return f"Harvested **{name}** - 7 pages"
+    return crawl
+
+
+def test_a_harvest_docs_that_beats_the_deadline_is_returned_whole(kb, monkeypatch):
+    """The common case, and it must read exactly as it always did."""
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 5)
+    monkeypatch.setattr(ft, "_harvest_now",
+                        lambda **kw: "Harvested **effect** v3 - 2 pages")
+    out = ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+    assert out == "Harvested **effect** v3 - 2 pages"
+
+
+def test_a_slow_harvest_docs_returns_an_id_instead_of_hanging(kb, monkeypatch):
+    gate = threading.Event()
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 0.3)
+    monkeypatch.setattr(ft, "_harvest_now", _slow_crawl(gate))
+    try:
+        out = ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+        assert "still running" in out
+        assert "harvest_status" in out
+    finally:
+        gate.set()
+
+
+def test_a_slow_harvest_docs_is_visible_to_harvest_status(kb, monkeypatch):
+    """The whole point. `harvest_status()` called straight afterwards used to
+    answer that nothing was running and nothing had failed."""
+    gate = threading.Event()
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 0.3)
+    monkeypatch.setattr(ft, "_harvest_now", _slow_crawl(gate))
+    try:
+        ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+        assert any(j.label == "effect" for j in harvest_jobs.running())
+        assert "effect" in ft.tool_harvest_status()
+    finally:
+        gate.set()
+
+
+def test_a_harvest_docs_failure_is_recorded_rather_than_lost(kb, monkeypatch):
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 5)
+
+    def boom(**kw):
+        raise ft.ForgeError("Harvested nothing from https://x.dev/docs/")
+    monkeypatch.setattr(ft, "_harvest_now", boom)
+
+    with pytest.raises(ft.ForgeError):
+        ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+    assert any(j.label == "effect" and j.state == harvest_jobs.FAILED
+               for j in harvest_jobs.recent())
+
+
+def test_harvest_docs_refuses_to_crawl_what_is_already_being_crawled(kb, monkeypatch):
+    """Two calls for one site is the exact cost the record exists to avoid,
+    and retrying is the only thing a caller who was told nothing could do."""
+    gate = threading.Event()
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 0.3)
+    monkeypatch.setattr(ft, "_harvest_now", _slow_crawl(gate))
+    try:
+        ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+        again = ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+        assert "already" in again or "still running" in again
+        assert "Do not call learn_technology" in again or "still running" in again
+    finally:
+        gate.set()
+
+
+def test_harvest_docs_names_itself_when_it_hands_work_to_the_server(kb, monkeypatch):
+    """A stdio server hands the harvest to the long-lived one. Sending
+    harvest_docs's own arguments to learn_technology would resolve a name the
+    caller never gave and harvest whatever that found."""
+    sent = {}
+
+    def fake_hand_off(label, kwargs, tool="learn_technology"):
+        sent.update(label=label, kwargs=kwargs, tool=tool)
+        return None                      # fall through to running it here
+    monkeypatch.setattr(harvest_jobs, "DETACHED", True)
+    monkeypatch.setattr(harvest_jobs, "hand_off", fake_hand_off)
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 5)
+    monkeypatch.setattr(ft, "_harvest_now", lambda **kw: "Harvested - 1 page")
+
+    ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
+    assert sent["tool"] == "harvest_docs"
+    assert sent["kwargs"]["url"] == "https://x.dev/docs/"

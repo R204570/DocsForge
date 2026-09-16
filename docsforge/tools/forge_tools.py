@@ -830,14 +830,18 @@ class _CountingFetcher(Fetcher):
         return out
 
 
-def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
-                      js: bool = False, scope: str = "section",
-                      version: str | None = None, intent: str = "",
-                      corpora: list | None = None, strict: bool = False,
-                      progress=None,
-                      trace: "tracing.TraceContext | None" = None,
-                      release_hint: str = "") -> str:
+def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
+                 js: bool = False, scope: str = "section",
+                 version: str | None = None, intent: str = "",
+                 corpora: list | None = None, strict: bool = False,
+                 progress=None,
+                 trace: "tracing.TraceContext | None" = None,
+                 release_hint: str = "") -> str:
     """Harvest a WHOLE documentation set and store it in the knowledge base.
+
+    The crawl itself, start to finish, on whatever thread calls it. The tool
+    of the same name wraps this in a harvest job; `tool_learn_technology`
+    calls it directly because it has already opened one of its own.
 
     `release_hint` is not in the tool schema either: it is the registry's
     current release, handed down by `learn_technology`. A site that names no
@@ -1251,6 +1255,50 @@ def tool_find_docs(name: str, ecosystem: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
+                      js: bool = False, scope: str = "section",
+                      version: str | None = None, intent: str = "",
+                      corpora: list | None = None, strict: bool = False,
+                      trace: "tracing.TraceContext | None" = None) -> str:
+    """Harvest a WHOLE documentation set from a URL, as a tracked harvest.
+
+    The crawl is `_harvest_now`; what this adds is a record of it. Until now
+    `harvest_docs` ran the crawl inline and registered nothing, so a harvest
+    bigger than one request left no trace of ever having existed —
+    `harvest_docs("https://docs.pydantic.dev/latest/")` stopped the connector
+    responding twice, and `harvest_status()` immediately afterwards reported
+    no running job and no failed one. `learn_technology` has had the record,
+    the duplicate check and the deadline since the day it needed them; this
+    is the same machinery, not a second one.
+
+    No `progress` or `release_hint` here: both are internal channels for a
+    caller that already owns a job, and such a caller wants `_harvest_now`.
+    """
+    trace = trace or tracing.NULL_CONTEXT
+    label = name or _name_from_url(url)
+
+    def work(progress: harvest_jobs.Progress) -> str:
+        progress.url = url
+        progress.phase = "harvesting"
+        try:
+            return _harvest_now(url=url, name=name, max_pages=max_pages, js=js,
+                                scope=scope, version=version, intent=intent,
+                                corpora=corpora, strict=strict,
+                                progress=progress, trace=trace)
+        finally:
+            # See `tool_learn_technology`: only once run_tool() has given up
+            # ownership by detaching is this ours to close.
+            if trace.is_detached():
+                trace.close()
+
+    return _as_harvest(label, work, trace,
+                       handoff={"url": url, "name": name, "max_pages": max_pages,
+                                "js": js, "scope": scope, "version": version,
+                                "intent": intent, "corpora": corpora,
+                                "strict": strict},
+                       tool="harvest_docs")
+
+
 def tool_learn_technology(name: str, version: str | None = None,
                           ecosystem: str | None = None, max_pages: int = 0,
                           js: bool = False, intent: str = "",
@@ -1339,11 +1387,11 @@ def tool_learn_technology(name: str, version: str | None = None,
 
             progress.url = found.best.url
             progress.phase = "harvesting"
-            harvested = tool_harvest_docs(url=found.best.url, name=slug,
-                                          max_pages=max_pages, js=js, version=version,
-                                          intent=intent, corpora=corpora,
-                                          strict=strict, progress=progress, trace=trace,
-                                          release_hint=found.release)
+            harvested = _harvest_now(url=found.best.url, name=slug,
+                                     max_pages=max_pages, js=js, version=version,
+                                     intent=intent, corpora=corpora,
+                                     strict=strict, progress=progress, trace=trace,
+                                     release_hint=found.release)
             return (
                 f"{note}Resolved **{name}** to {found.best.url}\n"
                 f"({found.best.evidence}; {found.best.reason})\n\n{harvested}"
@@ -1371,7 +1419,32 @@ def tool_learn_technology(name: str, version: str | None = None,
     # that had never heard of the first, and langchain was crawled twice.
     # Now that a running harvest is visible from any process, this is a check
     # rather than a request.
-    wanted = _kb_slug(_normalise(name) or name)
+    return _as_harvest(name, work, trace,
+                       handoff={"name": name, "version": version,
+                                "max_pages": max_pages, "js": js, "intent": intent,
+                                "corpora": corpora, "strict": strict,
+                                "refresh": refresh},
+                       tool="learn_technology")
+
+
+def _as_harvest(label: str, work, trace, handoff: dict, tool: str) -> str:
+    """Run `work` as a tracked harvest, and return inside the deadline.
+
+    Everything that makes a long harvest survivable rather than merely slow:
+    a published record so it can be found from another process, a check
+    against harvesting the same thing twice, the handoff to a long-lived
+    server where this host will be torn down with the turn, and a bounded
+    wait so the client is answered either way.
+
+    Lifted out of `tool_learn_technology`, where it was the only copy.
+    `harvest_docs` ran its crawl inline instead and registered nothing, so on
+    Vercel the request simply stopped responding and `harvest_status` — asked
+    immediately afterwards — reported no running job, no failed job, nothing
+    at all. That is worse than an error: a caller who cannot tell "still
+    crawling" from "died four minutes ago" can only retry, which starts the
+    whole crawl again. One copy, two tools.
+    """
+    wanted = _kb_slug(_normalise(label) or label)
     for other in harvest_jobs.running():
         # Not the record we are here to fulfil. A detached worker runs this
         # function with the launcher's job id already published as running, so
@@ -1381,7 +1454,7 @@ def tool_learn_technology(name: str, version: str | None = None,
         if other.id and other.id == harvest_jobs.adopting():
             continue
         if _kb_slug(_normalise(other.label) or other.label) == wanted:
-            return _still_harvesting(other)
+            return _still_harvesting(other, tool)
 
     # Under a host that will be torn down with the turn, the harvest goes into
     # a process of its own. A thread here would die with us -- measured, and
@@ -1390,11 +1463,7 @@ def tool_learn_technology(name: str, version: str | None = None,
     # detached harvest that finishes inside the deadline still returns its own
     # summary: the worker writes the result into the record and we read it back.
     if harvest_jobs.DETACHED:
-        handed = harvest_jobs.hand_off(
-            name,
-            {"name": name, "version": version, "max_pages": max_pages,
-             "js": js, "intent": intent, "corpora": corpora, "strict": strict,
-             "refresh": refresh})
+        handed = harvest_jobs.hand_off(label, handoff, tool=tool)
         if handed is not None:
             # Watched exactly as a local job would be, so a harvest small
             # enough to finish inside the deadline still returns its own
@@ -1403,9 +1472,9 @@ def tool_learn_technology(name: str, version: str | None = None,
             if settled is not None and settled.state == harvest_jobs.DONE:
                 return settled.result
             if settled is not None and settled.state == harvest_jobs.FAILED:
-                raise ForgeError(settled.error or f"Harvesting {name!r} failed.")
+                raise ForgeError(settled.error or f"Harvesting {label!r} failed.")
             trace.detach()
-            return _still_harvesting(harvest_jobs.get(handed.id) or handed)
+            return _still_harvesting(harvest_jobs.get(handed.id) or handed, tool)
         # Nobody answered. Run it here and say plainly that it will not
         # outlive this turn — a promise of background work this host cannot
         # keep is what sent three langchain harvests to their deaths without
@@ -1415,7 +1484,7 @@ def tool_learn_technology(name: str, version: str | None = None,
     # The harvest starts on its own thread and we wait on it -- but only up to
     # the deadline. Anything finishing in time returns exactly what it always
     # returned, which is nearly every harvest and every test.
-    job = harvest_jobs.start(name, work)
+    job = harvest_jobs.start(label, work)
     if harvest_jobs.wait(job):
         if job.exc is not None:
             # Re-raise the original, not a copy: a caller who would have seen a
@@ -1427,7 +1496,7 @@ def tool_learn_technology(name: str, version: str | None = None,
     # when this call returns, because `work()` -- and the trace events it is
     # still emitting -- keeps going on its own thread after this line.
     trace.detach()
-    return _still_harvesting(job)
+    return _still_harvesting(job, tool)
 
 
 #: Set once a handoff has failed, so the warning is attached to the result
@@ -1455,34 +1524,56 @@ def _server_warning() -> str:
     )
 
 
-def _still_harvesting(job: harvest_jobs.Job) -> str:
+def _still_harvesting(job: harvest_jobs.Job, tool: str = "learn_technology") -> str:
     """What a caller gets when the harvest outlives the deadline.
 
     The instruction not to call again is the load-bearing line. A model reading
-    "still running" as "did not work" will call `learn_technology` a second
-    time, and crawling the same site twice is the exact cost this change was
-    made to avoid.
+    "still running" as "did not work" will call the tool a second time, and
+    crawling the same site twice is the exact cost this change was made to
+    avoid. `tool` is which one to name in it: this used to say
+    `learn_technology` unconditionally, which was right while that was the only
+    tool with a deadline to outlive, and became advice to call a different tool
+    than the one the caller used the moment `harvest_docs` got one too.
     """
     where = f" from {job.progress.url}" if job.progress.url else ""
     slug = _kb_slug(_normalise(job.label) or job.label)
     if harvest_jobs.EPHEMERAL:
-        # No background exists here. Saying "it continues" would be the same
-        # lie the detached case was built to stop telling — and the pages
-        # streamed so far are never published, so nothing partial is stored.
+        # What this host cannot do is *promise*. It said "discarded — nothing
+        # partial was stored", which read as a verdict and was not one: the
+        # thread goes on running while the instance lives, and one call later
+        # `harvest_status` answered "1 harvest running … let it finish". A
+        # caller shown both in consecutive calls cannot act on either.
+        #
+        # Nor is "this host cannot keep working after a request ends" true of
+        # Fluid compute, which reuses an instance across invocations. What is
+        # true: nothing here is guaranteed to outlive the response, everything
+        # dies at the platform's request ceiling however it is scheduled, and
+        # an instance can be reclaimed at any moment. So this promises only
+        # what the shared record can actually deliver — that the answer is
+        # knowable — and `harvest_status` reports a record whose heartbeat
+        # stopped as stopped rather than pretending it is still working.
         return (
-            f"**Learning {job.label}{where} did not finish within "
-            f"{harvest_jobs.DEADLINE:.0f}s — it was {job.progress.line()}, and "
-            f"this host cannot keep working after a request ends, so that "
-            f"harvest is discarded.** Nothing partial was stored.\n\n"
-            f"Large harvests need a long-lived DocsForge: run "
-            f"`python main.py --stdio` (or `--http`) on any machine with the same "
-            f"`DOCSFORGE_DB`, learn {job.label!r} there, and it is readable "
-            f"here immediately with `read_knowledge_base(name=\"{slug}\")`.\n\n"
-            f"Tell the user that; do not call learn_technology for "
-            f"{job.label!r} again here."
+            f"**{job.label}{where} did not finish within "
+            f"{harvest_jobs.DEADLINE:.0f}s** — it was {job.progress.line()}. "
+            f"Harvest id `{job.id}`.\n\n"
+            f"This host does not guarantee work continues after a response: "
+            f"the harvest may keep running, and may be cut off at any moment. "
+            f"Its progress is published to the shared knowledge-base database, "
+            f"so the answer is knowable either way:\n\n"
+            f"- `harvest_status(harvest=\"{job.id}\")` reports it from any "
+            f"instance; `wait=20` lets it run that long before answering.\n"
+            f"- **done** means it is stored — read it with "
+            f"`read_knowledge_base(name=\"{slug}\")`.\n"
+            f"- **stopped reporting** means it was cut off, and nothing "
+            f"partial was published; only then is it worth starting again.\n\n"
+            f"Do not call {tool} for {job.label!r} again before that status "
+            f"says so — a second call crawls the same site from the start. A "
+            f"harvest this size is better run on a long-lived DocsForge "
+            f"(`python main.py`) pointed at the same `DOCSFORGE_DB`; what it "
+            f"stores is readable here at once."
         )
     return (
-        f"**Learning {job.label}{where} - still running.** "
+        f"**{job.label}{where} - still running.** "
         f"Harvest id `{job.id}`.\n\n"
         f"Currently {job.progress.line()}, {job.elapsed:.0f}s elapsed. This "
         f"returned before the harvest finished so your client would not time "
@@ -1491,7 +1582,7 @@ def _still_harvesting(job: harvest_jobs.Job) -> str:
         f"`wait=20` lets it run that long before answering.\n"
         f"- `list_knowledge_base()` reports it too, and every other harvest in flight.\n"
         f"- When it finishes, read it with `read_knowledge_base(name=\"{slug}\")`.\n"
-        f"- **Do not call learn_technology for {job.label!r} again** - it is "
+        f"- **Do not call {tool} for {job.label!r} again** - it is "
         f"already running, and a second call would crawl the same site twice.\n\n"
         f"The pages are being written to DocsForge's own knowledge base, not "
         f"to your context: there is nothing for you to collect or save, and no "
@@ -1655,14 +1746,16 @@ def tool_harvest_status(harvest: str = "", wait: int = 0) -> str:
 
 
 def _nowhere_to_run() -> str:
-    """Said when this host cannot run a harvest in the background at all."""
+    """Said where a harvest has no guaranteed background to continue in."""
     if not harvest_jobs.EPHEMERAL:
         return ""
     return (
-        "\n\nThis host cannot keep working after a request ends, so no harvest "
-        "runs in the background here. A long-lived DocsForge (`python main.py`) "
-        "with the same `DOCSFORGE_DB` does, and what it stores is readable "
-        "here at once."
+        "\n\nThis host does not guarantee a harvest continues after the "
+        "response that started it, and cannot run one past its request ceiling "
+        "however it is scheduled — so a large harvest here is a gamble on the "
+        "instance surviving. A long-lived DocsForge (`python main.py`) with "
+        "the same `DOCSFORGE_DB` is not, and what it stores is readable here "
+        "at once."
     )
 
 

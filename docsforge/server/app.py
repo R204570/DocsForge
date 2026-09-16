@@ -552,6 +552,18 @@ def start_harvest(payload: dict):
         return JSONResponse({"error": "a label and kwargs are required"},
                             status_code=400)
 
+    # Which tool to run here. `learn_technology` was the only one that handed
+    # anything off, so it was implicit; `harvest_docs` sends a `url` and no
+    # name, and running that through `learn_technology` would resolve a name
+    # nobody gave. Named rather than sniffed from the arguments, and refused
+    # rather than guessed: anything else is a caller this server does not
+    # understand, and starting the wrong harvest is worse than starting none.
+    runner = {"learn_technology": forge_tools.tool_learn_technology,
+              "harvest_docs": forge_tools.tool_harvest_docs}
+    tool = str(payload.get("tool") or "learn_technology")
+    if tool not in runner:
+        return JSONResponse({"error": f"unknown tool {tool!r}"}, status_code=400)
+
     # Already being fetched? Say so rather than crawl the site twice.
     wanted = forge_tools._kb_slug(forge_tools._normalise(label) or label)
     for other in harvest_jobs.running():
@@ -564,7 +576,7 @@ def start_harvest(payload: dict):
     def run() -> None:
         harvest_jobs.adopt(job.id)
         try:
-            forge_tools.tool_learn_technology(**kwargs)
+            runner[tool](**kwargs)
         except Exception as e:                          # noqa: BLE001
             applog.error("harvest_handoff", f"{type(e).__name__}: {e}")
             current = harvest_jobs.get(job.id)

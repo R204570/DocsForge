@@ -767,7 +767,7 @@ def test_refresh_re_harvests_a_stored_technology(tmp_path, monkeypatch):
         reached["url"] = url
         return "harvested"
 
-    monkeypatch.setattr(ft, "tool_harvest_docs", _fake_harvest)
+    monkeypatch.setattr(ft, "_harvest_now", _fake_harvest)
     monkeypatch.setattr(ft, "_resolve", lambda name, ecosystem="": _Resolved())
 
     out = ft.tool_learn_technology(name="pytorch", refresh=True)
@@ -798,6 +798,9 @@ def test_refresh_reaches_a_detached_harvest_too(tmp_path):
     flag that stops at the handoff is a flag that does nothing where the
     product actually runs."""
     import inspect
+    # The handoff call itself now lives in `_as_harvest`, shared with
+    # `harvest_docs`; what each tool still owns is the arguments it sends.
     source = inspect.getsource(ft.tool_learn_technology)
-    handoff = source.split("harvest_jobs.hand_off(", 1)[1]
-    assert '"refresh": refresh' in handoff.split(")", 1)[0] + handoff[:400]
+    handoff = source.split("handoff=", 1)[1]
+    assert '"refresh": refresh' in handoff[:500]
+    assert "hand_off(label, handoff, tool=tool)" in inspect.getsource(ft._as_harvest)
