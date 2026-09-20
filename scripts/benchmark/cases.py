@@ -7,8 +7,7 @@ one observation about the deployment; the list is the benchmark.
 
 Three flags shape how a case is run and read:
 
-* `known` names a gap already on record (`Project Development/Evaluation.md`
-  section numbers). A known case that fails is reported as KNOWN, not as a
+* `known` names a gap already on record (`System Files/Issues.md`, by id). A known case that fails is reported as KNOWN, not as a
   regression; one that passes is reported as FIXED, which is the signal that
   the record needs updating.
 * `writes` marks a case that changes the knowledge base. These run only with
@@ -614,10 +613,10 @@ CASES: list[Case] = [
          check=exact("html"), budget=8.0,
          note="docs.python.org publishes no llms.txt; both probes 404 first"),
     Case("detect", "empty_url_is_an_error", "detect_source_type", args={"url": ""},
-         check=refused("URL", "http"), known="Evaluation §2.6",
+         check=refused("URL", "http"), known="Issues.md D1",
          note="today '' is classified html rather than refused"),
     Case("detect", "garbage_is_an_error", "detect_source_type", args={"url": "not a url"},
-         check=refused("URL", "http"), known="Evaluation §2.6"),
+         check=refused("URL", "http"), known="Issues.md D1"),
 
     # -- fetch_docs: extraction, per source kind --------------------------
     Case("fetch", "openapi_renders_endpoints", "fetch_docs", args={"url": PETSTORE},
@@ -667,7 +666,7 @@ CASES: list[Case] = [
          note="a public hostname that resolves to 127.0.0.1 is judged by its address"),
     Case("guard", "redirect_to_loopback", "fetch_docs", args={"url": REDIRECT_TO_LOOPBACK},
          check=refused(*PRIVATE, via="httpbin.org"), budget=8.0,
-         note="Evaluation §2.1: a 302 to 127.0.0.1 must be refused at the hop"),
+         note="Issues.md X1: a 302 to 127.0.0.1 must be refused at the hop"),
     Case("guard", "redirect_to_metadata", "fetch_docs", args={"url": REDIRECT_TO_METADATA},
          check=refused(*PRIVATE, via="httpbin.org"), budget=8.0),
     Case("guard", "save_outside_root", "save_docs",
@@ -686,7 +685,7 @@ CASES: list[Case] = [
          note="pydantic.dev/docs/validation/latest since 2026; docs.pydantic.dev redirects there"),
     Case("resolve", "click_is_pypi_not_npm", "find_docs", args={"name": "click"},
          check=resolves_to("click.palletsprojects.com", "pypi"), budget=30.0,
-         note="Evaluation §2.3: npm also has a 'click'; the pypi one must win and be labelled so"),
+         note="Issues.md R6: npm also has a 'click'; the pypi one must win and be labelled so"),
     Case("resolve", "requests_is_pypi", "find_docs", args={"name": "requests"},
          check=resolves_to("requests.readthedocs.io", "pypi"), budget=30.0),
     Case("resolve", "tokio_is_crates", "find_docs", args={"name": "tokio"},
@@ -740,12 +739,12 @@ CASES: list[Case] = [
     Case("store", "forget_selection_unknown", "forget_selection",
          args={"name": "zzqx-never-selected-9182"}, check=ok(), budget=3.0),
     Case("store", "scan_project_remote_dot", "scan_project", args={"path": "."},
-         check=refused("cannot see", "remote", "client"), known="Evaluation §2.5",
+         check=refused("cannot see", "remote", "client"), known="Issues.md H2",
          skip_if=hosted_only,
          note="over a hosted connection '.' is the server's own tree; today it is scanned and reported as yours"),
     Case("store", "scan_project_foreign_path", "scan_project",
          args={"path": "C:\\Users\\nobody\\project"},
-         check=refused(none_of=("/var/task", "/tmp/")), known="Evaluation §2.5",
+         check=refused(none_of=("/var/task", "/tmp/")), known="Issues.md H2",
          skip_if=hosted_only,
          note="an absolute client path; the refusal must not leak the server's working directory"),
 

@@ -55,11 +55,13 @@ docsforge/              the package
   tools/                forge_tools, harvest_jobs, tracing, applog
   server/               mcp_server, app (+ static/)
   providers/            one model backend per file
-scripts/                measurement harnesses and live smoke drivers
-benchmarks/             the live suite: every tool measured over MCP against a
-                        running DocsForge — the hosted one, or `--offline` on a
-                        local database with harvests run to the last page
+scripts/                measurement harnesses and live smoke drivers;
+                        scripts/benchmark/ is the live suite -- every tool measured
+                        over MCP against a running DocsForge, hosted or --offline
 tests/                  the offline suite
+benchmarks/             published benchmark runs, bench-1 onward, each ending with
+                        the issues that run faced
+System Files/           Architecture, PRD, Design, Workflow, Issues, Audit
 ```
 
 ## Features
