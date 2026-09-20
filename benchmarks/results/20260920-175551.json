@@ -1,0 +1,2584 @@
+{
+ "at": "2026-09-20T17:55:51+00:00",
+ "url": "http://127.0.0.1:8765/mcp",
+ "server": {
+  "name": "docsforge",
+  "version": "1.1.0",
+  "seconds": 0.008
+ },
+ "build": "daa0f5d",
+ "checkout": {
+  "head": "daa0f5d",
+  "branch": "eval-fixes"
+ },
+ "python": "3.14.0",
+ "repeat": 1,
+ "timeout": 180.0,
+ "elapsed": 354.7,
+ "counts": {
+  "PASS": 65,
+  "FAIL": 5,
+  "ERROR": 0,
+  "KNOWN": 2,
+  "FIXED": 0,
+  "SKIP": 4
+ },
+ "slow": 5,
+ "stored": [
+  {
+   "name": "benchmark-petstore",
+   "pages": 1,
+   "versions": 1,
+   "chars": 8650,
+   "flags": "",
+   "labels": "v3 (1 pages, 2026-09-20 23:31)"
+  },
+  {
+   "name": "httpx",
+   "pages": 22,
+   "versions": 1,
+   "chars": 143507,
+   "flags": "",
+   "labels": "0.28.1 (22 pages, 2026-09-20 23:31)"
+  }
+ ],
+ "rows": [
+  {
+   "suite": "transport",
+   "name": "health",
+   "tool": "health",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.011,
+   "max_seconds": 0.011,
+   "budget": 2.0,
+   "slow": false,
+   "known": "",
+   "note": "/health answers 200, ok, on postgres, not degraded",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.011,
+     "ok": true,
+     "text": "{\"status\":\"ok\",\"version\":\"1.1.0\",\"store\":\"postgres\",\"degraded\":false}",
+     "meta": {
+      "status": 200,
+      "json": {
+       "status": "ok",
+       "version": "1.1.0",
+       "store": "postgres",
+       "degraded": false
+      }
+     }
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "mcp_needs_token",
+   "tool": "unauthorized",
+   "verdict": "SKIP",
+   "why": "the server runs open on loopback",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
+   "budget": 2.0,
+   "slow": false,
+   "known": "",
+   "note": "/mcp without a bearer is a 401 with a Bearer challenge",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "SKIP",
+     "why": "the server runs open on loopback",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "mcp_rejects_wrong_token",
+   "tool": "unauthorized",
+   "verdict": "SKIP",
+   "why": "the server runs open on loopback",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
+   "budget": 2.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "SKIP",
+     "why": "the server runs open on loopback",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "initialize",
+   "tool": "initialize",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.008,
+   "max_seconds": 0.008,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "a fresh session: connect + initialize",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.008,
+     "ok": true,
+     "text": "",
+     "meta": {
+      "name": "docsforge",
+      "version": "1.1.0",
+      "seconds": 0.008
+     }
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "tools_list",
+   "tool": "tools",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.007,
+   "max_seconds": 0.007,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "all thirteen tools, each with a description",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.007,
+     "ok": true,
+     "text": "detect_source_type, fetch_docs, save_docs, harvest_docs, learn_technology, harvest_status, find_docs, search_knowledge_base, scan_project, list_knowledge_base, read_knowledge_base, forget_resolution, forget_selection, forget_documentation",
+     "meta": {
+      "tools": [
+       {
+        "name": "detect_source_type",
+        "description": "Identify what kind of documentation source a URL is (llms_txt, openapi, sitemap, github, raw_text, or html) without extracting it. Cheap probe \u2014 use it first when you are unsure what a URL points at.",
+        "schema": {
+         "properties": {
+          "url": {
+           "description": "Absolute http(s) URL of the documentation source.",
+           "title": "Url",
+           "type": "string"
+          }
+         },
+         "required": [
+          "url"
+         ],
+         "type": "object",
+         "title": "detect_source_typeArguments"
+        }
+       },
+       {
+        "name": "fetch_docs",
+        "description": "Extract documentation from any URL and return it as clean Markdown. Auto-detects the source type: llms.txt, OpenAPI/Swagger specs (rendered as endpoint tables), sitemap.xml, GitHub repos (README + docs/), raw Markdown, or a generic HTML docs site (nav/footer stripped). This is the main tool.",
+        "schema": {
+         "properties": {
+          "url": {
+           "description": "Absolute http(s) URL of the documentation source.",
+           "title": "Url",
+           "type": "string"
+          },
+          "crawl": {
+           "default": false,
+           "description": "Follow same-host links from the start URL. HTML sources only.",
+           "title": "Crawl",
+           "type": "boolean"
+          },
+          "max_pages": {
+           "default": 25,
+           "description": "Maximum pages to fetch.",
+           "maximum": 200,
+           "minimum": 1,
+           "title": "Max Pages",
+           "type": "integer"
+          },
+          "js": {
+           "default": false,
+           "description": "Render JavaScript with Playwright. Slow; only for client-rendered sites.",
+           "title": "Js",
+           "type": "boolean"
+          },
+          "force": {
+           "anyOf": [
+            {
+             "enum": [
+              "llms_txt",
+              "openapi",
+              "sitemap",
+              "github",
+              "raw_text",
+              "html"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Skip auto-detection and force a strategy.",
+           "title": "Force"
+          }
+         },
+         "required": [
+          "url"
+         ],
+         "type": "object",
+         "title": "fetch_docsArguments"
+        }
+       },
+       {
+        "name": "save_docs",
+        "description": "Extract documentation from a URL and write it to Markdown files on disk. Use when the user wants the docs saved rather than shown. Returns the paths written.",
+        "schema": {
+         "properties": {
+          "url": {
+           "description": "Absolute http(s) URL of the documentation source.",
+           "title": "Url",
+           "type": "string"
+          },
+          "out_dir": {
+           "default": "docs_md",
+           "description": "Directory under the output root to write into.",
+           "title": "Out Dir",
+           "type": "string"
+          },
+          "crawl": {
+           "default": false,
+           "description": "Follow same-host links from the start URL. HTML sources only.",
+           "title": "Crawl",
+           "type": "boolean"
+          },
+          "max_pages": {
+           "default": 25,
+           "description": "Maximum pages to fetch.",
+           "maximum": 200,
+           "minimum": 1,
+           "title": "Max Pages",
+           "type": "integer"
+          },
+          "js": {
+           "default": false,
+           "description": "Render JavaScript with Playwright. Slow; only for client-rendered sites.",
+           "title": "Js",
+           "type": "boolean"
+          },
+          "force": {
+           "anyOf": [
+            {
+             "enum": [
+              "llms_txt",
+              "openapi",
+              "sitemap",
+              "github",
+              "raw_text",
+              "html"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Skip auto-detection and force a strategy.",
+           "title": "Force"
+          },
+          "single_file": {
+           "default": false,
+           "description": "Concatenate everything into one .md file.",
+           "title": "Single File",
+           "type": "boolean"
+          }
+         },
+         "required": [
+          "url"
+         ],
+         "type": "object",
+         "title": "save_docsArguments"
+        }
+       },
+       {
+        "name": "harvest_docs",
+        "description": "Learn a WHOLE technology from one starting URL. Use this whenever the user wants all of something's documentation, or asks about a library or framework you do not already know well. Give it any page of the docs and it finds the rest \u2014 via llms.txt, the sitemap, or a crawl scoped to that docs section \u2014 then stores everything as one Markdown file in the knowledge base. Prefer this over repeated fetch_docs calls: it is the tool that turns an unknown stack into something you can actually answer questions about. It returns a summary, not the documentation; read it back with read_knowledge_base.",
+        "schema": {
+         "properties": {
+          "url": {
+           "description": "Any page of the documentation \u2014 usually the introduction or getting-started page.",
+           "title": "Url",
+           "type": "string"
+          },
+          "name": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "What to file it under, e.g. \"effect\". Defaults to the site's domain.",
+           "title": "Name"
+          },
+          "max_pages": {
+           "default": 0,
+           "description": "0 (the default) crawls the whole documentation section with no page limit. Set a number only to deliberately cut a harvest short.",
+           "minimum": 0,
+           "title": "Max Pages",
+           "type": "integer"
+          },
+          "js": {
+           "default": false,
+           "description": "Render JavaScript with Playwright. Slow; only for client-rendered sites.",
+           "title": "Js",
+           "type": "boolean"
+          },
+          "scope": {
+           "default": "section",
+           "description": "\"section\" stays inside the docs root the URL sits in (right for almost every site), \"host\" allows the whole domain, or give a literal path prefix such as \"/docs/v3/\".",
+           "title": "Scope",
+           "type": "string"
+          },
+          "version": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which version of the docs this is, e.g. \"v3\". Detected from the URL when omitted. Harvesting a version you already hold replaces just that one; other versions are kept.",
+           "title": "Version"
+          }
+         },
+         "required": [
+          "url"
+         ],
+         "type": "object",
+         "title": "harvest_docsArguments"
+        }
+       },
+       {
+        "name": "learn_technology",
+        "description": "Learn a technology from its NAME alone, with no URL. Use this the moment you meet a library, framework or tool you do not already know well \u2014 from an import, a config file, an error message, anything. It finds the official documentation via the package registries, confirms the page really does document that package, harvests the whole thing and stores it. Prefer this over guessing a documentation URL yourself: a guessed URL comes from the same training data that did not know the library, and a wrong guess silently stores the wrong project. If it is already stored, it says so and fetches nothing.",
+        "schema": {
+         "properties": {
+          "name": {
+           "description": "The package or technology name, as you saw it written, e.g. \"effect\", \"pydantic\", \"@tanstack/react-query\".",
+           "title": "Name",
+           "type": "string"
+          },
+          "version": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which version's documentation you need, e.g. \"1.10\". Take it from the project's lockfile or manifest when you can \u2014 versions of the same library contradict each other.",
+           "title": "Version"
+          },
+          "ecosystem": {
+           "anyOf": [
+            {
+             "enum": [
+              "npm",
+              "pypi",
+              "crates"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which registry to trust. Omit to try all.",
+           "title": "Ecosystem"
+          },
+          "max_pages": {
+           "default": 0,
+           "description": "0 (default) harvests the whole documentation.",
+           "minimum": 0,
+           "title": "Max Pages",
+           "type": "integer"
+          },
+          "js": {
+           "default": false,
+           "description": "Render JavaScript with Playwright. Slow; only for client-rendered sites.",
+           "title": "Js",
+           "type": "boolean"
+          },
+          "intent": {
+           "default": "reference",
+           "description": "What the documentation is FOR, which decides which corpora enter scope when a technology documents itself in several places. \"resolve-import\" takes the API and SDK references; \"learn\" takes the guide; \"reference\" (default) takes everything. Corpora left out are always listed, never silently dropped.",
+           "enum": [
+            "reference",
+            "resolve-import",
+            "implement",
+            "learn",
+            "operate"
+           ],
+           "title": "Intent",
+           "type": "string"
+          },
+          "corpora": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Comma-separated corpus URLs to harvest, when a previous call returned NEEDS SELECTION and you are answering it. Your answer is remembered, so this is asked once.",
+           "title": "Corpora"
+          },
+          "strict": {
+           "default": false,
+           "description": "Report `usable_for_planning`. True only when every corpus your intent requires came back complete. Gate on it if you are generating code or a plan from the result.",
+           "title": "Strict",
+           "type": "boolean"
+          },
+          "refresh": {
+           "default": false,
+           "description": "Harvest again even though this technology is already stored, replacing what is there. Use it ONLY when the stored copy is demonstrably wrong \u2014 it documents a different project, or the source URL in the result is not the project's own documentation. It re-crawls the whole site, so never use it merely to get a newer copy or because a search missed something.",
+           "title": "Refresh",
+           "type": "boolean"
+          }
+         },
+         "required": [
+          "name"
+         ],
+         "type": "object",
+         "title": "learn_technologyArguments"
+        }
+       },
+       {
+        "name": "harvest_status",
+        "description": "Report how a harvest is getting on: its phase, pages fetched of how many, time elapsed, and \u2014 once it ends \u2014 whether it stored, failed or stopped. Call this when learn_technology or harvest_docs returned 'still running' with a harvest id and you want to know whether it has finished. The pages are being written to DocsForge's own knowledge base, not to your context or any store of yours: you do not need to fetch, collect or save anything, and you must not cut the harvest short or start it again \u2014 a complete harvest, every page the site lists, is the point. Wait for it, then read it with read_knowledge_base. With no arguments it reports every harvest in flight and any that ended recently.",
+        "schema": {
+         "properties": {
+          "harvest": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "The harvest id learn_technology returned (e.g. \"effect-1\"), or the technology's name. Omit to report every harvest.",
+           "title": "Harvest"
+          },
+          "wait": {
+           "default": 0,
+           "description": "Seconds to let the harvest keep running before answering, so one call can see it finish. Capped at the harvest deadline (25s) so your client never times out; 0 answers at once.",
+           "minimum": 0,
+           "title": "Wait",
+           "type": "integer"
+          }
+         },
+         "type": "object",
+         "title": "harvest_statusArguments"
+        }
+       },
+       {
+        "name": "find_docs",
+        "description": "Work out where a technology documents itself, WITHOUT harvesting anything. Returns candidate URLs with evidence and whether each was confirmed to actually document that package. Use it when you want to check what would be harvested first, or when learn_technology could not resolve a name and you want to see what it considered.",
+        "schema": {
+         "properties": {
+          "name": {
+           "description": "The package or technology name.",
+           "title": "Name",
+           "type": "string"
+          },
+          "ecosystem": {
+           "anyOf": [
+            {
+             "enum": [
+              "npm",
+              "pypi",
+              "crates"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which registry to trust. Omit to try all.",
+           "title": "Ecosystem"
+          }
+         },
+         "required": [
+          "name"
+         ],
+         "type": "object",
+         "title": "find_docsArguments"
+        }
+       },
+       {
+        "name": "search_knowledge_base",
+        "description": "Search the full text of every stored page, across all technologies at once. Use this when you have a symbol, error message or snippet but do not know which library it belongs to \u2014 read_knowledge_base needs you to already know the name, and this does not.",
+        "schema": {
+         "properties": {
+          "query": {
+           "description": "Words to search for, e.g. \"exponential backoff\".",
+           "title": "Query",
+           "type": "string"
+          },
+          "technology": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Optional: restrict to one stored technology.",
+           "title": "Technology"
+          },
+          "version": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Optional: restrict to one version of it.",
+           "title": "Version"
+          },
+          "limit": {
+           "default": 20,
+           "maximum": 100,
+           "minimum": 1,
+           "title": "Limit",
+           "type": "integer"
+          },
+          "kind": {
+           "anyOf": [
+            {
+             "enum": [
+              "api",
+              "sdk",
+              "spec",
+              "guide",
+              "cookbook",
+              "operations",
+              "changelog",
+              "language",
+              "meta"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Optional: only return passages from pages of this kind. Use \"api\" when you want a signature and do not want tutorial prose competing with it.",
+           "title": "Kind"
+          }
+         },
+         "required": [
+          "query"
+         ],
+         "type": "object",
+         "title": "search_knowledge_baseArguments"
+        }
+       },
+       {
+        "name": "scan_project",
+        "description": "Read a project's dependency manifests (package.json, pyproject.toml, requirements.txt, Cargo.toml, go.mod) and list what it depends on, at which versions, and which of those are already documented in the knowledge base. This is the best way to find out what a codebase actually uses before answering questions about it \u2014 and the manifest is the only place the correct VERSION of each library can be read from.",
+        "schema": {
+         "properties": {
+          "path": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Project root. Defaults to the working directory.",
+           "title": "Path"
+          },
+          "unknown_only": {
+           "default": false,
+           "description": "List only dependencies not yet stored.",
+           "title": "Unknown Only",
+           "type": "boolean"
+          }
+         },
+         "type": "object",
+         "title": "scan_projectArguments"
+        }
+       },
+       {
+        "name": "list_knowledge_base",
+        "description": "List the technologies already harvested and stored locally, with every version stored for each. Check this FIRST when asked about a library or framework \u2014 if it is already stored, read it instead of fetching anything.",
+        "schema": {
+         "properties": {},
+         "type": "object",
+         "title": "list_knowledge_baseArguments"
+        }
+       },
+       {
+        "name": "read_knowledge_base",
+        "description": "Read stored documentation back out of the knowledge base. Pass `section` to get only the pages whose title matches a phrase (for example \"error handling\"), which is how you answer a specific question without pulling a whole manual into context.",
+        "schema": {
+         "properties": {
+          "name": {
+           "description": "The stored name, as shown by list_knowledge_base.",
+           "title": "Name",
+           "type": "string"
+          },
+          "section": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Optional phrase to match against page titles.",
+           "title": "Section"
+          },
+          "version": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which stored version to read, e.g. \"v3\". Defaults to the newest version stored \u2014 the highest release number, not the most recent download.",
+           "title": "Version"
+          }
+         },
+         "required": [
+          "name"
+         ],
+         "type": "object",
+         "title": "read_knowledge_baseArguments"
+        }
+       },
+       {
+        "name": "forget_resolution",
+        "description": "Forget where a technology was previously resolved to, so the next learn_technology works it out again from scratch. Use this when a harvest turned out to be the WRONG project, or when a project has moved its documentation. It deletes no stored documentation \u2014 only the remembered lookup. Omit `name` to clear every remembered lookup.",
+        "schema": {
+         "properties": {
+          "name": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "The technology whose remembered lookup to drop. Omit to clear all of them.",
+           "title": "Name"
+          }
+         },
+         "type": "object",
+         "title": "forget_resolutionArguments"
+        }
+       },
+       {
+        "name": "forget_selection",
+        "description": "Forget which corpora were chosen for a technology, so the next learn_technology asks again. Use it when a technology has grown new documentation, or when the earlier choice turned out to be the wrong part. It deletes no stored documentation. Omit `name` to clear all.",
+        "schema": {
+         "properties": {
+          "name": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "The technology whose remembered corpus choice to drop. Omit to clear all of them.",
+           "title": "Name"
+          }
+         },
+         "type": "object",
+         "title": "forget_selectionArguments"
+        }
+       },
+       {
+        "name": "forget_documentation",
+        "description": "Delete stored documentation. IRREVERSIBLE \u2014 the pages are gone and re-harvesting means crawling the site again. Use it only when the user has asked for something to be removed, or when a harvest demonstrably stored the wrong project. Never call it to 'refresh' something: learn_technology(refresh=true) replaces a stored version without destroying it first.",
+        "schema": {
+         "properties": {
+          "name": {
+           "description": "The stored technology name, exactly as list_knowledge_base reports it.",
+           "title": "Name",
+           "type": "string"
+          },
+          "version": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which version to remove. Omit to remove the technology and every version of it.",
+           "title": "Version"
+          }
+         },
+         "required": [
+          "name"
+         ],
+         "type": "object",
+         "title": "forget_documentationArguments"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "surface_matches_checkout",
+   "tool": "surface",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.511,
+   "max_seconds": 0.511,
+   "budget": null,
+   "slow": false,
+   "known": "",
+   "note": "live tool names and parameters against forge_tools.TOOLS here",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.511,
+     "ok": true,
+     "text": "no drift",
+     "meta": {
+      "drift": [],
+      "compared": 13
+     }
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "listing",
+   "tool": "list_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.173,
+   "max_seconds": 0.173,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "also learns the build sha and what is stored, for later cases",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.173,
+     "ok": true,
+     "text": "DocsForge build `daa0f5d` \u2014 nothing is stored yet. Learn a technology with `learn_technology(name=\"...\")` \u2014 you do not need a URL.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "transport",
+   "name": "build_is_known",
+   "tool": "build",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
+   "budget": null,
+   "slow": false,
+   "known": "",
+   "note": "the sha the live build reports is a commit in this repository",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.0,
+     "ok": true,
+     "text": "live daa0f5d = 'The SSRF guard sees every hop of a redirect, not only the first'; HEAD daa0f5d; origin/main 5826f61",
+     "meta": {
+      "in_history": true,
+      "head": "daa0f5d",
+      "main": "5826f61"
+     }
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "openapi_json",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.388,
+   "max_seconds": 1.388,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.388,
+     "ok": true,
+     "text": "openapi",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "github_repo",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.011,
+   "max_seconds": 0.011,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.011,
+     "ok": true,
+     "text": "github",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "raw_markdown",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.01,
+   "max_seconds": 0.01,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.01,
+     "ok": true,
+     "text": "raw_text",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "sitemap",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.011,
+   "max_seconds": 0.011,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.011,
+     "ok": true,
+     "text": "sitemap",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "llms_index_prefers_full_dump",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.769,
+   "max_seconds": 0.769,
+   "budget": 8.0,
+   "slow": false,
+   "known": "",
+   "note": "an llms.txt index beside an llms-full.txt is resolved to the full dump",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.769,
+     "ok": true,
+     "text": "llms_txt (resolved to https://svelte.dev/llms-full.txt)",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "deep_page_finds_site_dump",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.021,
+   "max_seconds": 1.021,
+   "budget": 8.0,
+   "slow": false,
+   "known": "",
+   "note": "a docs page on a site that publishes llms-full.txt is that dump",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.021,
+     "ok": true,
+     "text": "llms_txt (resolved to https://svelte.dev/llms-full.txt)",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "html_page",
+   "tool": "detect_source_type",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.277,
+   "max_seconds": 0.277,
+   "budget": 8.0,
+   "slow": false,
+   "known": "",
+   "note": "docs.python.org publishes no llms.txt; both probes 404 first",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.277,
+     "ok": true,
+     "text": "html",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "empty_url_is_an_error",
+   "tool": "detect_source_type",
+   "verdict": "KNOWN",
+   "why": "was not refused; answered 4 chars: 'html'",
+   "seconds": 0.006,
+   "max_seconds": 0.006,
+   "budget": null,
+   "slow": false,
+   "known": "Evaluation \u00a72.6",
+   "note": "today '' is classified html rather than refused",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "KNOWN",
+     "why": "was not refused; answered 4 chars: 'html'",
+     "seconds": 0.006,
+     "ok": true,
+     "text": "html",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "detect",
+   "name": "garbage_is_an_error",
+   "tool": "detect_source_type",
+   "verdict": "KNOWN",
+   "why": "was not refused; answered 4 chars: 'html'",
+   "seconds": 0.006,
+   "max_seconds": 0.006,
+   "budget": null,
+   "slow": false,
+   "known": "Evaluation \u00a72.6",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "KNOWN",
+     "why": "was not refused; answered 4 chars: 'html'",
+     "seconds": 0.006,
+     "ok": true,
+     "text": "html",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "openapi_renders_endpoints",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.365,
+   "max_seconds": 1.365,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.365,
+     "ok": true,
+     "text": "<!-- source: https://petstore3.swagger.io/api/v3/openapi.json | type: openapi | scraped: 2026-09-20 23:25 -->\n\n# Swagger Petstore - OpenAPI 3.0\n\n**Version:** 1.0.27\n\n**Servers:** `/api/v3`\n\nThis is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\nThat way, with time, we can improve the API in general, and ",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "force_raw_skips_rendering",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.392,
+   "max_seconds": 1.392,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "force=raw_text hands back the JSON, not endpoint tables",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.392,
+     "ok": true,
+     "text": "<!-- source: https://petstore3.swagger.io/api/v3/openapi.json | type: raw | scraped: 2026-09-20 23:25 -->\n\n{\"openapi\":\"3.0.4\",\"info\":{\"title\":\"Swagger Petstore - OpenAPI 3.0\",\"description\":\"This is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\\nThat way, with time, we can improve the API in general, a",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "llms_full_dump_is_capped_and_says_so",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.893,
+   "max_seconds": 0.893,
+   "budget": 20.0,
+   "slow": false,
+   "known": "",
+   "note": "1.19 MB dump; the 200k cap must disclose the cut",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.893,
+     "ok": true,
+     "text": "# Extracted 215 documents\n\n1. [This is the full developer documentation for Svelte and SvelteKit.](https://svelte.dev/llms-full.txt#this-is-the-full-developer-documentation-for-svelte-and-sveltekit)\n2. [Start of Svelte documentation](https://svelte.dev/llms-full.txt#start-of-svelte-documentation)\n3. [Overview](https://svelte.dev/llms-full.txt#overview)\n4. [Getting started](https://svelte.dev/llms-full.txt#getting-started)\n5. [.svelte files](https://svelte.dev/llms-full.txt#svelte-files)\n6. [.svelte.js and .svelte.ts files](https://svelte.dev/llms-full.txt#svelte-js-and-svelte-ts-files)\n7. [Wha",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "raw_markdown_passthrough",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.604,
+   "max_seconds": 0.604,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.604,
+     "ok": true,
+     "text": "<!-- source: https://raw.githubusercontent.com/pallets/click/main/README.md | type: raw | scraped: 2026-09-20 23:26 -->\n\n<div align=\"center\"><img src=\"https://raw.githubusercontent.com/pallets/click/refs/heads/stable/docs/_static/click-name.svg\" alt=\"\" height=\"150\"></div>\n\n# Click\n\nClick is a Python package for creating beautiful command line interfaces\nin a composable way with as little code as necessary. It's the \"Command\nLine Interface Creation Kit\". It's highly configurable but comes with\nsensible defaults out of the box.\n\nIt aims to make the process of writing command line tools quick and",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "github_readme_and_docs",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 7.672,
+   "max_seconds": 7.672,
+   "budget": 15.0,
+   "slow": false,
+   "known": "",
+   "note": "GitHub API, unauthenticated: rate limits on a shared egress show here",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 7.672,
+     "ok": true,
+     "text": "# Extracted 25 documents\n\n1. [click \u2014 README](https://github.com/pallets/click)\n2. [docs/advanced.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/advanced.md)\n3. [docs/api.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/api.md)\n4. [docs/arguments.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/arguments.md)\n5. [docs/changes.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/changes.md)\n6. [docs/click-concepts.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/click-concepts.md)\n7. [docs/command-line-reference.md](https://raw.githu",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "html_page_extracted",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.49,
+   "max_seconds": 0.49,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.49,
+     "ok": true,
+     "text": "<!-- source: https://docs.python.org/3/library/asyncio.html | type: html | scraped: 2026-09-20 23:26 -->\n\n# `asyncio` \u2014 Asynchronous I/O[\u00b6](#module-asyncio \"Link to this heading\")\n\n---\n\nasyncio is a library to write **concurrent** code using\nthe **async/await** syntax.\n\nasyncio is used as a foundation for multiple Python asynchronous\nframeworks that provide high-performance network and web-servers,\ndatabase connection libraries, distributed task queues, etc.\n\nasyncio is often a perfect fit for IO-bound and high-level\n**structured** network code.\n\nSee also\n\n[A Conceptual Overview of asyncio](..",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "crawl_three_pages",
+   "tool": "fetch_docs",
+   "verdict": "FAIL",
+   "why": "tool error: 'Error executing tool fetch_docs: The site answered HTTP 429 (rate limited) to every request and nothing was fetched from https://click.palletsprojects.com/en/st'",
+   "seconds": 32.741,
+   "max_seconds": 32.741,
+   "budget": 30.0,
+   "slow": true,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "FAIL",
+     "why": "tool error: 'Error executing tool fetch_docs: The site answered HTTP 429 (rate limited) to every request and nothing was fetched from https://click.palletsprojects.com/en/st'",
+     "seconds": 32.741,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: The site answered HTTP 429 (rate limited) to every request and nothing was fetched from https://click.palletsprojects.com/en/stable/. Its pace, not its size: harvest again later.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "sitemap_bounded",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.687,
+   "max_seconds": 1.687,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.687,
+     "ok": true,
+     "text": "# Extracted 2 documents\n\n1. [FastAPI - FastAPI](https://fastapi.tiangolo.com/)\n2. [Features - FastAPI](https://fastapi.tiangolo.com/features/)\n\n## FastAPI - FastAPI\n<https://fastapi.tiangolo.com/>\n\n<!-- source: https://fastapi.tiangolo.com/ | type: html | scraped: 2026-09-20 23:26 -->\n\n[FastAPI Conf '26\nOctober 28, 2026\nAmsterdam, NL\nAll about FastAPI, right from the source.\nLearn more](https://fastapiconf.com)\n\n[FastAPI Conf '26\nOctober 28, 2026\nAmsterdam, NL\nAll about FastAPI, right from the source.\nLearn more](https://fastapiconf.com)\n\n# FastAPI[\u00b6](#fastapi \"Permanent link\")\n\n[![FastAPI](ht",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "bad_url_is_an_error",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.012,
+   "max_seconds": 0.012,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.012,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Only http/https URLs are supported, got: 'not-a-url'",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "fetch",
+   "name": "missing_page_is_an_error",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.322,
+   "max_seconds": 0.322,
+   "budget": 8.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.322,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: HTTP 404 for https://docs.python.org/3/library/this-page-does-not-exist.html",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "loopback",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.01,
+   "max_seconds": 0.01,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.01,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 127.0.0.1 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "cloud_metadata",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.012,
+   "max_seconds": 0.012,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.012,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 169.254.169.254 resolves to 169.254.169.254. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "decimal_ip",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.011,
+   "max_seconds": 0.011,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.011,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 2130706433 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "octal_ip",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.01,
+   "max_seconds": 0.01,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.01,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 0177.0.0.1 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "ipv6_loopback",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.011,
+   "max_seconds": 0.011,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.011,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: ::1 resolves to ::1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "file_scheme",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.011,
+   "max_seconds": 0.011,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.011,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Only http/https URLs are supported, got: 'file:///etc/passwd'",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "dns_to_loopback",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.021,
+   "max_seconds": 0.021,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "a public hostname that resolves to 127.0.0.1 is judged by its address",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.021,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 127.0.0.1.nip.io resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "redirect_to_loopback",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.533,
+   "max_seconds": 1.533,
+   "budget": 8.0,
+   "slow": false,
+   "known": "",
+   "note": "Evaluation \u00a72.1: a 302 to 127.0.0.1 must be refused at the hop",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.533,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 127.0.0.1 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "redirect_to_metadata",
+   "tool": "fetch_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.898,
+   "max_seconds": 1.898,
+   "budget": 8.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.898,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 169.254.169.254 resolves to 169.254.169.254. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "save_outside_root",
+   "tool": "save_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.016,
+   "max_seconds": 0.016,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.016,
+     "ok": false,
+     "text": "Error executing tool save_docs: Refusing to write outside E:\\DocsForge - TEMP\\offline\\out",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "guard",
+   "name": "save_inside_root",
+   "tool": "save_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.35,
+   "max_seconds": 1.35,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "writes to the server's own scratch (/tmp on Vercel), not the store",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.35,
+     "ok": true,
+     "text": "Wrote 1 file(s) to `E:\\DocsForge - TEMP\\offline\\out\\benchmark-scratch`:\n- `E:\\DocsForge - TEMP\\offline\\out\\benchmark-scratch\\petstore3-swagger-io-api-v3-openapi.json-ddba08da.md`",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "fastapi",
+   "tool": "find_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 5.591,
+   "max_seconds": 5.591,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 5.591,
+     "ok": true,
+     "text": "Resolving **fastapi** (pypi):\n\n- https://fastapi.tiangolo.com/\n    verified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for fastapi\n    identified by own-domain, repo-backlink, repo-identity, names-it:21\n- https://github.com/tkambler/fastapi#readme\n    verified \u00b7 confidence 0.35 \u00b7 npm registry homepage for fastapi\n    identified by repo-backlink, registry-agreement, repo-identity, names-it:5\n- https://github.com/fastapi/fastapi\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Homepage] for fastapi\n    identified by registry-agreement, repo-identity, names-it:11\n- https://github.com/",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "pydantic",
+   "tool": "find_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 3.644,
+   "max_seconds": 3.644,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "pydantic.dev/docs/validation/latest since 2026; docs.pydantic.dev redirects there",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 3.644,
+     "ok": true,
+     "text": "Resolving **pydantic**:\n\n- https://pydantic.dev/docs/validation/latest/llms.txt\n    verified \u00b7 confidence 0.97 \u00b7 https://docs.pydantic.dev/llms.txt exists and is not HTML \u2014 docs.pydantic.dev is where this project says its documentation lives\n    identified by own-domain, names-it:168\n- https://pydantic.dev/\n    unverified \u00b7 confidence 0.75 \u00b7 pydantic.dev is the project's own domain and carries a link to its source repository; pydantic.io redirects onto it\n    not enough to identify 'pydantic' \u2014 only own-domain. Naming a project is not the same as being it.\n\nBest: https://pydantic.dev/docs/vali",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "click_is_pypi_not_npm",
+   "tool": "find_docs",
+   "verdict": "FAIL",
+   "why": "no Best: line -- 'https://click.palletsprojects.com/ could not be read (HTTP 429 for https://click.palletsprojects.com/) and outranks every candidate that could. Nothing weaker w'",
+   "seconds": 37.183,
+   "max_seconds": 37.183,
+   "budget": 30.0,
+   "slow": true,
+   "known": "",
+   "note": "Evaluation \u00a72.3: npm also has a 'click'; the pypi one must win and be labelled so",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "FAIL",
+     "why": "no Best: line -- 'https://click.palletsprojects.com/ could not be read (HTTP 429 for https://click.palletsprojects.com/) and outranks every candidate that could. Nothing weaker w'",
+     "seconds": 37.183,
+     "ok": true,
+     "text": "Resolving **click** (npm):\n\n- https://click.palletsprojects.com/\n    unverified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for click\n    could not be read: HTTP 429 for https://click.palletsprojects.com/\n- https://github.com/uggedal/click\n    unverified \u00b7 confidence 0.35 \u00b7 npm registry repository for click\n    could not be read: HTTP 404 for https://github.com/uggedal/click\n- https://github.com/pallets/click/\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Source] for click\n    identified by repo-identity, names-it:11\n- https://github.com/databricks/click/wiki\n    verified \u00b7 confi",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "requests_is_pypi",
+   "tool": "find_docs",
+   "verdict": "FAIL",
+   "why": "no Best: line -- 'https://requests.readthedocs.io could not be read (HTTP 429 for https://requests.readthedocs.io) and outranks every candidate that could. Nothing weaker was acc'",
+   "seconds": 44.02,
+   "max_seconds": 44.02,
+   "budget": 30.0,
+   "slow": true,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "FAIL",
+     "why": "no Best: line -- 'https://requests.readthedocs.io could not be read (HTTP 429 for https://requests.readthedocs.io) and outranks every candidate that could. Nothing weaker was acc'",
+     "seconds": 44.02,
+     "ok": true,
+     "text": "Resolving **requests** (npm):\n\n- https://requests.readthedocs.io\n    unverified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for requests\n    could not be read: HTTP 429 for https://requests.readthedocs.io\n- https://docs.rs/requests\n    verified \u00b7 confidence 0.92 \u00b7 crates.io documentation for requests\n    identified by repo-backlink, names-it:15\n- https://github.com/unshiftio/requests\n    verified \u00b7 confidence 0.35 \u00b7 npm registry homepage for requests\n    identified by registry-agreement, repo-identity, names-it:5\n- https://github.com/psf/requests\n    verified \u00b7 confidence 0.35 \u00b7 PyPI ",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "tokio_is_crates",
+   "tool": "find_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 21.935,
+   "max_seconds": 21.935,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 21.935,
+     "ok": true,
+     "text": "Resolving **tokio** (crates):\n\n- https://tokio.rs\n    verified \u00b7 confidence 0.55 \u00b7 crates.io homepage for tokio\n    identified by own-domain, repo-backlink, registry-agreement, repo-identity, names-it:9\n- https://github.com/egoist/tokio\n    verified \u00b7 confidence 0.35 \u00b7 npm registry repository for tokio\n    identified by repo-identity, names-it:5\n- https://github.com/PyO3/tokio/\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Homepage] for tokio\n    identified by registry-agreement, repo-identity, names-it:5\n- https://github.com/tokio-rs/tokio\n    verified \u00b7 confidence 0.35 \u00b7 crates.io repos",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "svelte",
+   "tool": "find_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 19.408,
+   "max_seconds": 19.408,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "found by its own domain before any registry is asked, so no ecosystem is claimed",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 19.408,
+     "ok": true,
+     "text": "Resolving **svelte**:\n\n- https://svelte.dev/llms.txt\n    verified \u00b7 confidence 0.97 \u00b7 https://svelte.dev/llms.txt exists and is not HTML\n    identified by own-domain, names-it:24\n- https://svelte.dev/\n    verified \u00b7 confidence 0.75 \u00b7 svelte.dev is the project's own domain and carries a link to its source repository\n    identified by own-domain, names-it:8\n\nBest: https://svelte.dev/llms.txt \u2014 harvest it with `learn_technology(name=\"svelte\")`, or `harvest_docs(url=\"https://svelte.dev/llms.txt\", name=\"svelte\")`.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "django",
+   "tool": "find_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 31.054,
+   "max_seconds": 31.054,
+   "budget": 30.0,
+   "slow": true,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 31.054,
+     "ok": true,
+     "text": "Resolving **django** (pypi):\n\n- https://docs.djangoproject.com/\n    verified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for django\n    identified by own-domain, docs-host, repo-backlink, repo-identity, names-it:31\n- https://www.djangoproject.com/\n    verified \u00b7 confidence 0.55 \u00b7 PyPI project_urls[Homepage] for django\n    identified by own-domain, repo-backlink, registry-agreement, repo-identity, names-it:48\n- https://github.com/npm/security-holder#readme\n    verified \u00b7 confidence 0.35 \u00b7 npm registry homepage for django\n    identified by repo-backlink, registry-agreement\n- https://git",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "scoped_npm_name",
+   "tool": "find_docs",
+   "verdict": "FAIL",
+   "why": "no Best: line -- \"Found 2 candidate(s) for '@tanstack/react-query' but none could be confirmed to document it. Harvesting an unverified page risks storing the wrong project \u2014 pas\"",
+   "seconds": 22.712,
+   "max_seconds": 22.712,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "the site says 'TanStack Query', never the scoped name, so the identity gate refuses",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "FAIL",
+     "why": "no Best: line -- \"Found 2 candidate(s) for '@tanstack/react-query' but none could be confirmed to document it. Harvesting an unverified page risks storing the wrong project \u2014 pas\"",
+     "seconds": 22.712,
+     "ok": true,
+     "text": "Resolving **@tanstack/react-query** (npm):\n\n- https://tanstack.com/query\n    unverified \u00b7 confidence 0.55 \u00b7 npm registry homepage for @tanstack/react-query\n    not enough to identify '@tanstack/react-query' \u2014 only registry-agreement. Naming a project is not the same as being it.\n- https://github.com/TanStack/query\n    unverified \u00b7 confidence 0.35 \u00b7 npm registry repository for @tanstack/react-query\n    nothing on the page identifies it as '@tanstack/react-query'\n\nFound 2 candidate(s) for '@tanstack/react-query' but none could be confirmed to document it. Harvesting an unverified page risks stor",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "ecosystem_pin",
+   "tool": "find_docs",
+   "verdict": "FAIL",
+   "why": "best is https://github.com/pallets/click/, expected click.palletsprojects.com",
+   "seconds": 33.475,
+   "max_seconds": 33.475,
+   "budget": 30.0,
+   "slow": true,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "FAIL",
+     "why": "best is https://github.com/pallets/click/, expected click.palletsprojects.com",
+     "seconds": 33.475,
+     "ok": true,
+     "text": "Resolving **click** (pypi):\n\n- https://click.palletsprojects.com/\n    unverified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for click\n    could not be read: HTTP 429 for https://click.palletsprojects.com/\n- https://github.com/pallets/click/\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Source] for click\n    identified by repo-identity, names-it:11\n\nBest: https://github.com/pallets/click/ \u2014 harvest it with `learn_technology(name=\"click\")`, or `harvest_docs(url=\"https://github.com/pallets/click/\", name=\"click\")`.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "resolve",
+   "name": "unknown_name_is_honest",
+   "tool": "find_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 29.664,
+   "max_seconds": 29.664,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "no Best: for a name no registry has",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 29.664,
+     "ok": true,
+     "text": "Resolving **zzqx-no-such-package-9182**:\n\nNo registry knows 'zzqx-no-such-package-9182'. If it is private or internal, pass the documentation URL directly to harvest_docs. Resolution gave up after 29.6s.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "scan_this_repo",
+   "tool": "scan_project",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.116,
+   "max_seconds": 0.116,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "on a local server '.' is this repository: the caller's disk is the server's",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.116,
+     "ok": true,
+     "text": "19 of 19 dependencies declared in `E:\\DocsForge - TEMP`:\n\n- `anthropic` 0.70 (pypi, requirements.txt) \u2014 not stored\n- `anyio` 4.0 (pypi, pyproject.toml) \u2014 not stored\n- `beautifulsoup4` 4.12 (pypi, pyproject.toml) \u2014 not stored\n- `fastapi` 0.110 (pypi, requirements.txt) \u2014 not stored\n- `google-genai` 1.0 (pypi, requirements.txt) \u2014 not stored\n- `groq` 0.11 (pypi, requirements.txt) \u2014 not stored\n- `linkify-it-py` 2.0 (pypi, requirements.txt) \u2014 not stored\n- `lxml` 5.0 (pypi, pyproject.toml) \u2014 not stored\n- `markdown-it-py` 3.0 (pypi, requirements.txt) \u2014 not stored\n- `markdownify` 0.13 (pypi, pyproject.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "learn_whole_technology",
+   "tool": "learn_technology",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 25.212,
+   "max_seconds": 25.212,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "no max_pages: the tool hands back a harvest id at the deadline and the crawl runs on",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 25.212,
+     "ok": true,
+     "text": "**httpx from https://www.python-httpx.org - still running.** Harvest id `httpx-1`.\n\nCurrently harvesting, 0 pages so far, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.\n\n- `harvest_status(harvest=\"httpx-1\")` reports its progress; `wait=20` lets it run that long before answering.\n- `list_knowledge_base()` reports it too, and every other harvest in flight.\n- When it finishes, read it with `read_knowledge_base(name=\"httpx\")`.\n- **Do not call learn_technology for 'httpx' again** - it is already runnin",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "harvest_runs_to_the_end",
+   "tool": "harvest_status",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 17.865,
+   "max_seconds": 17.865,
+   "budget": null,
+   "slow": false,
+   "known": "",
+   "note": "polls harvest_status until the harvest is done; nothing cuts it short",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 17.865,
+     "ok": true,
+     "text": "**httpx** from https://www.python-httpx.org \u2014 harvest id `httpx-1`: **done** in 43s. It is stored; read it with `read_knowledge_base(name=\"httpx\")`.\n\nWhat the harvest reported:\n\nResolved **httpx** to https://www.python-httpx.org\n(PyPI project_urls[Documentation] for httpx; identified by install:pypi, repo-backlink, repo-identity, names-it:27)\n\nHarvested **httpx** 0.28.1 \u2014 22 pages, 143,507 characters, via mkdocs, in 19s.\nStored in postgres: `postgres://127.0.0.1:5432/docsforge (httpx 0.28.1)`.\n\nVersion **0.28.1** is the registry's current release, not something the site said: its URLs name no ",
+     "meta": {
+      "polls": 1
+     }
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "whole_corpus_stored",
+   "tool": "list_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.774,
+   "max_seconds": 0.774,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "httpx: every page the site links, no INCOMPLETE flag, and the pypi release as its version",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.774,
+     "ok": true,
+     "text": "DocsForge build `daa0f5d` \u2014 1 technology stored in postgres (127.0.0.1:5432/docsforge):\n\n- **httpx** \u2014 22 pages across 1 version, 143,507 chars\n    versions: 0.28.1 (22 pages, 2026-09-20 23:31)\n\nPass `version=` to read_knowledge_base to pick one; it defaults to the newest version stored.\n\nStorage: 0.01 GB of about 8 GB.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "deep_page_was_reached",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.085,
+   "max_seconds": 0.085,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "the quickstart is a relative link from the entry page: the crawl-base fix, live",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.085,
+     "ok": true,
+     "text": "# httpx 0.28.1: 22 pages matching 'httpx' (by title)\n\n## Developer Interface - HTTPX\n\nSource: <https://www.python-httpx.org/api>\n\n# Developer Interface\n\n## Helper Functions\n\nNote\n\nOnly use these functions if you're testing HTTPX in a console\nor making a small number of requests. Using a `Client` will\nenable HTTP/2 and connection pooling for more efficient and\nlong-lived connections.\n\n`httpx.request`(*method*, *url*, *\\**, *params=None*, *content=None*, *data=None*, *files=None*, *json=None*, *headers=None*, *cookies=None*, *auth=None*, *proxy=None*, *timeout=Timeout(timeout=5.0)*, *follow\\_red",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "search_whole_corpus",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.107,
+   "max_seconds": 0.107,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.107,
+     "ok": true,
+     "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank you for being interested in contributing to HTTPX. There are many ways you can contribute to the project: - Try HTTPX and [report bugs/issues you find](https://github.com/encode/httpx/issues/new) - [Implement new features](https://github.com/encode/httpx/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) - [Review Pull Requests of others](https://github.com/encode/httpx/pulls) - Write do",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "harvest_docs_small",
+   "tool": "harvest_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.84,
+   "max_seconds": 1.84,
+   "budget": 25.0,
+   "slow": false,
+   "known": "",
+   "note": "stores a one-page corpus named benchmark-petstore; removal needs DOCSFORGE_ALLOW_DELETE",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.84,
+     "ok": true,
+     "text": "Harvested **benchmark-petstore** v3 \u2014 1 pages, 8,650 characters, via openapi, in 2s.\nStored in postgres: `postgres://127.0.0.1:5432/docsforge (benchmark-petstore v3)`.\n\nRead it back with `read_knowledge_base(name=\"benchmark-petstore\", version=\"v3\")` \u2014 do NOT re-harvest to answer questions about it.\n\nPages:\n1. Swagger Petstore - OpenAPI 3.0",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "read_back_harvest",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.064,
+   "max_seconds": 0.064,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.064,
+     "ok": true,
+     "text": "## Swagger Petstore - OpenAPI 3.0\n\nSource: <https://petstore3.swagger.io/api/v3/openapi.json>\n\n# Swagger Petstore - OpenAPI 3.0\n\n**Version:** 1.0.27\n\n**Servers:** `/api/v3`\n\nThis is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\nThat way, with time, we can improve the API in general, and expose some of t",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "search_harvest",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.074,
+   "max_seconds": 0.074,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.074,
+     "ok": true,
+     "text": "Nothing stored in benchmark-petstore matches 'findByStatus'. The technology may not be harvested yet \u2014 try `learn_technology(name=...)`.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "learn_already_stored_fetches_nothing",
+   "tool": "learn_technology",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.23,
+   "max_seconds": 0.23,
+   "budget": 15.0,
+   "slow": false,
+   "known": "",
+   "note": "learn_technology on a stored name says so and does not crawl",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.23,
+     "ok": true,
+     "text": "**httpx** 0.28.1 is already stored \u2014 22 pages, harvested 2026-09-20 23:31.\n\nRead it with `read_knowledge_base(name=\"httpx\", version=\"0.28.1\")`. Nothing was fetched.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "read_whole",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.167,
+   "max_seconds": 0.167,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "the largest stored technology, default version",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.167,
+     "ok": true,
+     "text": "## Developer Interface - HTTPX\n\nSource: <https://www.python-httpx.org/api>\n\n# Developer Interface\n\n## Helper Functions\n\nNote\n\nOnly use these functions if you're testing HTTPX in a console\nor making a small number of requests. Using a `Client` will\nenable HTTP/2 and connection pooling for more efficient and\nlong-lived connections.\n\n`httpx.request`(*method*, *url*, *\\**, *params=None*, *content=None*, *data=None*, *files=None*, *json=None*, *headers=None*, *cookies=None*, *auth=None*, *proxy=None*, *timeout=Timeout(timeout=5.0)*, *follow\\_redirects=False*, *verify=True*, *trust\\_env=True*)\n\nSend",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "read_section",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.107,
+   "max_seconds": 0.107,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.107,
+     "ok": true,
+     "text": "# httpx 0.28.1: 1 page matching 'Developer' (by title)\n\n## Developer Interface - HTTPX\n\nSource: <https://www.python-httpx.org/api>\n\n# Developer Interface\n\n## Helper Functions\n\nNote\n\nOnly use these functions if you're testing HTTPX in a console\nor making a small number of requests. Using a `Client` will\nenable HTTP/2 and connection pooling for more efficient and\nlong-lived connections.\n\n`httpx.request`(*method*, *url*, *\\**, *params=None*, *content=None*, *data=None*, *files=None*, *json=None*, *headers=None*, *cookies=None*, *auth=None*, *proxy=None*, *timeout=Timeout(timeout=5.0)*, *follow\\_r",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "read_unknown_name",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.107,
+   "max_seconds": 0.107,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.107,
+     "ok": false,
+     "text": "Error executing tool read_knowledge_base: No stored documentation called 'zzqx-not-stored-9182'. Available: benchmark-petstore, httpx",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "read_unknown_version",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.129,
+   "max_seconds": 0.129,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.129,
+     "ok": false,
+     "text": "Error executing tool read_knowledge_base: httpx has no version 'no-such-version-zz'. Stored versions: 0.28.1",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "search_scoped",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.216,
+   "max_seconds": 0.216,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.216,
+     "ok": true,
+     "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank you for being interested in contributing to HTTPX. There are many ways you can contribute to the project: - Try HTTPX and [report bugs/issues you find](https://github.com/encode/httpx/issues/new) - [Implement new features](https://github.com/encode/httpx/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) - [Review Pull Requests of others](https://github.com/encode/httpx/pulls) - Write do",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "search_everything",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.189,
+   "max_seconds": 0.189,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.189,
+     "ok": true,
+     "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank you for being interested in contributing to HTTPX. There are many ways you can contribute to the project: - Try HTTPX and [report bugs/issues you find](https://github.com/encode/httpx/issues/new) - [Implement new features](https://github.com/encode/httpx/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) - [Review Pull Requests of others](https://github.com/encode/httpx/pulls) - Write do",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "search_kind_api",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.135,
+   "max_seconds": 0.135,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.135,
+     "ok": true,
+     "text": "No passage in httpx answers 'httpx' directly. 10 page(s) matched but were not of kind 'api'. `read_knowledge_base` will show whole pages.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "search_limit_one",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.078,
+   "max_seconds": 0.078,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.078,
+     "ok": true,
+     "text": "1 passage(s) for 'httpx', from a ranked search over 1 matching page(s) \u2014 about 34 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Third Party Packages - HTTPX \u2014 Plugins > httpx-ws\n    [GitHub](https://github.com/frankie567/httpx-ws) - [Documentation](https://frankie567.github.io/httpx-ws/) WebSocket support for HTTPX.\n    https://www.python-httpx.org/third_party_packages\n\nRead the whole page with `read_knowledge_base(name=..., version=..., section=<title>)`.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "search_miss_is_honest",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.225,
+   "max_seconds": 0.225,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "no page has 'zzqx'; passages for the other words must say so, not pose as the answer",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.225,
+     "ok": true,
+     "text": "10 passage(s) for 'zzqx-token-that-no-page-contains-9182' \u2014 none of them contains 'zzqx', 'contains', '9182'; they match the rest of the query \u2014, from a ranked search over 8 matching page(s) \u2014 about 4,455 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Authentication - HTTPX \u2014 Custom authentication schemes\n    When issuing requests or instantiating a client, the `auth` argument can be used to pass an authentication scheme to use. The `auth` argument may be one of the following... - A two-tuple of `username`/`password`, to be used with basic authentication. - An instance of `httpx.Bas",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "harvest_status_idle",
+   "tool": "harvest_status",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.056,
+   "max_seconds": 0.056,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.056,
+     "ok": true,
+     "text": "Ended in the last 15 minutes:\n- **benchmark-petstore** \u2014 finished in 2s  \u00b7  `benchmark-petstore-2`\n- **httpx** \u2014 finished in 43s  \u00b7  `httpx-1`\n\nPass `harvest=` with an id for the full status of one.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "harvest_status_unknown_id",
+   "tool": "harvest_status",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.183,
+   "max_seconds": 0.183,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "a serverless host must say it cannot promise a background harvest; a local one must not",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.183,
+     "ok": true,
+     "text": "No harvest called `zzqx-no-such-harvest-9182` is running, and none ended in the last 15 minutes. Nothing is stored under that name either. Start one with `learn_technology(name=\"zzqx-no-such-harvest\")`.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "forget_resolution_unknown",
+   "tool": "forget_resolution",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.01,
+   "max_seconds": 0.01,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.01,
+     "ok": true,
+     "text": "Nothing remembered for 'zzqx-never-resolved-9182'.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "forget_selection_unknown",
+   "tool": "forget_selection",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.008,
+   "max_seconds": 0.008,
+   "budget": 3.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.008,
+     "ok": true,
+     "text": "No selection policy stored for 'zzqx-never-selected-9182'.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "scan_project_remote_dot",
+   "tool": "scan_project",
+   "verdict": "SKIP",
+   "why": "only meaningful against a hosted server",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
+   "budget": null,
+   "slow": false,
+   "known": "Evaluation \u00a72.5",
+   "note": "over a hosted connection '.' is the server's own tree; today it is scanned and reported as yours",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "SKIP",
+     "why": "only meaningful against a hosted server",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "store",
+   "name": "scan_project_foreign_path",
+   "tool": "scan_project",
+   "verdict": "SKIP",
+   "why": "only meaningful against a hosted server",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
+   "budget": null,
+   "slow": false,
+   "known": "Evaluation \u00a72.5",
+   "note": "an absolute client path; the refusal must not leak the server's working directory",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "SKIP",
+     "why": "only meaningful against a hosted server",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "concurrency",
+   "name": "listing_x6",
+   "tool": "list_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.446,
+   "max_seconds": 0.446,
+   "budget": 15.0,
+   "slow": false,
+   "known": "",
+   "note": "six sessions listing at once: one connection each against a 15-backend plan",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.446,
+     "ok": true,
+     "text": "6 of 6 ok; per-call max 0.4s",
+     "meta": {
+      "results": [
+       {
+        "ok": true,
+        "seconds": 0.381,
+        "error": "",
+        "text": "DocsForge build `daa0f5d` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-20 23:31)"
+       },
+       {
+        "ok": true,
+        "seconds": 0.357,
+        "error": "",
+        "text": "DocsForge build `daa0f5d` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-20 23:31)"
+       },
+       {
+        "ok": true,
+        "seconds": 0.367,
+        "error": "",
+        "text": "DocsForge build `daa0f5d` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-20 23:31)"
+       },
+       {
+        "ok": true,
+        "seconds": 0.36,
+        "error": "",
+        "text": "DocsForge build `daa0f5d` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-20 23:31)"
+       },
+       {
+        "ok": true,
+        "seconds": 0.369,
+        "error": "",
+        "text": "DocsForge build `daa0f5d` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-20 23:31)"
+       },
+       {
+        "ok": true,
+        "seconds": 0.38,
+        "error": "",
+        "text": "DocsForge build `daa0f5d` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-20 23:31)"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "suite": "concurrency",
+   "name": "search_x6",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.35,
+   "max_seconds": 0.35,
+   "budget": 15.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.35,
+     "ok": true,
+     "text": "6 of 6 ok; per-call max 0.3s",
+     "meta": {
+      "results": [
+       {
+        "ok": true,
+        "seconds": 0.243,
+        "error": "",
+        "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank y"
+       },
+       {
+        "ok": true,
+        "seconds": 0.251,
+        "error": "",
+        "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank y"
+       },
+       {
+        "ok": true,
+        "seconds": 0.252,
+        "error": "",
+        "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank y"
+       },
+       {
+        "ok": true,
+        "seconds": 0.212,
+        "error": "",
+        "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank y"
+       },
+       {
+        "ok": true,
+        "seconds": 0.254,
+        "error": "",
+        "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank y"
+       },
+       {
+        "ok": true,
+        "seconds": 0.26,
+        "error": "",
+        "text": "10 passage(s) for 'httpx', from a ranked search over 20 matching page(s) \u2014 about 1,608 tokens rather than the whole pages:\n\n- **httpx** 0.28.1 \u00b7 Contributing - HTTPX \u2014 Contributing - HTTPX\n    Thank y"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "suite": "cleanup",
+   "name": "forget_benchmark_corpus",
+   "tool": "forget_documentation",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.072,
+   "max_seconds": 0.072,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "removes what harvest_docs_small stored; the whole-technology corpus is kept",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.072,
+     "ok": true,
+     "text": "Deleted **benchmark-petstore** (all versions) \u2014 1 version(s), 1 pages, 8,650 characters.\n\nThis cannot be undone; re-harvesting means crawling the site again.",
+     "meta": {}
+    }
+   ]
+  }
+ ]
+}

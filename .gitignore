@@ -55,3 +55,6 @@ measurements/
 # structured request/behaviour logs (applog.py) — diagnostics, not source
 logs/
 
+
+# offline runner (benchmarks/offline.py): local logs, caches, harvest records
+offline/

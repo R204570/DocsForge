@@ -84,6 +84,49 @@ class ForgeError(RuntimeError):
     """A user-facing failure: bad URL, unreachable host, unusable source."""
 
 
+class HTTPStatusError(ForgeError):
+    """A page the server answered, with a status that is not a page.
+
+    Carries the status because the callers that count failures need to tell
+    them apart: a 404 is a page that is not there, a 429 is a site asking
+    the crawl to stop. Both used to be one `ForgeError` string, and a crawl
+    that met thirty-three 429s in a row filed every one of them as "reached
+    but not extractable -- nothing on it reads like documentation" (offline
+    benchmark, 2026-09-20), which is the opposite of what happened.
+    """
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+#: A 429 is the site asking for a pause, and `Retry-After` says how long.
+#: Waited for, up to this many seconds and this many times per request; a
+#: site that is still saying no after that is not asking for patience.
+RETRY_AFTER_CAP = 30.0
+RETRIES_ON_429 = 2
+
+#: This many 429s in a row and a harvest stops rather than keep asking. The
+#: pages it did not fetch are reported as refused, not as missing.
+RATE_LIMIT_STOP = 3
+
+
+def _retry_after(r) -> float | None:
+    """Seconds the response asks the client to wait, or None if it does not say."""
+    raw = (r.headers.get("retry-after") or "").strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return float(raw)
+    try:
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+        when = parsedate_to_datetime(raw)
+        return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class Doc:
     """One extracted document."""
@@ -251,6 +294,9 @@ class Fetcher:
         self.session.headers.update(HEADERS)
         self._pw = None
         self._browser = None
+        #: How many times a site asked this fetcher to wait (HTTP 429) and
+        #: it did. Read by a harvest that wants to say so.
+        self.throttled = 0
 
     def __enter__(self) -> "Fetcher":
         return self
@@ -315,7 +361,7 @@ class Fetcher:
         kw.setdefault("timeout", TIMEOUT)
         follow = kw.pop("allow_redirects", True)
         try:
-            r = self.session.get(url, allow_redirects=False, **kw)
+            r = self._patient(url, **kw)
             history: list[requests.Response] = []
             while follow and r.is_redirect:
                 if len(history) >= MAX_REDIRECTS:
@@ -328,29 +374,62 @@ class Fetcher:
                 self.guard(target)              # the whole point
                 history.append(r)
                 r.close()
-                r = self.session.get(target, allow_redirects=False, **kw)
+                r = self._patient(target, **kw)
             r.history = history
             return r
         except requests.RequestException as e:
             raise ForgeError(f"Request failed for {url}: {e}") from e
 
+    def _patient(self, url: str, **kw) -> requests.Response:
+        """One GET, waited out when the site asks for a pause.
+
+        A 429 with `Retry-After` is honoured, bounded by `RETRY_AFTER_CAP`
+        and tried `RETRIES_ON_429` times; a 429 that names no wait gets a
+        short one. Anything else, including a 503, comes straight back:
+        a 503 is the server's own trouble, and guessing a wait for it would
+        only make a harvest slower at reporting that it is down.
+        """
+        for attempt in range(RETRIES_ON_429 + 1):
+            r = self.session.get(url, allow_redirects=False, **kw)
+            if r.status_code != 429 or attempt == RETRIES_ON_429:
+                return r
+            pause = min(_retry_after(r) or 5.0, RETRY_AFTER_CAP)
+            self.throttled += 1
+            r.close()
+            time.sleep(pause)
+        return r                                # unreachable; keeps the type-checker honest
+
     def text(self, url: str, **kw) -> str:
         r = self.get(url, **kw)
         if r.status_code >= 400:
-            raise ForgeError(f"HTTP {r.status_code} for {url}")
+            raise HTTPStatusError(r.status_code, f"HTTP {r.status_code} for {url}")
         return _decode(r)
 
     def html(self, url: str) -> str:
         """Fetch a page as HTML, rendering JS if the run asked for it."""
+        return self.html_at(url)[0]
+
+    def html_at(self, url: str) -> tuple[str, str]:
+        """A page as HTML, and the URL it was finally served from.
+
+        The second value is what a relative link on the page means. It
+        differs from `url` whenever the server redirected, and the common
+        redirect is `/docs` to `/docs/` -- which changes what `quickstart`
+        resolves to. The crawler used to resolve against the URL it had
+        *asked for*, with the trailing slash already normalised away, so a
+        crawl from click.palletsprojects.com/en/stable/ asked for 38 pages
+        under /en/ that do not exist, got 404 for every one, and returned
+        the entry page alone.
+        """
         if self.opts.js:
             return self._render(url)
         r = self.get(url)
         if r.status_code >= 400:
-            raise ForgeError(f"HTTP {r.status_code} for {url}")
+            raise HTTPStatusError(r.status_code, f"HTTP {r.status_code} for {url}")
         ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
         if ctype and not (ctype.startswith("text/") or ctype.endswith(("xml", "json", "+xml"))):
             raise ForgeError(f"Not a text document ({ctype}) at {url}")
-        return _decode(r)
+        return _decode(r), (r.url or url)
 
     def render(self, url: str) -> str:
         """Fetch with JavaScript executed, whatever the run asked for.
@@ -359,9 +438,13 @@ class Fetcher:
         escape hatch for a page that turned out to be a shell, and it is what
         makes `--js` unnecessary on the sites that used to need it.
         """
+        return self._render(url)[0]
+
+    def render_at(self, url: str) -> tuple[str, str]:
+        """`render`, plus the URL the browser ended up on -- see `html_at`."""
         return self._render(url)
 
-    def _render(self, url: str) -> str:
+    def _render(self, url: str) -> tuple[str, str]:
         self.guard(url)
         page = self._page()
         refused: list[str] = []
@@ -388,7 +471,7 @@ class Fetcher:
             page.goto(url, wait_until="networkidle", timeout=30000)
             if refused:
                 raise ForgeError(refused[0])
-            return page.content()
+            return page.content(), (getattr(page, "url", "") or url)
         except ForgeError:
             raise
         except Exception as e:
@@ -476,6 +559,9 @@ def _addresses(host: str) -> list:
     """
     if not host:
         return []
+    literal = _inet_aton(host)
+    if literal is not None:
+        return [literal]
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError:                 # gaierror is one of these; EAI_SYSTEM is another
@@ -487,6 +573,46 @@ def _addresses(host: str) -> list:
         except ValueError:
             continue
     return out
+
+
+_DIGITS = {10: "0123456789", 8: "01234567", 16: "0123456789abcdefABCDEF"}
+
+
+def _inet_aton(host: str):
+    """An IPv4 address written any way `inet_aton` accepts, or None.
+
+    `ipaddress` knows the dotted quad. libc also takes `2130706433`,
+    `0x7f000001`, `0177.0.0.1` and `127.1`, and on Linux so does the
+    resolver -- which is what this guard used to lean on to see 127.0.0.1
+    behind those spellings. Windows' resolver takes none of them, so there
+    the same URL was not refused but "failed to resolve", after a
+    sixteen-second DNS wait for a host called 2130706433 (measured by the
+    offline benchmark, 2026-09-20). Reading the spelling here makes the
+    answer the same on every platform, and immediate.
+    """
+    parts = host.split(".")
+    if not 1 <= len(parts) <= 4 or not all(parts):
+        return None
+    values: list[int] = []
+    for part in parts:
+        if part[:2].lower() == "0x":
+            base, digits = 16, part[2:]
+        elif len(part) > 1 and part[0] == "0":
+            base, digits = 8, part[1:]
+        else:
+            base, digits = 10, part
+        # `int()` alone would also accept `1_0` and ` 1`, which no resolver does.
+        if not digits or any(c not in _DIGITS[base] for c in digits):
+            return None
+        values.append(int(digits, base))
+    head, last = values[:-1], values[-1]
+    if any(v > 255 for v in head) or last >= 256 ** (4 - len(head)):
+        return None
+    number = 0
+    for v in head:
+        number = (number << 8) | v
+    number = (number << (8 * (4 - len(head)))) | last
+    return ipaddress.IPv4Address(number)
 
 
 def _resolves_private(host: str) -> bool:
@@ -2298,6 +2424,33 @@ def _at_the_site_root(det: Detection) -> bool:
     return urlparse(det.url).path.count("/") == 1
 
 
+def _fetch_at(fetcher, url: str, render: bool = False) -> tuple[str, str]:
+    """`(html, landed)` from any fetcher.
+
+    A real `Fetcher` says where the page was finally served from. A fetcher
+    that only knows `html()` -- every fake in the test suite -- is taken at
+    its word that it was `url`, which is what the crawl assumed of everything
+    until 2026-09-19.
+    """
+    at = getattr(fetcher, "render_at" if render else "html_at", None)
+    if at is not None:
+        html, landed = at(url)
+        return html, (landed or url)
+    return (fetcher.render(url) if render else fetcher.html(url)), url
+
+
+def _document_base(soup, landed: str) -> str:
+    """What relative links on this page resolve against.
+
+    A `<base href>` when the page declares one, else the URL the page was
+    served from -- the rule a browser applies, and the only one under which
+    `quickstart/` on click.palletsprojects.com/en/stable/ is the quickstart.
+    """
+    base = soup.find("base", href=True) if soup is not None else None
+    href = (base.get("href") or "").strip() if base else ""
+    return urljoin(landed, href) if href else landed
+
+
 def _normalize(url: str) -> str:
     """Drop the fragment and a trailing slash so `/intro` and `/intro/` are
     one page, not two fetches of the same content."""
@@ -2592,6 +2745,15 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
     #: apart from pages that simply failed to fetch, because "we could not read
     #: this" and "this was not there" are different claims about coverage.
     unreadable: list[str] = []
+    #: Asked for and refused with a 429: the site rate-limiting this crawl.
+    #: Not `unreadable` -- nothing was read -- and after `RATE_LIMIT_STOP` of
+    #: them in a row the crawl stops asking, because a crawler that answers a
+    #: site's "slow down" with thirty more requests is the crawler that gets
+    #: the site's IP block, and the corpus it stores in the meantime is a
+    #: handful of pages labelled as though the rest did not exist.
+    refused: list[str] = []
+    refused_in_a_row = 0
+    rate_limited = False
     #: Out-of-scope link evidence, summed across the whole crawl. Costs no
     #: requests: it reads soup that link discovery has already parsed.
     sites = Federation()
@@ -2626,10 +2788,10 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
     pool = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
     window: deque = deque()
 
-    def _fetch(link: str, render: bool) -> str:
+    def _fetch(link: str, render: bool) -> tuple[str, str]:
         pace.wait(link)
         with pace.host(link):
-            return fetcher.render(link) if render else fetcher.html(link)
+            return _fetch_at(fetcher, link, render)
 
     def _fill() -> None:
         """Top the window up, in queue order.
@@ -2678,11 +2840,13 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
             html = ""
             try:
                 if pending is not None:
-                    html = pending.result()
+                    html, landed = pending.result()
                 else:
                     pace.wait(url)
-                    html = (fetcher.render(url) if plan.render
-                            else fetcher.html(url))
+                    html, landed = _fetch_at(fetcher, url, plan.render)
+                # Where the page was served from is a page too: a redirect
+                # that lands here again from another link is not a new page.
+                seen.add(_normalize(landed))
 
                 # Parse once: link discovery needs the nav _html_to_md strips out.
                 soup = _soup(html)
@@ -2690,8 +2854,13 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 # own structure, so out-of-scope evidence is collected here, before
                 # extraction strips the chrome away.
                 sites.record_page(url, soup)
+                # A relative link means what a browser would make of it: it
+                # resolves against the page's declared base or the URL it was
+                # served from, never against the normalised spelling this crawl
+                # keys pages by. Under `/en/stable`, `quickstart` is `/en/quickstart`.
+                base = _document_base(soup, landed)
                 for a in soup.find_all("a", href=True):
-                    link = _normalize(urljoin(url, a["href"]))
+                    link = _normalize(urljoin(base, a["href"]))
                     if link not in seen and link not in queue and _crawlable(link, host, prefix):
                         queue.append(link)
 
@@ -2705,6 +2874,17 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                     title, doc = _html_to_md(fetcher.render(url), url, plan=plan,
                                              report=report)
             except ForgeError as e:
+                if getattr(e, "status", None) == 429:
+                    refused.append(url)
+                    refused_in_a_row += 1
+                    _log(opts, f"  refused {url}: {e}")
+                    if refused_in_a_row >= RATE_LIMIT_STOP:
+                        rate_limited = True
+                        _log(opts, f"  {RATE_LIMIT_STOP} refusals in a row: the site is "
+                                   f"rate-limiting this crawl; stopping rather than "
+                                   f"keep asking")
+                        break
+                    continue
                 if report:
                     # A refused page is still evidence — it is what tells the plan
                     # that a template is not being read well.
@@ -2717,6 +2897,7 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 _log(opts, f"  skip {url}: {type(e).__name__}: {e}")
                 continue
 
+            refused_in_a_row = 0
             report["shell"] = _looks_like_shell(html)
             ledger.record(Observation(**report))
 
@@ -2765,7 +2946,9 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
         # the one direction this must never round.
         left = len(queue) + len(window)
         stats["remaining"] = left
-        stats["truncated"] = bool(left)
+        # `truncated` is the page cap's word and keeps that meaning: a crawl
+        # the site stopped is incomplete for a reason of its own, below.
+        stats["truncated"] = bool(left) and not rate_limited
         # A crawl that drained its frontier reached everything linked inside
         # its scope. That is a real claim, and a weaker one than a sitemap:
         # pages nothing links to are invisible to it either way.
@@ -2777,16 +2960,28 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
         # product can make, from the weakest evidence it has. A drained
         # frontier is `unknown` with the reason attached; a frontier still
         # holding pages is plainly incomplete.
-        stats["frontier_drained"] = not left
-        stats["whole"] = False if left else None
-        if not left:
+        stats["frontier_drained"] = not left and not rate_limited
+        stats["whole"] = False if (left or rate_limited) else None
+        if rate_limited:
+            stats["rate_limited"] = True
+            stats["reason"] = (
+                f"the site answered HTTP 429 (rate limited) to {len(refused)} "
+                f"request(s) and the crawl stopped after {len(out)} page(s) rather "
+                f"than keep asking; {left + len(refused)} discovered page(s) were "
+                f"not fetched. This is the site's pace, not its size: harvest "
+                f"again later")
+        elif not left:
             stats.setdefault("reason", (
                 f"a crawl reached every page linked under {prefix} and stopped. "
                 f"Nothing stated how many pages exist, so a page nothing links "
                 f"to would not have been seen"))
-        stats.setdefault("discovered", len(out) + len(queue))
+        stats.setdefault("discovered", len(out) + len(queue) + len(refused))
         if unreadable:
             stats["unextractable"] = unreadable
+        if refused:
+            stats["refused"] = refused
+        if getattr(fetcher, "throttled", 0):
+            stats["throttled"] = fetcher.throttled
         # Invariant 11: every revision surfaced next to the coverage note
         # rather than in a log nobody reads. A crawler that changes its plan
         # can change what it was measuring, and the defence is disclosure.
@@ -2805,6 +3000,11 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                                  "votes": round(c.votes, 1)} for c in proposed]
 
     if not out:
+        if rate_limited or (refused and not unreadable):
+            raise ForgeError(
+                f"The site answered HTTP 429 (rate limited) to every request and "
+                f"nothing was fetched from {start}. Its pace, not its size: "
+                f"harvest again later.")
         raise ForgeError(f"Crawl produced no pages from {start}")
     return out
 
@@ -3229,10 +3429,27 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                     stats["index"] = index_kind
                 out: list[Doc] = []
                 unreadable: list[str] = []
-                for link in (scoped if cap is None else scoped[:cap]):
+                refused: list[str] = []
+                refused_in_a_row = 0
+                rate_limited = False
+                listed = scoped if cap is None else scoped[:cap]
+                for link in listed:
                     try:
                         title, body = _extract_page(link, fetcher, opts)
                     except ForgeError as e:
+                        if getattr(e, "status", None) == 429:
+                            # See _crawl_html: asked for and refused is not
+                            # the same as reached and unreadable, and a site
+                            # that keeps saying so is not to be kept asking.
+                            refused.append(link)
+                            refused_in_a_row += 1
+                            _log(opts, f"  refused {link}: {e}")
+                            if refused_in_a_row >= RATE_LIMIT_STOP:
+                                rate_limited = True
+                                _log(opts, f"  {RATE_LIMIT_STOP} refusals in a row: "
+                                           f"stopping rather than keep asking")
+                                break
+                            continue
                         # Reached, but nothing on it reads like documentation.
                         # Disclosed rather than quietly missing: a page that
                         # could not be extracted still counts against coverage,
@@ -3244,6 +3461,7 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                     except Exception as e:
                         _log(opts, f"  skip {link}: {e}")
                         continue
+                    refused_in_a_row = 0
                     if sink is not None:
                         if not sink.add(title, link, body):
                             continue
@@ -3252,8 +3470,15 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                         out.append(Doc(link, title, body))
                     _log(opts, f"  [{len(out)}] {link}")
                     time.sleep(opts.delay)
-                if stats is not None and unreadable:
-                    stats["unextractable"] = unreadable
+                if stats is not None:
+                    if unreadable:
+                        stats["unextractable"] = unreadable
+                    if refused:
+                        stats["refused"] = refused
+                    if rate_limited:
+                        stats["rate_limited"] = True
+                    if getattr(fetcher, "throttled", 0):
+                        stats["throttled"] = fetcher.throttled
                 if out:
                     # The index is the site's own list of what exists, so this
                     # is the one strategy that can measure completeness against
@@ -3265,8 +3490,20 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                                 f"stored {len(out)} of the {len(scoped)} pages "
                                 f"the {index_kind} lists"
                                 + (f", {len(unreadable)} of them unextractable"
-                                   if unreadable else ""))
+                                   if unreadable else "")
+                                + (f"; the site answered HTTP 429 (rate limited) "
+                                   f"and the harvest stopped asking after "
+                                   f"{len(refused)} refusal(s). This is the site's "
+                                   f"pace, not its size: harvest again later"
+                                   if rate_limited else
+                                   (f", {len(refused)} of them refused with HTTP 429"
+                                    if refused else "")))
                     return out, index_kind
+                if rate_limited:
+                    raise ForgeError(
+                        f"The site answered HTTP 429 (rate limited) to every request "
+                        f"and nothing was fetched from {url}. Its pace, not its "
+                        f"size: harvest again later.")
 
         _log(opts, "  harvesting by crawl")
         crawl_opts = replace(opts, crawl=True)

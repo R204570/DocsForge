@@ -1187,3 +1187,100 @@ def test_a_remembered_resolution_keeps_its_release(tmp_path, monkeypatch):
     resolver.remember("click", got)
     again = resolver.recall("click")
     assert again is not None and again.release == "9.9.9", again
+
+
+# ── a candidate that could not be examined blocks anything weaker ─────
+class RealisticFetcher(FakeFetcher):
+    """Like the real `Fetcher.text`: a status of 400 or more raises, with
+    the status attached, instead of handing back the error page as text."""
+
+    def text(self, url, **kw):
+        r = self.get(url)
+        if r.status_code >= 400:
+            from docsforge.core.engine import HTTPStatusError
+            raise HTTPStatusError(r.status_code, f"HTTP {r.status_code} for {url}")
+        return r.text
+
+
+def _requests_site(docs_status: int) -> RealisticFetcher:
+    """PyPI's `requests` documents itself on Read the Docs; crates.io has a
+    crate of the same name that documents itself, correctly, on docs.rs."""
+    return RealisticFetcher({
+        "https://pypi.org/pypi/requests/json": registry(
+            {"info": {"version": "2.32.5",
+                      "project_urls": {"Documentation": "https://requests.readthedocs.io/",
+                                       "Homepage": "https://requests.readthedocs.io/"}}}),
+        "https://requests.readthedocs.io": FakeResponse(
+            "slow down", status=docs_status, url="https://requests.readthedocs.io/"),
+        "https://crates.io/api/v1/crates/requests": registry(
+            {"crate": {"max_version": "0.0.30",
+                       "documentation": "https://docs.rs/requests"}}),
+        "https://docs.rs/requests": FakeResponse(
+            "<h1>Crate requests</h1> cargo add requests " + "requests " * 40,
+            url="https://docs.rs/requests"),
+    })
+
+
+def test_a_stronger_candidate_that_could_not_be_read_blocks_a_weaker_one():
+    """Measured 2026-09-20 with Read the Docs answering HTTP 429: `requests`
+    resolved to docs.rs/requests, a Rust crate, and `click` to
+    github.com/databricks/click/wiki, a Kubernetes CLI -- both verified,
+    because both document a project of that name, and both harvested and
+    stored under the Python project's name. A candidate the site would not
+    let the resolver read has not been examined, and nothing weaker may be
+    accepted in its place."""
+    got = resolver.resolve("requests", fetcher=_requests_site(429), use_memory=False)
+
+    assert got.best is None
+    assert got.unexamined is True
+    assert "requests.readthedocs.io" in got.note and "outranks" in got.note
+    assert "429" in got.note and "Try again later" in got.note
+    # A refusal for want of examination is not a finding, and is not filed.
+    assert resolver.learned_nothing(got)
+
+
+def test_a_definitive_miss_does_not_block_the_next_candidate():
+    """A 404 is the registry naming a page that is not there: that *was*
+    examined, and the ladder goes on exactly as before."""
+    got = resolver.resolve("requests", fetcher=_requests_site(404), use_memory=False)
+    assert got.unexamined is False
+    assert got.best is not None
+
+
+def test_the_same_registrys_readable_homepage_is_not_blocked_by_its_docs_url():
+    """PyPI's docs URL is rate limited but its homepage answers and identifies
+    the project: that is the same project, not a same-named one elsewhere."""
+    fetcher = RealisticFetcher({
+        "https://pypi.org/pypi/zorp/json": registry(
+            {"info": {"version": "1.0",
+                      "project_urls": {"Documentation": "https://docs.zorp.example/",
+                                       "Homepage": "https://zorp.example/"}}}),
+        "https://docs.zorp.example": FakeResponse("busy", status=429,
+                                                  url="https://docs.zorp.example/"),
+        "https://zorp.example": FakeResponse(
+            "<h1>zorp</h1> pip install zorp " + "zorp " * 40, url="https://zorp.example/"),
+    })
+    got = resolver.resolve("zorp", ecosystem="pypi", fetcher=fetcher, use_memory=False)
+    assert got.unexamined is False
+    assert got.best is not None and got.best.url.rstrip("/") == "https://zorp.example"
+
+
+def test_the_same_registrys_repository_does_not_stand_in_for_unreadable_docs():
+    """`find_docs(name="click", ecosystem="pypi")` with the docs site answering
+    429 resolved to github.com/pallets/click -- the right project, but its
+    README in place of documentation the resolver never saw. The homepage
+    exemption is for a homepage; a code host is the last rung, not a stand-in."""
+    fetcher = RealisticFetcher({
+        "https://pypi.org/pypi/zorp/json": registry(
+            {"info": {"version": "1.0",
+                      "project_urls": {"Documentation": "https://docs.zorp.example/",
+                                       "Source": "https://github.com/zorp/zorp"}}}),
+        "https://docs.zorp.example": FakeResponse("busy", status=429,
+                                                  url="https://docs.zorp.example/"),
+        "https://github.com/zorp/zorp": FakeResponse(
+            "<h1>zorp</h1> pip install zorp " + "zorp " * 40, url="https://github.com/zorp/zorp"),
+    })
+    got = resolver.resolve("zorp", ecosystem="pypi", fetcher=fetcher, use_memory=False)
+    assert got.best is None
+    assert got.unexamined is True
+    assert "docs.zorp.example" in got.note

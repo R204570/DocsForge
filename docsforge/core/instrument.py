@@ -28,6 +28,7 @@ import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
+from html import unescape
 from urllib.parse import urlparse
 
 from docsforge.core.engine import MIN_MAIN_CHARS, _soup, density, pick_main, strip_chrome
@@ -38,16 +39,40 @@ __all__ = ["Observation", "Ledger", "observe", "ResolveState", "Budget",
 
 _GENERATOR = re.compile(r"""name=["']generator["'][^>]*content=["']([^"']+)""", re.I)
 _CANONICAL = re.compile(r"""<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)""", re.I)
-_HREF = re.compile(r"""href=["'](https?://[^"']+)""", re.I)
+#: Anchors only. `href=` is also how a page names its stylesheets, fonts and
+#: preconnects, and none of those is somewhere a project documents itself:
+#: `find_docs("@tanstack/react-query")` offered fonts.googleapis.com as a
+#: candidate, at confidence 0.60, because tanstack.com preconnects to it
+#: (measured live, 2026-09-19).
+_ANCHOR = re.compile(r"""<a\b[^>]*?\bhref=["'](https?://[^"'#\s]+)""", re.I)
 _REPO = re.compile(r"https?://(?:www\.)?(?:github|gitlab)\.com/"
                    r"[\w.\-]+/[\w.\-]+", re.I)
 
-_DOCSY_WORDS = ("docs", "documentation", "reference", "api", "guide", "manual")
+_DOCSY_WORDS = frozenset((
+    "docs", "doc", "documentation", "reference", "api", "guide", "guides",
+    "manual", "learn", "tutorial", "tutorials"))
+#: A link that leads here is never documentation, whatever else its URL says:
+#: a sponsor's `/api/checkout?product_id=query` was a candidate on the same
+#: run that offered the fonts.
+_NEVER_DOCS = frozenset((
+    "checkout", "cart", "login", "logout", "signin", "signup", "register",
+    "account", "subscribe", "pricing", "donate", "sponsor", "sponsors",
+    "unsubscribe", "auth", "oauth"))
 
 
 def _docsy(url: str) -> bool:
-    low = url.lower()
-    return any(word in low for word in _DOCSY_WORDS)
+    """Does this URL look like documentation, judged by its own words?
+
+    Host labels and path segments, split at anything that is not a letter or
+    digit -- not a substring test over the whole URL, under which
+    `fonts.googleapis.com` contained "api" and so did `rapidoc` and `capital`.
+    The query string is left out: it is parameters, not a place.
+    """
+    parsed = urlparse(url.lower())
+    words = set(re.findall(r"[a-z0-9]+", f"{parsed.hostname or ''} {parsed.path}"))
+    if words & _NEVER_DOCS:
+        return False
+    return bool(words & _DOCSY_WORDS)
 
 
 def observe(html: str, url: str, name: str = "", fetched_ms: int = 0) -> Observation:
@@ -148,7 +173,11 @@ class ResolveState:
         if found:
             self.canonical[url] = found.group(1)
 
-        for href in _HREF.findall(html):
+        for href in _ANCHOR.findall(html):
+            # As the browser would follow it: `&amp;` in markup is `&` in the
+            # address, and a candidate URL carrying the entity is one the
+            # server has never heard of.
+            href = unescape(href)
             other = (urlparse(href).hostname or "").lower()
             # Only links that leave this host and look like documentation: a
             # candidate pointing at its own pages says nothing new.

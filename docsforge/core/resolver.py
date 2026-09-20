@@ -75,6 +75,11 @@ class Candidate:
     #: rather than read off `source`, because a probed root's source must
     #: stay `probe:` — see `_path_identity`.
     registry: str = ""
+    #: Set by `verify` when the page could not be fetched for a reason that
+    #: says nothing about it -- the site rate limiting, down, or the request
+    #: not completing. Such a candidate was not examined, and `unexamined_above`
+    #: keeps a weaker one from being accepted in its place.
+    unreachable: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -100,6 +105,10 @@ class Resolution:
     #: Not a claim about the documentation — the harvest decides what to do
     #: with it, and says so.
     release: str = ""
+    #: A refusal that reflects a site that could not be read rather than a
+    #: name nobody documents: not remembered, because it will resolve once
+    #: the site answers again.
+    unexamined: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -1387,6 +1396,54 @@ def evidence(candidate: Candidate) -> tuple:
     )
 
 
+def _transient(e: ForgeError) -> bool:
+    """Did the fetch fail for a reason that says nothing about the page?
+
+    A 429 is the site asking for a pause, a 5xx is the site's own trouble,
+    and a request that never completed is the network's. A 404 is not: the
+    registry named a page that is not there, and that is a finding.
+    """
+    status = getattr(e, "status", None)
+    if status is not None:
+        return status in (408, 425, 429) or status >= 500
+    return "Request failed for" in str(e)
+
+
+def unexamined_above(picked: Candidate | None,
+                     candidates: list[Candidate]) -> Candidate | None:
+    """The strongest registry-nominated candidate that could not be examined
+    and outranks `picked` -- the reason `picked` must not win.
+
+    A weaker candidate is allowed to win only when every stronger one was
+    read and found wanting. One that could not be read because the site was
+    rate limiting or down says nothing about itself, and accepting a
+    same-named project from another registry or a code host in its place is
+    a guess dressed as a resolution. Measured 2026-09-20, with
+    click.palletsprojects.com answering HTTP 429: `click` resolved to
+    github.com/databricks/click/wiki -- a Kubernetes CLI -- and was harvested
+    and stored under `click`; `requests` resolved to docs.rs/requests, a
+    Rust crate. Both passed verification, because both do document a
+    project called that. Neither is the project that was asked for.
+
+    Only candidates a registry nominated (or the docs root probed beneath
+    one, which inherits its registry) can block: a guessed domain that is
+    down is a guess that is down. And a candidate from the *same* registry
+    as `picked` does not block it -- a homepage that verified is the same
+    project as the documentation URL beside it that did not answer -- unless
+    `picked` is the project's code host: the same project, but a README in
+    place of the documentation that could not be read is not the answer to
+    "where does it document itself", and it would be stored as though it were.
+    """
+    blockers = [
+        c for c in candidates
+        if c.unreachable and c.registry in REGISTRIES
+        and (picked is None
+             or (c.confidence >= picked.confidence
+                 and (c.registry != picked.registry or is_forge(picked.url))))
+    ]
+    return max(blockers, key=lambda c: c.confidence) if blockers else None
+
+
 def best_verified(candidates: list[Candidate]) -> Candidate | None:
     """The best-evidenced verified candidate, or None if none passed.
 
@@ -1419,6 +1476,7 @@ def verify(candidate: Candidate, name: str, fetcher: Fetcher,
     except ForgeError as e:
         candidate.verified = False
         candidate.reason = f"could not be read: {e}"
+        candidate.unreachable = _transient(e)
         return candidate
 
     if state is not None:
@@ -1649,6 +1707,8 @@ def learned_nothing(result: Resolution) -> bool:
     """
     if result.best is not None or not result.candidates:
         return False
+    if result.unexamined:
+        return True
     return all(_UNREACHABLE in (c.reason or "") for c in result.candidates)
 
 
@@ -1959,6 +2019,22 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                             via_domain=cand.source.startswith("domain:")),
                        state=state)
             picked = best_verified(result.candidates)
+            blocker = unexamined_above(picked, result.candidates)
+            if blocker is not None:
+                # Not the ladder tail either: its laps -- name shapes,
+                # evidence, search -- can only produce weaker candidates
+                # than the one that could not be read.
+                why = blocker.reason.removeprefix(_UNREACHABLE + ": ")
+                result.best = None
+                result.unexamined = True
+                result.note = (
+                    f"{blocker.url} could not be read ({why}) and outranks every "
+                    f"candidate that could. Nothing weaker was accepted in its "
+                    f"place: a same-named project elsewhere is not this one. "
+                    f"Try again later, or pass the documentation URL directly to "
+                    f"harvest_docs."
+                )
+                return result
             if picked is not None:
                 result.best = picked
                 result.resolved_via = ("domain" if picked.source.startswith("domain:")
