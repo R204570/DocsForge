@@ -284,3 +284,28 @@ def test_only_the_resolver_spends_a_budget():
         assert "Budget(" not in text, f"{mod.__name__} constructs a Budget"
     resolver_text = open(resolver.__file__, encoding="utf-8").read()
     assert "Budget()" in resolver_text, "Layer 1 must be bounded"
+
+
+def test_only_anchors_that_read_like_documentation_become_evidence():
+    # Measured live 2026-09-19: `find_docs("@tanstack/react-query")` offered
+    # https://fonts.googleapis.com/css2?family=...&amp;display=swap and a
+    # sponsor's /api/checkout?product_id=query as documentation candidates.
+    # The fonts came from a <link rel=preconnect>, kept because "googleapis"
+    # contains "api"; the checkout came from an anchor, kept for its /api/
+    # segment; both carried `&amp;` verbatim because the href was never
+    # unescaped.
+    state = ResolveState(name="@tanstack/react-query")
+    html = (
+        "<html><head>"
+        "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+        "<link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&amp;display=swap'>"
+        "</head><body>"
+        "<a href='https://fireship.dev/api/checkout?product_id=query&amp;quantity=1'>Buy</a>"
+        "<a href='https://rapidoc.example/'>rapidoc</a>"
+        "<a href='https://query.example/docs/overview?lang=en&amp;v=5'>Docs</a>"
+        "<a href='https://api.example/reference'>API reference</a>"
+        "</body></html>")
+    state.record("https://tanstack.com/query", html)
+
+    assert state.outbound == ["https://query.example/docs/overview?lang=en&v=5",
+                              "https://api.example/reference"]
