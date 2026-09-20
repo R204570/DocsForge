@@ -18,6 +18,7 @@ measurements/
 docs_md/
 tests/
 scripts/
+benchmarks/
 Project Development/
 docsforge/server/static/
 Containerfile

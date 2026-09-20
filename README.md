@@ -56,6 +56,9 @@ docsforge/              the package
   server/               mcp_server, app (+ static/)
   providers/            one model backend per file
 scripts/                measurement harnesses and live smoke drivers
+benchmarks/             the live suite: every tool measured over MCP against a
+                        running DocsForge — the hosted one, or `--offline` on a
+                        local database with harvests run to the last page
 tests/                  the offline suite
 ```
 
