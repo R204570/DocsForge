@@ -55,11 +55,13 @@ docsforge/              the package
   tools/                forge_tools, harvest_jobs, tracing, applog
   server/               mcp_server, app (+ static/)
   providers/            one model backend per file
-scripts/                measurement harnesses and live smoke drivers
-benchmarks/             the live suite: every tool measured over MCP against a
-                        running DocsForge — the hosted one, or `--offline` on a
-                        local database with harvests run to the last page
+scripts/                measurement harnesses and live smoke drivers;
+                        scripts/benchmark/ is the live suite -- every tool measured
+                        over MCP against a running DocsForge, hosted or --offline
 tests/                  the offline suite
+benchmarks/             published benchmark runs, bench-1 onward, each ending with
+                        the issues that run faced
+System Files/           Architecture, PRD, Design, Workflow, Issues, Audit
 ```
 
 ## Features
@@ -468,6 +470,22 @@ mention is noise. If nothing verifies, DocsForge reports that and asks for a
 URL instead of picking something plausible. `find_docs` shows the candidates
 and the evidence without fetching the documentation.
 
+Two rules were added after being caught live, and both are benchmarked on
+every run:
+
+- **A candidate is judged against its own registry.** The same word exists on
+  npm, PyPI and crates.io, on different projects. `click` on PyPI used to be
+  tested against npm's ecosystem and stored under npm's version, `0.1.0`; it
+  is filed under PyPI's `8.5.0` now, and the ecosystem and release in the
+  answer are the winner's own.
+- **A candidate that could not be read blocks anything weaker.** With
+  click.palletsprojects.com answering HTTP 429, `click` once resolved to a
+  Kubernetes CLI's wiki and `requests` to a Rust crate — both *verified*,
+  because both document a project of that name. A registry-nominated page
+  that could not be fetched for a transient reason is now *unexamined*, and
+  nothing weaker wins in its place; the answer names the page and says to try
+  later, and that refusal is never cached.
+
 ### Reading the project
 
 `scan_project` reads `package.json`, `pyproject.toml`, `requirements.txt`,
@@ -693,6 +711,35 @@ prevent. With the documentation in front of it: 6 of 7 on technologies it did
 not know. A model too small to call tools cannot reach the corpus by itself; one
 that can, does.
 
+## Measuring it live
+
+The offline tests ask whether the code does what its fixtures expect; the
+fixtures tend to agree with whatever assumption wrote them. `scripts/benchmark/`
+asks a *running* DocsForge what it actually answers: every tool, over MCP,
+every reply read and every call timed — 76 cases across transport, detection,
+extraction, the SSRF guard, resolution, the store, concurrency, and a
+technology harvested whole.
+
+```bash
+python -m scripts.benchmark.run --offline                    # the whole thing on this machine, ~5 minutes
+python -m scripts.benchmark.run --offline --reset --publish  # a fresh database and caches, published as benchmarks/bench-<next>/
+python -m scripts.benchmark.run                              # the read-only suites against the hosted server
+```
+
+`--offline` creates a `docsforge` database on the local Postgres, starts
+`main.py --http` on loopback with every DocsForge variable pointed at an
+offline value so `.env` never reaches it, refuses any database that is not on
+this machine, and lets a harvest run to the last page. Published runs live in
+[`benchmarks/`](benchmarks/README.md), one folder each, ending with the
+issues that run faced and what each turned out to be. The first,
+[bench-1](benchmarks/bench-1/README.md): 68 pass, 1 fail, 1 error, 2 known
+gaps, `click` harvested whole under PyPI's `8.5.0` in 36 seconds.
+
+The unpublished runs that built the suite found a crawl returning one page of
+forty, a search answering a query no page contained, a fonts stylesheet
+offered as documentation, a rate limit reported as empty pages, and a resolver
+that stored a Kubernetes CLI under `click`. Each is a regression test now.
+
 ## Serving a purpose
 
 A technology of any size documents itself in more than one place: a manual, a
@@ -776,8 +823,8 @@ behaves exactly as it does without it — which is what the test suite runs.
 
 ## Known limits
 
-Kept here rather than only in `Project Development/AUDIT.md`, because a tool
-whose pitch is calibrated confidence cannot be selective about its own.
+Kept here rather than only in `System Files/Issues.md`, because a tool whose
+pitch is calibrated confidence cannot be selective about its own.
 
 - **Multi-word names resolve about 8 times in 20**, up from 1 before the name-shape
   lap. `apache airflow`, `ruby on rails`, `open telemetry`, `shadcn ui` and
@@ -808,7 +855,17 @@ whose pitch is calibrated confidence cannot be selective about its own.
   identified at all, through a registry-nominated URL whose path names it
   (`langgraph`); and `djangoproject.com` counts as Django's own domain, so
   `django` reaches `docs.djangoproject.com` rather than the weblog.
-  See `Project Development/Resolved.md`, `FINDINGS-B.md` and `FINDINGS-C.md`.
+  See `System Files/Issues.md` (the closed entries teach as much as the open).
+- **A scoped npm name cannot pass the gate.** `@tanstack/react-query` is
+  refused: the site writes "TanStack Query" and never the scoped name, and
+  the registry's agreement is one strong signal where two are required.
+  Whether the registry binding a scoped name to a homepage should count as
+  identification is an open decision (`Issues.md` R7), not a bug.
+- **A site that rate-limits you sets the pace.** Read the Docs answers 429
+  to an address that harvests one of its sites three times in an hour. A
+  harvest waits out `Retry-After`, stops after three refusals in a row, and
+  lists the refused pages as *refused by the site* — not as missing, and
+  not, as it once did, as "nothing on them reads like documentation".
 - **A page under an unrecognised template is refused, not stored.** Extraction
   tries nine selectors and then scores the page by text-to-link density; where
   nothing reads like documentation it stores nothing and says so, rather than
@@ -835,34 +892,52 @@ whose pitch is calibrated confidence cannot be selective about its own.
   tracker says the harvest **stopped reporting** rather than leaving it
   spinning, because a dead process and a slow one differ only in their silence.
 
-`Project Development/` holds the design record: three proposals, an audit, and
-the measurements behind each threshold. `PROPOSAL-II.md` (federation, intent,
-passages) and `PROPOSAL-3.md` (streaming storage, measured shape, concurrency,
-bounded reasoning) are both implemented; `ISSUES.md` is the live list of what is
-still open, including every limit above.
-
-Start with **`ARCHITECTURE.md`** — how the pieces fit, in diagrams, including
-the two pathways a harvest can take and what the identity gate will and will not
-believe. **`PRODUCT.md`** is what this is for and who for; **`DESIGN.md`** is the
-interface, recorded from the built pages rather than from intention;
-**`llmsfinder.md`** is the acquisition ladder, with a §10 recording what the
-build learned that the proposal did not anticipate.
+`System Files/` is the record of the system as built. Start with
+**`Architecture.md`** — how the pieces fit, in diagrams, including the
+acquisition ladder and what the identity gate will and will not believe.
+**`PRD.md`** is what this is for and who for, each requirement tied to the
+benchmark case that measures it; **`Design.md`** is the decisions and the
+incident behind each; **`Workflow.md`** follows a name to an answer and says
+how the system is run, locally, offline and hosted; **`Issues.md`** is the
+live register, including every limit above; **`Audit.md`** is the current
+verdict, with the runs behind it.
 
 ## Security
 
-DocsForge fetches URLs chosen by whoever is talking to it, which in the MCP and web paths can be a language model. Two guards apply there:
+DocsForge fetches URLs chosen by whoever is talking to it, which in the MCP
+and web paths can be a language model. Every request leaves through one
+function, `Fetcher.get`, and these guards apply to all of them:
 
-- **SSRF** — requests to private, loopback, link-local, and reserved addresses are refused. Set `DOCSFORGE_ALLOW_PRIVATE=1` (or pass `--allow-private`) to scrape docs on your own network.
+- **SSRF** — requests to private, loopback, link-local, reserved, multicast
+  and unspecified addresses are refused: by the address a hostname resolves
+  to (NAT64-mapped addresses unwrapped first), in every `inet_aton` spelling
+  (`2130706433`, `0x7f000001`, `0177.0.0.1`, `127.1`) without consulting the
+  platform's resolver, at **every redirect hop** — redirects are followed by
+  DocsForge, one at a time, each target guarded — and inside the browser when
+  rendering, where every request the page makes passes the same check. Set
+  `DOCSFORGE_ALLOW_PRIVATE=1` (or `--allow-private`) to scrape docs on your
+  own network. The benchmark tries loopback, the cloud metadata address, a
+  DNS name that resolves to loopback, and a 302 to each, on every run.
 - **Path traversal** — `save_docs` cannot write outside `DOCSFORGE_OUT_ROOT`.
+- **The bearer gate** — a hosted `/mcp` requires `Authorization: Bearer`;
+  `main.py --http` refuses to bind a non-loopback address without a token.
+- **Deletion is opt-in** — `forget_documentation` exists only with
+  `DOCSFORGE_ALLOW_DELETE=1`; the offline runner turns it on because that
+  store is disposable.
+- **Politeness** — a per-host delay and concurrency cap, `Retry-After`
+  honoured on a 429 (bounded), and a harvest that stops after three refusals
+  rather than answering a site's "slow down" with thirty more requests.
 
-Rendered Markdown is sanitized with `nh3` before it reaches the page, since it mixes model output with scraped HTML. Bind the web chat to `127.0.0.1` (the default) unless you have put authentication in front of it.
+Rendered Markdown in the web chat is sanitized with `nh3` before it reaches
+the page, since it mixes model output with scraped HTML. Bind the web chat to
+`127.0.0.1` (the default) unless you have put authentication in front of it.
 
 ## Deploying
 
 Two shapes. Both put the corpus in Postgres and serve the same routes: the
 site at `/`, `/tools`, `/connect`, a `/health` check, and the MCP endpoint at
-`/mcp` behind a bearer token. The web chat, tests, scripts and `.env` are
-never shipped.
+`/mcp` behind a bearer token. The web chat, tests, scripts, the published
+benchmarks, `System Files/` and `.env` are never shipped.
 
 | Variable | Required | What it does |
 |---|---|---|
@@ -902,6 +977,12 @@ What a serverless host changes, and the code says so rather than pretending:
 - **Misconfiguration is visible.** With no database or no token the site
   still serves and `/mcp` answers `503` with the reason; `/health` reports
   `degraded` when the configured database could not be reached.
+- **Put the function next to the database.** Vercel's default region is
+  `iad1` (Washington DC); a store-backed call makes 8–30 round trips, and
+  measured against a database in Singapore that is 4–15 seconds per call,
+  against under a second offline. `"regions": ["sin1"]` (or wherever your
+  database is) in `vercel.json` is the one-line fix; a Hobby plan may pick
+  one region.
 
 ### A container (long-lived)
 
@@ -927,7 +1008,7 @@ compiler. Edit in Stitch, download, re-run.
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 860 offline unit tests, no network
+DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,076 offline tests, no network
 
 # The 37 Postgres tests skip unless you point them at a throwaway database,
 # which makes a green run look more complete than it is — set this before
@@ -937,7 +1018,14 @@ python -m pytest tests/ -q          # 860 offline unit tests, no network
 DOCSFORGE_TEST_DB=postgresql://postgres:pw@127.0.0.1:5432/DocsForgeTest python -m pytest tests/ -q
 ```
 
-The live checks need the network, and the last two need `GROQ_API_KEY`:
+Set the two store variables *empty* rather than unsetting them: DocsForge
+reads `.env` on import and fills in only what is absent, and a test that
+built a store while they were absent once ran `migrate()` against the real
+database from inside the suite.
+
+The live suite is `python -m scripts.benchmark.run --offline` — see
+[Measuring it live](#measuring-it-live). The older live checks need the
+network, and the last two need `GROQ_API_KEY`:
 
 ```bash
 python scripts/smoke_mcp.py         # spawns main.py, the MCP server, over stdio

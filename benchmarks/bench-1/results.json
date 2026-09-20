@@ -1,85 +1,45 @@
 {
- "at": "2026-09-19T18:08:39+00:00",
- "url": "https://docsforge.vercel.app/mcp",
+ "at": "2026-09-20T19:26:27+00:00",
+ "url": "http://127.0.0.1:8765/mcp",
  "server": {
   "name": "docsforge",
   "version": "1.1.0",
-  "seconds": 0.414
+  "seconds": 0.007
  },
- "build": "5826f61",
+ "build": "1ce0c43",
  "checkout": {
-  "head": "daa0f5d",
-  "branch": "eval-fixes"
+  "head": "1ce0c43",
+  "branch": "offline-testing"
  },
  "python": "3.14.0",
  "repeat": 1,
  "timeout": 180.0,
- "elapsed": 252.0,
+ "elapsed": 307.2,
  "counts": {
-  "PASS": 58,
-  "FAIL": 3,
-  "ERROR": 0,
-  "KNOWN": 4,
+  "PASS": 68,
+  "FAIL": 1,
+  "ERROR": 1,
+  "KNOWN": 2,
   "FIXED": 0,
-  "SKIP": 0
+  "SKIP": 4
  },
- "slow": 7,
+ "slow": 3,
  "stored": [
   {
-   "name": "angular",
-   "pages": 85,
-   "versions": 1,
-   "chars": 982301,
-   "flags": "",
-   "labels": "2026-09-13 (85 pages, 2026-09-13 16:36)"
-  },
-  {
-   "name": "angular-queries",
+   "name": "benchmark-petstore",
    "pages": 1,
    "versions": 1,
-   "chars": 4899,
-   "flags": "**[INCOMPLETE]**",
-   "labels": "2026-09-13 (1 pages, 2026-09-13 16:49)"
+   "chars": 8650,
+   "flags": "",
+   "labels": "v3 (1 pages, 2026-09-21 01:01)"
   },
   {
    "name": "click",
-   "pages": 5,
+   "pages": 38,
    "versions": 1,
-   "chars": 265344,
+   "chars": 578223,
    "flags": "**[INCOMPLETE]**",
-   "labels": "0.1.0 (5 pages, 2026-09-16 16:32)"
-  },
-  {
-   "name": "docsforge",
-   "pages": 1,
-   "versions": 1,
-   "chars": 3016,
-   "flags": "**[INCOMPLETE]**",
-   "labels": "2026-09-14 (1 pages, 2026-09-14 19:49)"
-  },
-  {
-   "name": "docsforge--temp-repo-murex-vercel-app-connect",
-   "pages": 1,
-   "versions": 1,
-   "chars": 2026,
-   "flags": "**[COVERAGE UNKNOWN]**",
-   "labels": "undated (1 pages, 2026-09-14 19:49)"
-  },
-  {
-   "name": "markdownify",
-   "pages": 1,
-   "versions": 1,
-   "chars": 844,
-   "flags": "",
-   "labels": "0.1.0 (1 pages, 2026-09-16 07:11)"
-  },
-  {
-   "name": "temp-repo",
-   "pages": 1,
-   "versions": 1,
-   "chars": 48412,
-   "flags": "",
-   "labels": "2026-09-14 (1 pages, 2026-09-14 19:58)"
+   "labels": "8.5.0 (38 pages, 2026-09-21 01:00)"
   }
  ],
  "rows": [
@@ -89,8 +49,8 @@
    "tool": "health",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.409,
-   "max_seconds": 0.409,
+   "seconds": 0.007,
+   "max_seconds": 0.007,
    "budget": 2.0,
    "slow": false,
    "known": "",
@@ -100,7 +60,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.409,
+     "seconds": 0.007,
      "ok": true,
      "text": "{\"status\":\"ok\",\"version\":\"1.1.0\",\"store\":\"postgres\",\"degraded\":false}",
      "meta": {
@@ -119,10 +79,10 @@
    "suite": "transport",
    "name": "mcp_needs_token",
    "tool": "unauthorized",
-   "verdict": "PASS",
-   "why": "",
-   "seconds": 0.681,
-   "max_seconds": 0.681,
+   "verdict": "SKIP",
+   "why": "the server runs open on loopback",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
    "budget": 2.0,
    "slow": false,
    "known": "",
@@ -130,15 +90,12 @@
    "writes": false,
    "runs": [
     {
-     "verdict": "PASS",
-     "why": "",
-     "seconds": 0.681,
-     "ok": true,
-     "text": "{\"error\":\"unauthorized\"}",
-     "meta": {
-      "status": 401,
-      "www_authenticate": "Bearer, resource_metadata=\"https://docsforge.vercel.app/.well-known/oauth-protected-resource/mcp\""
-     }
+     "verdict": "SKIP",
+     "why": "the server runs open on loopback",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
+     "meta": {}
     }
    ]
   },
@@ -146,10 +103,10 @@
    "suite": "transport",
    "name": "mcp_rejects_wrong_token",
    "tool": "unauthorized",
-   "verdict": "PASS",
-   "why": "",
-   "seconds": 0.628,
-   "max_seconds": 0.628,
+   "verdict": "SKIP",
+   "why": "the server runs open on loopback",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
    "budget": 2.0,
    "slow": false,
    "known": "",
@@ -157,15 +114,12 @@
    "writes": false,
    "runs": [
     {
-     "verdict": "PASS",
-     "why": "",
-     "seconds": 0.628,
-     "ok": true,
-     "text": "{\"error\":\"unauthorized\"}",
-     "meta": {
-      "status": 401,
-      "www_authenticate": "Bearer, resource_metadata=\"https://docsforge.vercel.app/.well-known/oauth-protected-resource/mcp\""
-     }
+     "verdict": "SKIP",
+     "why": "the server runs open on loopback",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
+     "meta": {}
     }
    ]
   },
@@ -175,8 +129,8 @@
    "tool": "initialize",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.414,
-   "max_seconds": 0.414,
+   "seconds": 0.007,
+   "max_seconds": 0.007,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -186,13 +140,13 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.414,
+     "seconds": 0.007,
      "ok": true,
      "text": "",
      "meta": {
       "name": "docsforge",
       "version": "1.1.0",
-      "seconds": 0.414
+      "seconds": 0.007
      }
     }
    ]
@@ -203,8 +157,8 @@
    "tool": "tools",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.779,
-   "max_seconds": 1.779,
+   "seconds": 0.009,
+   "max_seconds": 0.009,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -214,9 +168,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.779,
+     "seconds": 0.009,
      "ok": true,
-     "text": "detect_source_type, fetch_docs, save_docs, harvest_docs, learn_technology, harvest_status, find_docs, search_knowledge_base, scan_project, list_knowledge_base, read_knowledge_base, forget_resolution, forget_selection",
+     "text": "detect_source_type, fetch_docs, save_docs, harvest_docs, learn_technology, harvest_status, find_docs, search_knowledge_base, scan_project, list_knowledge_base, read_knowledge_base, forget_resolution, forget_selection, forget_documentation",
      "meta": {
       "tools": [
        {
@@ -798,6 +752,37 @@
          "type": "object",
          "title": "forget_selectionArguments"
         }
+       },
+       {
+        "name": "forget_documentation",
+        "description": "Delete stored documentation. IRREVERSIBLE \u2014 the pages are gone and re-harvesting means crawling the site again. Use it only when the user has asked for something to be removed, or when a harvest demonstrably stored the wrong project. Never call it to 'refresh' something: learn_technology(refresh=true) replaces a stored version without destroying it first.",
+        "schema": {
+         "properties": {
+          "name": {
+           "description": "The stored technology name, exactly as list_knowledge_base reports it.",
+           "title": "Name",
+           "type": "string"
+          },
+          "version": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null,
+           "description": "Which version to remove. Omit to remove the technology and every version of it.",
+           "title": "Version"
+          }
+         },
+         "required": [
+          "name"
+         ],
+         "type": "object",
+         "title": "forget_documentationArguments"
+        }
        }
       ]
      }
@@ -810,8 +795,8 @@
    "tool": "surface",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.637,
-   "max_seconds": 0.637,
+   "seconds": 0.435,
+   "max_seconds": 0.435,
    "budget": null,
    "slow": false,
    "known": "",
@@ -821,7 +806,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.637,
+     "seconds": 0.435,
      "ok": true,
      "text": "no drift",
      "meta": {
@@ -837,10 +822,10 @@
    "tool": "list_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 9.605,
-   "max_seconds": 9.605,
+   "seconds": 0.272,
+   "max_seconds": 0.272,
    "budget": 5.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "also learns the build sha and what is stored, for later cases",
    "writes": false,
@@ -848,9 +833,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 9.605,
+     "seconds": 0.272,
      "ok": true,
-     "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-13 (85 pages, 2026-09-13 16:36)\n- **angular-queries** \u2014 1 pages across 1 version, 4,899 chars  **[INCOMPLETE]**\n    versions: 2026-09-13 (1 pages, 2026-09-13 16:49)\n- **click** \u2014 5 pages across 1 version, 265,344 chars  **[INCOMPLETE]**\n    versions: 0.1.0 (5 pages, 2026-09-16 16:32)\n- **docsforge** \u2014 1 pages across 1 version, 3,016 chars  **[INCOMPLETE]**\n    versions: 2026-09-14 (1 pages, 2026-09",
+     "text": "DocsForge build `1ce0c43` \u2014 nothing is stored yet. Learn a technology with `learn_technology(name=\"...\")` \u2014 you do not need a URL.",
      "meta": {}
     }
    ]
@@ -874,10 +859,10 @@
      "why": "",
      "seconds": 0.0,
      "ok": true,
-     "text": "live 5826f61 = 'Merge pull request #28 from R204570/eval-fixes'; HEAD daa0f5d; origin/main 5826f61",
+     "text": "live 1ce0c43 = 'The live benchmarks: every tool measured against a running DocsForge, hosted or offline'; HEAD 1ce0c43; origin/main 5826f61",
      "meta": {
       "in_history": true,
-      "head": "daa0f5d",
+      "head": "1ce0c43",
       "main": "5826f61"
      }
     }
@@ -889,8 +874,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.415,
-   "max_seconds": 0.415,
+   "seconds": 1.377,
+   "max_seconds": 1.377,
    "budget": 5.0,
    "slow": false,
    "known": "",
@@ -900,7 +885,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.415,
+     "seconds": 1.377,
      "ok": true,
      "text": "openapi",
      "meta": {}
@@ -913,8 +898,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.437,
-   "max_seconds": 0.437,
+   "seconds": 0.017,
+   "max_seconds": 0.017,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -924,7 +909,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.437,
+     "seconds": 0.017,
      "ok": true,
      "text": "github",
      "meta": {}
@@ -937,8 +922,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.409,
-   "max_seconds": 0.409,
+   "seconds": 0.011,
+   "max_seconds": 0.011,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -948,7 +933,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.409,
+     "seconds": 0.011,
      "ok": true,
      "text": "raw_text",
      "meta": {}
@@ -961,8 +946,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.662,
-   "max_seconds": 1.662,
+   "seconds": 0.007,
+   "max_seconds": 0.007,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -972,7 +957,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.662,
+     "seconds": 0.007,
      "ok": true,
      "text": "sitemap",
      "meta": {}
@@ -985,8 +970,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.906,
-   "max_seconds": 0.906,
+   "seconds": 0.895,
+   "max_seconds": 0.895,
    "budget": 8.0,
    "slow": false,
    "known": "",
@@ -996,7 +981,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.906,
+     "seconds": 0.895,
      "ok": true,
      "text": "llms_txt (resolved to https://svelte.dev/llms-full.txt)",
      "meta": {}
@@ -1009,8 +994,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.971,
-   "max_seconds": 1.971,
+   "seconds": 0.542,
+   "max_seconds": 0.542,
    "budget": 8.0,
    "slow": false,
    "known": "",
@@ -1020,7 +1005,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.971,
+     "seconds": 0.542,
      "ok": true,
      "text": "llms_txt (resolved to https://svelte.dev/llms-full.txt)",
      "meta": {}
@@ -1033,8 +1018,8 @@
    "tool": "detect_source_type",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.319,
-   "max_seconds": 1.319,
+   "seconds": 0.7,
+   "max_seconds": 0.7,
    "budget": 8.0,
    "slow": false,
    "known": "",
@@ -1044,7 +1029,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.319,
+     "seconds": 0.7,
      "ok": true,
      "text": "html",
      "meta": {}
@@ -1057,18 +1042,18 @@
    "tool": "detect_source_type",
    "verdict": "KNOWN",
    "why": "was not refused; answered 4 chars: 'html'",
-   "seconds": 0.6,
-   "max_seconds": 0.6,
+   "seconds": 0.014,
+   "max_seconds": 0.014,
    "budget": null,
    "slow": false,
-   "known": "Evaluation \u00a72.6",
+   "known": "Issues.md D1",
    "note": "today '' is classified html rather than refused",
    "writes": false,
    "runs": [
     {
      "verdict": "KNOWN",
      "why": "was not refused; answered 4 chars: 'html'",
-     "seconds": 0.6,
+     "seconds": 0.014,
      "ok": true,
      "text": "html",
      "meta": {}
@@ -1081,18 +1066,18 @@
    "tool": "detect_source_type",
    "verdict": "KNOWN",
    "why": "was not refused; answered 4 chars: 'html'",
-   "seconds": 0.511,
-   "max_seconds": 0.511,
+   "seconds": 0.012,
+   "max_seconds": 0.012,
    "budget": null,
    "slow": false,
-   "known": "Evaluation \u00a72.6",
+   "known": "Issues.md D1",
    "note": "",
    "writes": false,
    "runs": [
     {
      "verdict": "KNOWN",
      "why": "was not refused; answered 4 chars: 'html'",
-     "seconds": 0.511,
+     "seconds": 0.012,
      "ok": true,
      "text": "html",
      "meta": {}
@@ -1105,8 +1090,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.798,
-   "max_seconds": 0.798,
+   "seconds": 1.303,
+   "max_seconds": 1.303,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -1116,9 +1101,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.798,
+     "seconds": 1.303,
      "ok": true,
-     "text": "<!-- source: https://petstore3.swagger.io/api/v3/openapi.json | type: openapi | scraped: 2026-09-19 18:09 -->\n\n# Swagger Petstore - OpenAPI 3.0\n\n**Version:** 1.0.27\n\n**Servers:** `/api/v3`\n\nThis is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\nThat way, with time, we can improve the API in general, and ",
+     "text": "<!-- source: https://petstore3.swagger.io/api/v3/openapi.json | type: openapi | scraped: 2026-09-21 00:56 -->\n\n# Swagger Petstore - OpenAPI 3.0\n\n**Version:** 1.0.27\n\n**Servers:** `/api/v3`\n\nThis is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\nThat way, with time, we can improve the API in general, and ",
      "meta": {}
     }
    ]
@@ -1129,8 +1114,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.172,
-   "max_seconds": 1.172,
+   "seconds": 1.338,
+   "max_seconds": 1.338,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -1140,9 +1125,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.172,
+     "seconds": 1.338,
      "ok": true,
-     "text": "<!-- source: https://petstore3.swagger.io/api/v3/openapi.json | type: raw | scraped: 2026-09-19 18:09 -->\n\n{\"openapi\":\"3.0.4\",\"info\":{\"title\":\"Swagger Petstore - OpenAPI 3.0\",\"description\":\"This is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\\nThat way, with time, we can improve the API in general, a",
+     "text": "<!-- source: https://petstore3.swagger.io/api/v3/openapi.json | type: raw | scraped: 2026-09-21 00:56 -->\n\n{\"openapi\":\"3.0.4\",\"info\":{\"title\":\"Swagger Petstore - OpenAPI 3.0\",\"description\":\"This is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\\nThat way, with time, we can improve the API in general, a",
      "meta": {}
     }
    ]
@@ -1153,8 +1138,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 3.749,
-   "max_seconds": 3.749,
+   "seconds": 0.549,
+   "max_seconds": 0.549,
    "budget": 20.0,
    "slow": false,
    "known": "",
@@ -1164,7 +1149,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 3.749,
+     "seconds": 0.549,
      "ok": true,
      "text": "# Extracted 215 documents\n\n1. [This is the full developer documentation for Svelte and SvelteKit.](https://svelte.dev/llms-full.txt#this-is-the-full-developer-documentation-for-svelte-and-sveltekit)\n2. [Start of Svelte documentation](https://svelte.dev/llms-full.txt#start-of-svelte-documentation)\n3. [Overview](https://svelte.dev/llms-full.txt#overview)\n4. [Getting started](https://svelte.dev/llms-full.txt#getting-started)\n5. [.svelte files](https://svelte.dev/llms-full.txt#svelte-files)\n6. [.svelte.js and .svelte.ts files](https://svelte.dev/llms-full.txt#svelte-js-and-svelte-ts-files)\n7. [Wha",
      "meta": {}
@@ -1177,8 +1162,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.308,
-   "max_seconds": 0.308,
+   "seconds": 0.565,
+   "max_seconds": 0.565,
    "budget": 5.0,
    "slow": false,
    "known": "",
@@ -1188,9 +1173,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.308,
+     "seconds": 0.565,
      "ok": true,
-     "text": "<!-- source: https://raw.githubusercontent.com/pallets/click/main/README.md | type: raw | scraped: 2026-09-19 18:09 -->\n\n<div align=\"center\"><img src=\"https://raw.githubusercontent.com/pallets/click/refs/heads/stable/docs/_static/click-name.svg\" alt=\"\" height=\"150\"></div>\n\n# Click\n\nClick is a Python package for creating beautiful command line interfaces\nin a composable way with as little code as necessary. It's the \"Command\nLine Interface Creation Kit\". It's highly configurable but comes with\nsensible defaults out of the box.\n\nIt aims to make the process of writing command line tools quick and",
+     "text": "<!-- source: https://raw.githubusercontent.com/pallets/click/main/README.md | type: raw | scraped: 2026-09-21 00:56 -->\n\n<div align=\"center\"><img src=\"https://raw.githubusercontent.com/pallets/click/refs/heads/stable/docs/_static/click-name.svg\" alt=\"\" height=\"150\"></div>\n\n# Click\n\nClick is a Python package for creating beautiful command line interfaces\nin a composable way with as little code as necessary. It's the \"Command\nLine Interface Creation Kit\". It's highly configurable but comes with\nsensible defaults out of the box.\n\nIt aims to make the process of writing command line tools quick and",
      "meta": {}
     }
    ]
@@ -1199,10 +1184,10 @@
    "suite": "fetch",
    "name": "github_readme_and_docs",
    "tool": "fetch_docs",
-   "verdict": "PASS",
-   "why": "",
-   "seconds": 4.933,
-   "max_seconds": 4.933,
+   "verdict": "ERROR",
+   "why": "network: \"Error executing tool fetch_docs: Request failed for https://raw.githubusercontent.com/pallets/click/HEAD/docs/advanced.md: ('Connection aborted.', ConnectionRes\"",
+   "seconds": 1.047,
+   "max_seconds": 1.047,
    "budget": 15.0,
    "slow": false,
    "known": "",
@@ -1210,11 +1195,11 @@
    "writes": false,
    "runs": [
     {
-     "verdict": "PASS",
-     "why": "",
-     "seconds": 4.933,
-     "ok": true,
-     "text": "# Extracted 25 documents\n\n1. [click \u2014 README](https://github.com/pallets/click)\n2. [docs/advanced.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/advanced.md)\n3. [docs/api.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/api.md)\n4. [docs/arguments.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/arguments.md)\n5. [docs/changes.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/changes.md)\n6. [docs/click-concepts.md](https://raw.githubusercontent.com/pallets/click/HEAD/docs/click-concepts.md)\n7. [docs/command-line-reference.md](https://raw.githu",
+     "verdict": "ERROR",
+     "why": "network: \"Error executing tool fetch_docs: Request failed for https://raw.githubusercontent.com/pallets/click/HEAD/docs/advanced.md: ('Connection aborted.', ConnectionRes\"",
+     "seconds": 1.047,
+     "ok": false,
+     "text": "Error executing tool fetch_docs: Request failed for https://raw.githubusercontent.com/pallets/click/HEAD/docs/advanced.md: ('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))",
      "meta": {}
     }
    ]
@@ -1225,8 +1210,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.59,
-   "max_seconds": 0.59,
+   "seconds": 0.745,
+   "max_seconds": 0.745,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -1236,9 +1221,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.59,
+     "seconds": 0.745,
      "ok": true,
-     "text": "<!-- source: https://docs.python.org/3/library/asyncio.html | type: html | scraped: 2026-09-19 18:09 -->\n\n# `asyncio` \u2014 Asynchronous I/O[\u00b6](#module-asyncio \"Link to this heading\")\n\n---\n\nasyncio is a library to write **concurrent** code using\nthe **async/await** syntax.\n\nasyncio is used as a foundation for multiple Python asynchronous\nframeworks that provide high-performance network and web-servers,\ndatabase connection libraries, distributed task queues, etc.\n\nasyncio is often a perfect fit for IO-bound and high-level\n**structured** network code.\n\nSee also\n\n[A Conceptual Overview of asyncio](..",
+     "text": "<!-- source: https://docs.python.org/3/library/asyncio.html | type: html | scraped: 2026-09-21 00:56 -->\n\n# `asyncio` \u2014 Asynchronous I/O[\u00b6](#module-asyncio \"Link to this heading\")\n\n---\n\nasyncio is a library to write **concurrent** code using\nthe **async/await** syntax.\n\nasyncio is used as a foundation for multiple Python asynchronous\nframeworks that provide high-performance network and web-servers,\ndatabase connection libraries, distributed task queues, etc.\n\nasyncio is often a perfect fit for IO-bound and high-level\n**structured** network code.\n\nSee also\n\n[A Conceptual Overview of asyncio](..",
      "meta": {}
     }
    ]
@@ -1247,10 +1232,10 @@
    "suite": "fetch",
    "name": "crawl_three_pages",
    "tool": "fetch_docs",
-   "verdict": "FAIL",
-   "why": "answer lacks '# Extracted 3 documents': '<!-- source: https://click.palletsprojects.com/en/stable | type: html | scraped: 2026-09-19 18:09 -->\\n\\n# Welcome to Click[\u00b6](#welcome-to-click \"Link to this hea'",
-   "seconds": 16.121,
-   "max_seconds": 16.121,
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 6.222,
+   "max_seconds": 6.222,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1258,11 +1243,11 @@
    "writes": false,
    "runs": [
     {
-     "verdict": "FAIL",
-     "why": "answer lacks '# Extracted 3 documents': '<!-- source: https://click.palletsprojects.com/en/stable | type: html | scraped: 2026-09-19 18:09 -->\\n\\n# Welcome to Click[\u00b6](#welcome-to-click \"Link to this hea'",
-     "seconds": 16.121,
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 6.222,
      "ok": true,
-     "text": "<!-- source: https://click.palletsprojects.com/en/stable | type: html | scraped: 2026-09-19 18:09 -->\n\n# Welcome to Click[\u00b6](#welcome-to-click \"Link to this heading\")\n\n[![_images/click-name.svg](_images/click-name.svg)](_images/click-name.svg)\n\nClick is a Python package for creating beautiful command line interfaces\nin a composable way with as little code as necessary. It\u2019s the \u201cCommand\nLine Interface Creation Kit\u201d. It\u2019s highly configurable but comes with\nsensible defaults out of the box.\n\nIt aims to make the process of writing command line tools quick and fun\nwhile also preventing any frustra",
+     "text": "# Extracted 3 documents\n\n1. [Welcome to Click \u2014 Click Documentation (8.5.x)](https://click.palletsprojects.com/en/stable)\n2. [API \u2014 Click Documentation (8.5.x)](https://click.palletsprojects.com/en/stable/api)\n3. [Help Pages \u2014 Click Documentation (8.5.x)](https://click.palletsprojects.com/en/stable/documentation)\n\n## Welcome to Click \u2014 Click Documentation (8.5.x)\n<https://click.palletsprojects.com/en/stable>\n\n<!-- source: https://click.palletsprojects.com/en/stable | type: html | scraped: 2026-09-21 00:56 -->\n\n# Welcome to Click[\u00b6](#welcome-to-click \"Link to this heading\")\n\n[![_images/click-na",
      "meta": {}
     }
    ]
@@ -1273,8 +1258,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 2.177,
-   "max_seconds": 2.177,
+   "seconds": 1.652,
+   "max_seconds": 1.652,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1284,9 +1269,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 2.177,
+     "seconds": 1.652,
      "ok": true,
-     "text": "# Extracted 2 documents\n\n1. [FastAPI - FastAPI](https://fastapi.tiangolo.com/)\n2. [Features - FastAPI](https://fastapi.tiangolo.com/features/)\n\n## FastAPI - FastAPI\n<https://fastapi.tiangolo.com/>\n\n<!-- source: https://fastapi.tiangolo.com/ | type: html | scraped: 2026-09-19 18:09 -->\n\n[FastAPI Conf '26\nOctober 28, 2026\nAmsterdam, NL\nAll about FastAPI, right from the source.\nLearn more](https://fastapiconf.com)\n\n[FastAPI Conf '26\nOctober 28, 2026\nAmsterdam, NL\nAll about FastAPI, right from the source.\nLearn more](https://fastapiconf.com)\n\n# FastAPI[\u00b6](#fastapi \"Permanent link\")\n\n[![FastAPI](ht",
+     "text": "# Extracted 2 documents\n\n1. [FastAPI - FastAPI](https://fastapi.tiangolo.com/)\n2. [Features - FastAPI](https://fastapi.tiangolo.com/features/)\n\n## FastAPI - FastAPI\n<https://fastapi.tiangolo.com/>\n\n<!-- source: https://fastapi.tiangolo.com/ | type: html | scraped: 2026-09-21 00:56 -->\n\n[FastAPI Conf '26\nOctober 28, 2026\nAmsterdam, NL\nAll about FastAPI, right from the source.\nLearn more](https://fastapiconf.com)\n\n[FastAPI Conf '26\nOctober 28, 2026\nAmsterdam, NL\nAll about FastAPI, right from the source.\nLearn more](https://fastapiconf.com)\n\n# FastAPI[\u00b6](#fastapi \"Permanent link\")\n\n[![FastAPI](ht",
      "meta": {}
     }
    ]
@@ -1297,8 +1282,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.281,
-   "max_seconds": 0.281,
+   "seconds": 0.013,
+   "max_seconds": 0.013,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1308,7 +1293,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.281,
+     "seconds": 0.013,
      "ok": false,
      "text": "Error executing tool fetch_docs: Only http/https URLs are supported, got: 'not-a-url'",
      "meta": {}
@@ -1321,8 +1306,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.325,
-   "max_seconds": 0.325,
+   "seconds": 0.451,
+   "max_seconds": 0.451,
    "budget": 8.0,
    "slow": false,
    "known": "",
@@ -1332,7 +1317,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.325,
+     "seconds": 0.451,
      "ok": false,
      "text": "Error executing tool fetch_docs: HTTP 404 for https://docs.python.org/3/library/this-page-does-not-exist.html",
      "meta": {}
@@ -1345,8 +1330,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.283,
-   "max_seconds": 0.283,
+   "seconds": 0.013,
+   "max_seconds": 0.013,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1356,7 +1341,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.283,
+     "seconds": 0.013,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 127.0.0.1 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1369,8 +1354,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.298,
-   "max_seconds": 0.298,
+   "seconds": 0.009,
+   "max_seconds": 0.009,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1380,7 +1365,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.298,
+     "seconds": 0.009,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 169.254.169.254 resolves to 169.254.169.254. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1393,10 +1378,10 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 5.426,
-   "max_seconds": 5.426,
+   "seconds": 0.008,
+   "max_seconds": 0.008,
    "budget": 3.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "",
    "writes": false,
@@ -1404,7 +1389,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 5.426,
+     "seconds": 0.008,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 2130706433 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1417,8 +1402,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.28,
-   "max_seconds": 0.28,
+   "seconds": 0.006,
+   "max_seconds": 0.006,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1428,7 +1413,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.28,
+     "seconds": 0.006,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 0177.0.0.1 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1441,8 +1426,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.407,
-   "max_seconds": 0.407,
+   "seconds": 0.005,
+   "max_seconds": 0.005,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1452,7 +1437,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.407,
+     "seconds": 0.005,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: ::1 resolves to ::1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1465,8 +1450,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.287,
-   "max_seconds": 0.287,
+   "seconds": 0.008,
+   "max_seconds": 0.008,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1476,7 +1461,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.287,
+     "seconds": 0.008,
      "ok": false,
      "text": "Error executing tool fetch_docs: Only http/https URLs are supported, got: 'file:///etc/passwd'",
      "meta": {}
@@ -1489,8 +1474,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.675,
-   "max_seconds": 0.675,
+   "seconds": 0.026,
+   "max_seconds": 0.026,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1500,7 +1485,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.675,
+     "seconds": 0.026,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 127.0.0.1.nip.io resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1513,18 +1498,18 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.308,
-   "max_seconds": 0.308,
+   "seconds": 1.561,
+   "max_seconds": 1.561,
    "budget": 8.0,
    "slow": false,
    "known": "",
-   "note": "Evaluation \u00a72.1: a 302 to 127.0.0.1 must be refused at the hop",
+   "note": "Issues.md X1: a 302 to 127.0.0.1 must be refused at the hop",
    "writes": false,
    "runs": [
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.308,
+     "seconds": 1.561,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 127.0.0.1 resolves to 127.0.0.1. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1537,8 +1522,8 @@
    "tool": "fetch_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.643,
-   "max_seconds": 0.643,
+   "seconds": 1.55,
+   "max_seconds": 1.55,
    "budget": 8.0,
    "slow": false,
    "known": "",
@@ -1548,7 +1533,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.643,
+     "seconds": 1.55,
      "ok": false,
      "text": "Error executing tool fetch_docs: Refusing to fetch private/loopback address: 169.254.169.254 resolves to 169.254.169.254. Set DOCSFORGE_ALLOW_PRIVATE=1 to permit it.",
      "meta": {}
@@ -1561,8 +1546,8 @@
    "tool": "save_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.288,
-   "max_seconds": 0.288,
+   "seconds": 0.012,
+   "max_seconds": 0.012,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -1572,9 +1557,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.288,
+     "seconds": 0.012,
      "ok": false,
-     "text": "Error executing tool save_docs: Refusing to write outside /tmp/docsforge/out",
+     "text": "Error executing tool save_docs: Refusing to write outside E:\\DocsForge - TEMP\\offline\\out",
      "meta": {}
     }
    ]
@@ -1585,8 +1570,8 @@
    "tool": "save_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.301,
-   "max_seconds": 0.301,
+   "seconds": 1.269,
+   "max_seconds": 1.269,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -1596,9 +1581,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.301,
+     "seconds": 1.269,
      "ok": true,
-     "text": "Wrote 1 file(s) to `/tmp/docsforge/out/benchmark-scratch`:\n- `/tmp/docsforge/out/benchmark-scratch/petstore3-swagger-io-api-v3-openapi.json-ddba08da.md`",
+     "text": "Wrote 1 file(s) to `E:\\DocsForge - TEMP\\offline\\out\\benchmark-scratch`:\n- `E:\\DocsForge - TEMP\\offline\\out\\benchmark-scratch\\petstore3-swagger-io-api-v3-openapi.json-ddba08da.md`",
      "meta": {}
     }
    ]
@@ -1609,8 +1594,8 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 2.708,
-   "max_seconds": 2.708,
+   "seconds": 5.438,
+   "max_seconds": 5.438,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1620,7 +1605,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 2.708,
+     "seconds": 5.438,
      "ok": true,
      "text": "Resolving **fastapi** (pypi):\n\n- https://fastapi.tiangolo.com/\n    verified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for fastapi\n    identified by own-domain, repo-backlink, repo-identity, names-it:21\n- https://github.com/tkambler/fastapi#readme\n    verified \u00b7 confidence 0.35 \u00b7 npm registry homepage for fastapi\n    identified by repo-backlink, registry-agreement, repo-identity, names-it:5\n- https://github.com/fastapi/fastapi\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Homepage] for fastapi\n    identified by registry-agreement, repo-identity, names-it:11\n- https://github.com/",
      "meta": {}
@@ -1633,8 +1618,8 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.94,
-   "max_seconds": 1.94,
+   "seconds": 3.299,
+   "max_seconds": 3.299,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1644,7 +1629,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.94,
+     "seconds": 3.299,
      "ok": true,
      "text": "Resolving **pydantic**:\n\n- https://pydantic.dev/docs/validation/latest/llms.txt\n    verified \u00b7 confidence 0.97 \u00b7 https://docs.pydantic.dev/llms.txt exists and is not HTML \u2014 docs.pydantic.dev is where this project says its documentation lives\n    identified by own-domain, names-it:168\n- https://pydantic.dev/\n    unverified \u00b7 confidence 0.75 \u00b7 pydantic.dev is the project's own domain and carries a link to its source repository; pydantic.io redirects onto it\n    not enough to identify 'pydantic' \u2014 only own-domain. Naming a project is not the same as being it.\n\nBest: https://pydantic.dev/docs/vali",
      "meta": {}
@@ -1657,18 +1642,18 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 9.615,
-   "max_seconds": 9.615,
+   "seconds": 25.71,
+   "max_seconds": 25.71,
    "budget": 30.0,
    "slow": false,
    "known": "",
-   "note": "Evaluation \u00a72.3: npm also has a 'click'; the pypi one must win and be labelled so",
+   "note": "Issues.md R6: npm also has a 'click'; the pypi one must win and be labelled so",
    "writes": false,
    "runs": [
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 9.615,
+     "seconds": 25.71,
      "ok": true,
      "text": "Resolving **click** (pypi):\n\n- https://click.palletsprojects.com/\n    verified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for click\n    identified by own-domain, install:pypi, repo-backlink, repo-identity, names-it:20\n- https://github.com/uggedal/click\n    unverified \u00b7 confidence 0.35 \u00b7 npm registry repository for click\n    could not be read: HTTP 404 for https://github.com/uggedal/click\n- https://github.com/pallets/click/\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Source] for click\n    identified by repo-identity, names-it:11\n- https://github.com/databricks/click/wiki\n    ve",
      "meta": {}
@@ -1681,10 +1666,10 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 2.845,
-   "max_seconds": 2.845,
+   "seconds": 34.188,
+   "max_seconds": 34.188,
    "budget": 30.0,
-   "slow": false,
+   "slow": true,
    "known": "",
    "note": "",
    "writes": false,
@@ -1692,7 +1677,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 2.845,
+     "seconds": 34.188,
      "ok": true,
      "text": "Resolving **requests** (pypi):\n\n- https://requests.readthedocs.io\n    verified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for requests\n    identified by own-domain, docs-host, install:pypi, repo-backlink, repo-identity, names-it:29\n- https://docs.rs/requests\n    verified \u00b7 confidence 0.92 \u00b7 crates.io documentation for requests\n    identified by repo-backlink, names-it:15\n- https://github.com/unshiftio/requests\n    verified \u00b7 confidence 0.35 \u00b7 npm registry homepage for requests\n    identified by registry-agreement, repo-identity, names-it:5\n- https://github.com/psf/requests\n    verifi",
      "meta": {}
@@ -1705,8 +1690,8 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 8.959,
-   "max_seconds": 8.959,
+   "seconds": 22.111,
+   "max_seconds": 22.111,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1716,9 +1701,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 8.959,
+     "seconds": 22.111,
      "ok": true,
-     "text": "Resolving **tokio** (crates):\n\n- https://tokio.rs\n    verified \u00b7 confidence 0.55 \u00b7 crates.io homepage for tokio\n    identified by own-domain, repo-backlink, registry-agreement, repo-identity, names-it:9\n- https://github.com/egoist/tokio\n    verified \u00b7 confidence 0.35 \u00b7 npm registry repository for tokio\n    identified by repo-identity, names-it:6\n- https://github.com/PyO3/tokio/\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Homepage] for tokio\n    identified by registry-agreement, repo-identity, names-it:5\n- https://github.com/tokio-rs/tokio\n    verified \u00b7 confidence 0.35 \u00b7 crates.io repos",
+     "text": "Resolving **tokio** (crates):\n\n- https://tokio.rs\n    verified \u00b7 confidence 0.55 \u00b7 crates.io homepage for tokio\n    identified by own-domain, repo-backlink, registry-agreement, repo-identity, names-it:9\n- https://github.com/egoist/tokio\n    verified \u00b7 confidence 0.35 \u00b7 npm registry repository for tokio\n    identified by repo-identity, names-it:5\n- https://github.com/PyO3/tokio/\n    verified \u00b7 confidence 0.35 \u00b7 PyPI project_urls[Homepage] for tokio\n    identified by registry-agreement, repo-identity, names-it:5\n- https://github.com/tokio-rs/tokio\n    verified \u00b7 confidence 0.35 \u00b7 crates.io repos",
      "meta": {}
     }
    ]
@@ -1729,8 +1714,8 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 1.68,
-   "max_seconds": 1.68,
+   "seconds": 20.345,
+   "max_seconds": 20.345,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1740,7 +1725,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 1.68,
+     "seconds": 20.345,
      "ok": true,
      "text": "Resolving **svelte**:\n\n- https://svelte.dev/llms.txt\n    verified \u00b7 confidence 0.97 \u00b7 https://svelte.dev/llms.txt exists and is not HTML\n    identified by own-domain, names-it:24\n- https://svelte.dev/\n    verified \u00b7 confidence 0.75 \u00b7 svelte.dev is the project's own domain and carries a link to its source repository\n    identified by own-domain, names-it:8\n\nBest: https://svelte.dev/llms.txt \u2014 harvest it with `learn_technology(name=\"svelte\")`, or `harvest_docs(url=\"https://svelte.dev/llms.txt\", name=\"svelte\")`.",
      "meta": {}
@@ -1753,10 +1738,10 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 9.431,
-   "max_seconds": 9.431,
+   "seconds": 30.235,
+   "max_seconds": 30.235,
    "budget": 30.0,
-   "slow": false,
+   "slow": true,
    "known": "",
    "note": "",
    "writes": false,
@@ -1764,7 +1749,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 9.431,
+     "seconds": 30.235,
      "ok": true,
      "text": "Resolving **django** (pypi):\n\n- https://docs.djangoproject.com/\n    verified \u00b7 confidence 0.92 \u00b7 PyPI project_urls[Documentation] for django\n    identified by own-domain, docs-host, repo-backlink, repo-identity, names-it:31\n- https://www.djangoproject.com/\n    verified \u00b7 confidence 0.55 \u00b7 PyPI project_urls[Homepage] for django\n    identified by own-domain, repo-backlink, registry-agreement, repo-identity, names-it:48\n- https://github.com/npm/security-holder#readme\n    verified \u00b7 confidence 0.35 \u00b7 npm registry homepage for django\n    identified by repo-backlink, registry-agreement\n- https://git",
      "meta": {}
@@ -1777,8 +1762,8 @@
    "tool": "find_docs",
    "verdict": "FAIL",
    "why": "no Best: line -- \"Found 2 candidate(s) for '@tanstack/react-query' but none could be confirmed to document it. Harvesting an unverified page risks storing the wrong project \u2014 pas\"",
-   "seconds": 12.62,
-   "max_seconds": 12.62,
+   "seconds": 21.556,
+   "max_seconds": 21.556,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1788,9 +1773,9 @@
     {
      "verdict": "FAIL",
      "why": "no Best: line -- \"Found 2 candidate(s) for '@tanstack/react-query' but none could be confirmed to document it. Harvesting an unverified page risks storing the wrong project \u2014 pas\"",
-     "seconds": 12.62,
+     "seconds": 21.556,
      "ok": true,
-     "text": "Resolving **@tanstack/react-query** (npm):\n\n- https://tanstack.com/query\n    unverified \u00b7 confidence 0.55 \u00b7 npm registry homepage for @tanstack/react-query\n    not enough to identify '@tanstack/react-query' \u2014 only registry-agreement. Naming a project is not the same as being it.\n- https://github.com/TanStack/query\n    unverified \u00b7 confidence 0.35 \u00b7 npm registry repository for @tanstack/react-query\n    nothing on the page identifies it as '@tanstack/react-query'\n- https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700;12..96",
+     "text": "Resolving **@tanstack/react-query** (npm):\n\n- https://tanstack.com/query\n    unverified \u00b7 confidence 0.55 \u00b7 npm registry homepage for @tanstack/react-query\n    not enough to identify '@tanstack/react-query' \u2014 only registry-agreement. Naming a project is not the same as being it.\n- https://github.com/TanStack/query\n    unverified \u00b7 confidence 0.35 \u00b7 npm registry repository for @tanstack/react-query\n    nothing on the page identifies it as '@tanstack/react-query'\n\nFound 2 candidate(s) for '@tanstack/react-query' but none could be confirmed to document it. Harvesting an unverified page risks stor",
      "meta": {}
     }
    ]
@@ -1801,8 +1786,8 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.282,
-   "max_seconds": 0.282,
+   "seconds": 0.032,
+   "max_seconds": 0.032,
    "budget": 30.0,
    "slow": false,
    "known": "",
@@ -1812,7 +1797,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.282,
+     "seconds": 0.032,
      "ok": true,
      "text": "Resolving **click** (pypi):\n\n- https://click.palletsprojects.com/\n    verified \u00b7 confidence 0.95 \u00b7 PyPI project_urls[Documentation] for click\n    identified by own-domain, install:pypi, repo-backlink, repo-identity, names-it:20\n\nBest: https://click.palletsprojects.com/ \u2014 harvest it with `learn_technology(name=\"click\")`, or `harvest_docs(url=\"https://click.palletsprojects.com/\", name=\"click\")`.",
      "meta": {}
@@ -1825,10 +1810,10 @@
    "tool": "find_docs",
    "verdict": "PASS",
    "why": "",
-   "seconds": 5.645,
-   "max_seconds": 5.645,
+   "seconds": 53.041,
+   "max_seconds": 53.041,
    "budget": 30.0,
-   "slow": false,
+   "slow": true,
    "known": "",
    "note": "no Best: for a name no registry has",
    "writes": false,
@@ -1836,9 +1821,251 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 5.645,
+     "seconds": 53.041,
      "ok": true,
-     "text": "Resolving **zzqx-no-such-package-9182**:\n\n- https://undici.nodejs.org\n    unverified \u00b7 confidence 0.44 \u00b7 npm search matched 'undici-types'\n    nothing on the page identifies it as 'zzqx-no-such-package-9182'\n- git+https://github.com/nodejs/undici.git\n    unverified \u00b7 confidence 0.28 \u00b7 npm search matched 'undici-types'\n    could not be read: Only http/https URLs are supported, got: 'git+https://github.com/nodejs/undici.git'\n- https://github.com/yuzujs/setImmediate#readme\n    unverified \u00b7 confidence 0.28 \u00b7 npm search matched 'setimmediate'\n    nothing on the page identifies it as 'zzqx-no-such-p",
+     "text": "Resolving **zzqx-no-such-package-9182**:\n\nNo registry knows 'zzqx-no-such-package-9182'. If it is private or internal, pass the documentation URL directly to harvest_docs. Resolution gave up after 53.0s.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "scan_this_repo",
+   "tool": "scan_project",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.151,
+   "max_seconds": 0.151,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "on a local server '.' is this repository: the caller's disk is the server's",
+   "writes": false,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.151,
+     "ok": true,
+     "text": "19 of 19 dependencies declared in `E:\\DocsForge - TEMP`:\n\n- `anthropic` 0.70 (pypi, requirements.txt) \u2014 not stored\n- `anyio` 4.0 (pypi, pyproject.toml) \u2014 not stored\n- `beautifulsoup4` 4.12 (pypi, pyproject.toml) \u2014 not stored\n- `fastapi` 0.110 (pypi, requirements.txt) \u2014 not stored\n- `google-genai` 1.0 (pypi, requirements.txt) \u2014 not stored\n- `groq` 0.11 (pypi, requirements.txt) \u2014 not stored\n- `linkify-it-py` 2.0 (pypi, requirements.txt) \u2014 not stored\n- `lxml` 5.0 (pypi, pyproject.toml) \u2014 not stored\n- `markdown-it-py` 3.0 (pypi, requirements.txt) \u2014 not stored\n- `markdownify` 0.13 (pypi, pyproject.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "learn_whole_technology",
+   "tool": "learn_technology",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 25.518,
+   "max_seconds": 25.518,
+   "budget": 30.0,
+   "slow": false,
+   "known": "",
+   "note": "no max_pages: the tool hands back a harvest id at the deadline and the crawl runs on",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 25.518,
+     "ok": true,
+     "text": "**click from https://click.palletsprojects.com/ - still running.** Harvest id `click-1`.\n\nCurrently harvesting 13/40 pages, 25s elapsed. This returned before the harvest finished so your client would not time out; it continues in the background while this server runs.\n\n- `harvest_status(harvest=\"click-1\")` reports its progress; `wait=20` lets it run that long before answering.\n- `list_knowledge_base()` reports it too, and every other harvest in flight.\n- When it finishes, read it with `read_knowledge_base(name=\"click\")`.\n- **Do not call learn_technology for 'click' again** - it is already runn",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "harvest_runs_to_the_end",
+   "tool": "harvest_status",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 36.497,
+   "max_seconds": 36.497,
+   "budget": null,
+   "slow": false,
+   "known": "",
+   "note": "polls harvest_status until the harvest is done; nothing cuts it short",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 36.497,
+     "ok": true,
+     "text": "**click** from https://click.palletsprojects.com/ \u2014 harvest id `click-1`: **done** in 62s. It is stored; read it with `read_knowledge_base(name=\"click\")`.\n\nWhat the harvest reported:\n\nResolved **click** to https://click.palletsprojects.com/\n(PyPI project_urls[Documentation] for click; identified by own-domain, install:pypi, repo-backlink, repo-identity, names-it:20)\n\nHarvested **click** 8.5.0 \u2014 38 pages, 578,223 characters, via sphinx, in 61s.\nStored in postgres: `postgres://127.0.0.1:5432/docsforge (click 8.5.0)`.\n\n**INCOMPLETE \u2014 stored 38 of the 40 pages the sphinx lists, 2 of them unextract",
+     "meta": {
+      "polls": 2
+     }
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "whole_corpus_stored",
+   "tool": "list_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.649,
+   "max_seconds": 0.649,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "click: every page the site links, no INCOMPLETE flag, and the pypi release as its version",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.649,
+     "ok": true,
+     "text": "DocsForge build `1ce0c43` \u2014 1 technology stored in postgres (127.0.0.1:5432/docsforge):\n\n- **click** \u2014 38 pages across 1 version, 578,223 chars  **[INCOMPLETE]**\n    versions: 8.5.0 (38 pages, 2026-09-21 01:00)\n\nPass `version=` to read_knowledge_base to pick one; it defaults to the newest version stored.\n\nStorage: 0.01 GB of about 8 GB.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "deep_page_was_reached",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.065,
+   "max_seconds": 0.065,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "the quickstart is a relative link from the entry page: the crawl-base fix, live",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.065,
+     "ok": true,
+     "text": "# click 8.5.0: 1 page matching 'quickstart' (by title)\n\n> This copy is INCOMPLETE \u2014 38 of 40 pages. Say so if the answer depends on it, and do not treat a missing topic as absent from the real documentation.\n\n## Quickstart \u2014 Click Documentation (8.5.x)\n\nSource: <https://click.palletsprojects.com/quickstart>\n\n# Quickstart[\u00b6](#quickstart \"Link to this heading\")\n\n## Install[\u00b6](#install \"Link to this heading\")\n\nInstall from PyPI:\n\n```\npip install click\n```\n\nInstalling into a virtual environment is highly recommended. We suggest [Virtualenv](../virtualenv/#virtualenv-heading).\n\n## Examples[\u00b6](#exam",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "offline",
+   "name": "search_whole_corpus",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.137,
+   "max_seconds": 0.137,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.137,
+     "ok": true,
+     "text": "10 passage(s) for 'click.option decorator', from a ranked search over 11 matching page(s) \u2014 about 9,189 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 Options \u2014 Click Documentation (8.5.x) \u2014 [Option Decorator](#id5)[\u00b6](#option-decorator \"Link to this heading\")\n    The [`option()`](../api/#click.option \"click.option\") decorator is usually passed two positional arguments: the option name and the decorated function argument name. ``` @click.command() @click.option('--string-to-echo', 'string_to_echo') def echo(string_to_echo): click.echo(string_to_echo) ``` ``` $ echo --help Usage: echo",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "harvest_docs_small",
+   "tool": "harvest_docs",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 1.753,
+   "max_seconds": 1.753,
+   "budget": 25.0,
+   "slow": false,
+   "known": "",
+   "note": "stores a one-page corpus named benchmark-petstore; removal needs DOCSFORGE_ALLOW_DELETE",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 1.753,
+     "ok": true,
+     "text": "Harvested **benchmark-petstore** v3 \u2014 1 pages, 8,650 characters, via openapi, in 1s.\nStored in postgres: `postgres://127.0.0.1:5432/docsforge (benchmark-petstore v3)`.\n\nRead it back with `read_knowledge_base(name=\"benchmark-petstore\", version=\"v3\")` \u2014 do NOT re-harvest to answer questions about it.\n\nPages:\n1. Swagger Petstore - OpenAPI 3.0",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "read_back_harvest",
+   "tool": "read_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.08,
+   "max_seconds": 0.08,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.08,
+     "ok": true,
+     "text": "## Swagger Petstore - OpenAPI 3.0\n\nSource: <https://petstore3.swagger.io/api/v3/openapi.json>\n\n# Swagger Petstore - OpenAPI 3.0\n\n**Version:** 1.0.27\n\n**Servers:** `/api/v3`\n\nThis is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about\nSwagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!\nYou can now help us improve the API whether it's by making changes to the definition itself or to the code.\nThat way, with time, we can improve the API in general, and expose some of t",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "search_harvest",
+   "tool": "search_knowledge_base",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.111,
+   "max_seconds": 0.111,
+   "budget": 10.0,
+   "slow": false,
+   "known": "",
+   "note": "",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.111,
+     "ok": true,
+     "text": "Nothing stored in benchmark-petstore matches 'findByStatus'. The technology may not be harvested yet \u2014 try `learn_technology(name=...)`.",
+     "meta": {}
+    }
+   ]
+  },
+  {
+   "suite": "writes",
+   "name": "learn_already_stored_fetches_nothing",
+   "tool": "learn_technology",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.122,
+   "max_seconds": 0.122,
+   "budget": 15.0,
+   "slow": false,
+   "known": "",
+   "note": "learn_technology on a stored name says so and does not crawl",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.122,
+     "ok": true,
+     "text": "**click** 8.5.0 is already stored \u2014 38 pages, harvested 2026-09-21 01:00.\n\nRead it with `read_knowledge_base(name=\"click\", version=\"8.5.0\")`. Nothing was fetched.",
      "meta": {}
     }
    ]
@@ -1849,8 +2076,8 @@
    "tool": "read_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 9.224,
-   "max_seconds": 9.224,
+   "seconds": 0.158,
+   "max_seconds": 0.158,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -1860,9 +2087,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 9.224,
+     "seconds": 0.158,
      "ok": true,
-     "text": "<!-- angular 2026-09-13 is 990,408 characters; showing the first 300,000. Omitted 690,408 characters (735 sections including [Resolution modifiers](#resolution-modifiers) > [`host`](#host), [Resolution modifiers](#resolution-modifiers) > host.ts, [Resolution modifiers](#resolution-modifiers) > [Modifiers with constructor injection](#modifiers-with-constructor-injection), [Resolution modifiers](#resolution-modifiers) > self-no-data.ts, [Logical structure of the template](#logical-structure-of-the-template)\u2026). Pass `section` to read specific pages/sections. -->\n\n## What is Angular? \u2022 Angular\n\nSo",
+     "text": "<!-- click 8.5.0 is 582,432 characters; showing the first 300,000. Omitted 282,432 characters (243 sections including Version 8.2.0[\u00b6](#version-8-2-0 \"Link to this heading\"), Version 8.1.8[\u00b6](#version-8-1-8 \"Link to this heading\"), Version 8.1.7[\u00b6](#version-8-1-7 \"Link to this heading\"), Version 8.1.6[\u00b6](#version-8-1-6 \"Link to this heading\"), Version 8.1.5[\u00b6](#version-8-1-5 \"Link to this heading\")\u2026). Pass `section` to read specific pages/sections. -->\n\n## API \u2014 Click Documentation (8.5.x)\n\nSource: <https://click.palletsprojects.com/api>\n\n# API[\u00b6](#api \"Link to this heading\")\n\nThis part of the",
      "meta": {}
     }
    ]
@@ -1873,8 +2100,8 @@
    "tool": "read_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 7.468,
-   "max_seconds": 7.468,
+   "seconds": 0.075,
+   "max_seconds": 0.075,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -1884,9 +2111,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 7.468,
+     "seconds": 0.075,
      "ok": true,
-     "text": "# angular 2026-09-13: 85 pages matching 'angular' (by title)\n\n## What is Angular? \u2022 Angular\n\nSource: <https://angular.dev/overview>\n\n<!-- source: https://angular.dev/overview | type: html | scraped: 2026-09-13 16:36 -->\n\n# What is Angular?\n\nAngular is a web framework that empowers  \ndevelopers to build fast, reliable applications that users love.\n\nMaintained by a dedicated team at Google, Angular provides a broad suite of tools, APIs, and\nlibraries to simplify and streamline your development workflow. Angular gives you\na solid platform on which to build fast, reliable applications that scale w",
+     "text": "# click 8.5.0: 38 pages matching 'Click' (by title)\n\n> This copy is INCOMPLETE \u2014 38 of 40 pages. Say so if the answer depends on it, and do not treat a missing topic as absent from the real documentation.\n\n## API \u2014 Click Documentation (8.5.x)\n\nSource: <https://click.palletsprojects.com/api>\n\n# API[\u00b6](#api \"Link to this heading\")\n\nThis part of the documentation lists the full API reference of all public\nclasses and functions.\n\n## [Decorators](#id2)[\u00b6](#decorators \"Link to this heading\")\n\nclick.command(*name: [Callable](https://docs.python.org/3/library/typing.html#typing.Callable \"(in Python v3",
      "meta": {}
     }
    ]
@@ -1897,8 +2124,8 @@
    "tool": "read_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 3.839,
-   "max_seconds": 3.839,
+   "seconds": 0.212,
+   "max_seconds": 0.212,
    "budget": 5.0,
    "slow": false,
    "known": "",
@@ -1908,9 +2135,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 3.839,
+     "seconds": 0.212,
      "ok": false,
-     "text": "Error executing tool read_knowledge_base: No stored documentation called 'zzqx-not-stored-9182'. Available: angular, angular-queries, click, docsforge, docsforge--temp-repo-murex-vercel-app-connect, markdownify, temp-repo",
+     "text": "Error executing tool read_knowledge_base: No stored documentation called 'zzqx-not-stored-9182'. Available: benchmark-petstore, click",
      "meta": {}
     }
    ]
@@ -1921,8 +2148,8 @@
    "tool": "read_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 3.813,
-   "max_seconds": 3.813,
+   "seconds": 0.159,
+   "max_seconds": 0.159,
    "budget": 5.0,
    "slow": false,
    "known": "",
@@ -1932,9 +2159,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 3.813,
+     "seconds": 0.159,
      "ok": false,
-     "text": "Error executing tool read_knowledge_base: angular has no version 'no-such-version-zz'. Stored versions: 2026-09-13",
+     "text": "Error executing tool read_knowledge_base: click has no version 'no-such-version-zz'. Stored versions: 8.5.0",
      "meta": {}
     }
    ]
@@ -1945,10 +2172,10 @@
    "tool": "search_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 13.576,
-   "max_seconds": 13.576,
+   "seconds": 0.151,
+   "max_seconds": 0.151,
    "budget": 10.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "",
    "writes": false,
@@ -1956,9 +2183,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 13.576,
+     "seconds": 0.151,
      "ok": true,
-     "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI \u2022 Overview \u2022 Angular\n    <!-- source: https://angular.dev/tools/cli | type: html | scraped: 2026-09-13 16:36 --> The Angular CLI is a command-line interface tool which allows you to scaffold, develop, test, deploy, and maintain Angular applications directly from a command shell. Angular CLI is published on npm as the `@angular/cli` package and includes a binary named `ng`. Commands invoking `ng` a",
+     "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-contrib \u2014 Click Documentation (8.5.x)\n    As the user number of Click grows, more and more major feature requests are made. To users, it may seem reasonable to include those features with Click; however, many of them are experimental or aren\u2019t practical to support generically. Maintainers have to choose what is reasonable to maintain in Click core. The [click-contrib](https://github.com/click-contrib/",
      "meta": {}
     }
    ]
@@ -1969,10 +2196,10 @@
    "tool": "search_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 12.433,
-   "max_seconds": 12.433,
+   "seconds": 0.137,
+   "max_seconds": 0.137,
    "budget": 10.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "",
    "writes": false,
@@ -1980,9 +2207,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 12.433,
+     "seconds": 0.137,
      "ok": true,
-     "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI \u2022 Overview \u2022 Angular\n    <!-- source: https://angular.dev/tools/cli | type: html | scraped: 2026-09-13 16:36 --> The Angular CLI is a command-line interface tool which allows you to scaffold, develop, test, deploy, and maintain Angular applications directly from a command shell. Angular CLI is published on npm as the `@angular/cli` package and includes a binary named `ng`. Commands invoking `ng` a",
+     "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-contrib \u2014 Click Documentation (8.5.x)\n    As the user number of Click grows, more and more major feature requests are made. To users, it may seem reasonable to include those features with Click; however, many of them are experimental or aren\u2019t practical to support generically. Maintainers have to choose what is reasonable to maintain in Click core. The [click-contrib](https://github.com/click-contrib/",
      "meta": {}
     }
    ]
@@ -1993,10 +2220,10 @@
    "tool": "search_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 13.277,
-   "max_seconds": 13.277,
+   "seconds": 0.166,
+   "max_seconds": 0.166,
    "budget": 10.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "",
    "writes": false,
@@ -2004,9 +2231,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 13.277,
+     "seconds": 0.166,
      "ok": true,
-     "text": "No passage in angular answers 'angular' directly. 10 page(s) matched but were not of kind 'api'. `read_knowledge_base` will show whole pages.",
+     "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 33,989 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 API \u2014 Click Documentation (8.5.x) \u2014 [Exceptions](#id8)[\u00b6](#exceptions \"Link to this heading\")\n    exception click.ClickException(*message*)[\u00b6](#click.ClickException \"Link to this definition\") : An exception that Click can handle and show to the user. Parameters: : **message** ([*Final*](https://docs.python.org/3/library/typing.html#typing.Final \"(in Python v3.14)\")*[*[*str*](https://docs.python.org/3/library/stdtypes.html#str \"(in Python v3.14)\")*]*) ",
      "meta": {}
     }
    ]
@@ -2017,8 +2244,8 @@
    "tool": "search_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 4.286,
-   "max_seconds": 4.286,
+   "seconds": 0.093,
+   "max_seconds": 0.093,
    "budget": 10.0,
    "slow": false,
    "known": "",
@@ -2028,9 +2255,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 4.286,
+     "seconds": 0.093,
      "ok": true,
-     "text": "1 passage(s) for 'angular', from a ranked search over 1 matching page(s) \u2014 about 186 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 What is Angular? \u2022 Angular \u2014 What is Angular? \u2022 Angular\n    <!-- source: https://angular.dev/overview | type: html | scraped: 2026-09-13 16:36 --> Angular is a web framework that empowers developers to build fast, reliable applications that users love. Maintained by a dedicated team at Google, Angular provides a broad suite of tools, APIs, and libraries to simplify and streamline your development workflow. Angular gives you a solid platform on whi",
+     "text": "1 passage(s) for 'click', from a ranked search over 1 matching page(s) \u2014 about 466 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 Why Click? \u2014 Click Documentation (8.5.x) \u2014 Why Click? \u2014 Click Documentation (8.5.x)\n    There are so many libraries out there for writing command line utilities; why does Click exist? This question is easy to answer: because there is not a single command line utility for Python out there which ticks the following boxes: - Is lazily composable without restrictions. - Supports implementation of Unix/POSIX command line conventions. - Supports loading values f",
      "meta": {}
     }
    ]
@@ -2039,22 +2266,22 @@
    "suite": "store",
    "name": "search_miss_is_honest",
    "tool": "search_knowledge_base",
-   "verdict": "FAIL",
-   "why": "ranked passages pose as an answer: \"10 passage(s) for 'zzqx-token-that-no-page-contains-9182', from a ranked search over 20 matching page(s) \u2014 about 4,765 tokens rather than the whole pages:\"",
-   "seconds": 14.163,
-   "max_seconds": 14.163,
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.176,
+   "max_seconds": 0.176,
    "budget": 10.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "no page has 'zzqx'; passages for the other words must say so, not pose as the answer",
    "writes": false,
    "runs": [
     {
-     "verdict": "FAIL",
-     "why": "ranked passages pose as an answer: \"10 passage(s) for 'zzqx-token-that-no-page-contains-9182', from a ranked search over 20 matching page(s) \u2014 about 4,765 tokens rather than the whole pages:\"",
-     "seconds": 14.163,
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.176,
      "ok": true,
-     "text": "10 passage(s) for 'zzqx-token-that-no-page-contains-9182', from a ranked search over 20 matching page(s) \u2014 about 4,765 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Optimizing injection tokens \u2022 Angular \u2014 Optimizing injection tokens \u2022 Angular\n    <!-- source: https://angular.dev/guide/di/lightweight-injection-tokens | type: html | scraped: 2026-09-13 16:36 --> This page provides a conceptual overview of a dependency injection technique that is recommended for library developers. Designing your library with *lightweight injection tokens* helps optimize the bundle size of clien",
+     "text": "10 passage(s) for 'zzqx-token-that-no-page-contains-9182' \u2014 none of them contains 'zzqx', '9182'; they match the rest of the query \u2014, from a ranked search over 20 matching page(s) \u2014 about 7,662 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 Advanced Patterns \u2014 Click Documentation (8.5.x) \u2014 [Token Normalization](#id5)[\u00b6](#token-normalization \"Link to this heading\")\n    Changelog Added in version 2.0. Starting with Click 2.0, it\u2019s possible to provide a function used for normalizing tokens. Tokens are option names, choice values, or command values. This can be used to implement case-ins",
      "meta": {}
     }
    ]
@@ -2065,8 +2292,8 @@
    "tool": "harvest_status",
    "verdict": "PASS",
    "why": "",
-   "seconds": 2.487,
-   "max_seconds": 2.487,
+   "seconds": 0.054,
+   "max_seconds": 0.054,
    "budget": 5.0,
    "slow": false,
    "known": "",
@@ -2076,9 +2303,9 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 2.487,
+     "seconds": 0.054,
      "ok": true,
-     "text": "No harvest is running, and none finished, failed or stopped in the last 15 minutes. `list_knowledge_base` shows what is stored.\n\nThis host does not guarantee a harvest continues after the response that started it, and cannot run one past its request ceiling however it is scheduled \u2014 so a large harvest here is a gamble on the instance surviving. A long-lived DocsForge (`python main.py`) with the same `DOCSFORGE_DB` is not, and what it stores is readable here at once.",
+     "text": "Ended in the last 15 minutes:\n- **benchmark-petstore** \u2014 finished in 2s  \u00b7  `benchmark-petstore-2`\n- **click** \u2014 finished in 62s  \u00b7  `click-1`\n\nPass `harvest=` with an id for the full status of one.",
      "meta": {}
     }
    ]
@@ -2089,20 +2316,20 @@
    "tool": "harvest_status",
    "verdict": "PASS",
    "why": "",
-   "seconds": 3.188,
-   "max_seconds": 3.188,
+   "seconds": 0.065,
+   "max_seconds": 0.065,
    "budget": 5.0,
    "slow": false,
    "known": "",
-   "note": "a serverless host must say it cannot promise a background harvest",
+   "note": "a serverless host must say it cannot promise a background harvest; a local one must not",
    "writes": false,
    "runs": [
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 3.188,
+     "seconds": 0.065,
      "ok": true,
-     "text": "No harvest called `zzqx-no-such-harvest-9182` is running, and none ended in the last 15 minutes. Nothing is stored under that name either. Start one with `learn_technology(name=\"zzqx-no-such-harvest\")`.\n\nThis host does not guarantee a harvest continues after the response that started it, and cannot run one past its request ceiling however it is scheduled \u2014 so a large harvest here is a gamble on the instance surviving. A long-lived DocsForge (`python main.py`) with the same `DOCSFORGE_DB` is not, and what it stores is readable here at once.",
+     "text": "No harvest called `zzqx-no-such-harvest-9182` is running, and none ended in the last 15 minutes. Nothing is stored under that name either. Start one with `learn_technology(name=\"zzqx-no-such-harvest\")`.",
      "meta": {}
     }
    ]
@@ -2113,8 +2340,8 @@
    "tool": "forget_resolution",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.273,
-   "max_seconds": 0.273,
+   "seconds": 0.009,
+   "max_seconds": 0.009,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -2124,7 +2351,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.273,
+     "seconds": 0.009,
      "ok": true,
      "text": "Nothing remembered for 'zzqx-never-resolved-9182'.",
      "meta": {}
@@ -2137,8 +2364,8 @@
    "tool": "forget_selection",
    "verdict": "PASS",
    "why": "",
-   "seconds": 0.273,
-   "max_seconds": 0.273,
+   "seconds": 0.007,
+   "max_seconds": 0.007,
    "budget": 3.0,
    "slow": false,
    "known": "",
@@ -2148,7 +2375,7 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 0.273,
+     "seconds": 0.007,
      "ok": true,
      "text": "No selection policy stored for 'zzqx-never-selected-9182'.",
      "meta": {}
@@ -2159,22 +2386,22 @@
    "suite": "store",
    "name": "scan_project_remote_dot",
    "tool": "scan_project",
-   "verdict": "KNOWN",
-   "why": "was not refused; answered 1,213 chars: '19 of 19 dependencies declared in `/var/task`:\\n\\n- `anthropic` 0.70 (pypi, requirements.txt) \u2014 not stored\\n- `anyio` 4.0 ('",
-   "seconds": 16.324,
-   "max_seconds": 16.324,
+   "verdict": "SKIP",
+   "why": "only meaningful against a hosted server",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
    "budget": null,
    "slow": false,
-   "known": "Evaluation \u00a72.5",
+   "known": "Issues.md H2",
    "note": "over a hosted connection '.' is the server's own tree; today it is scanned and reported as yours",
    "writes": false,
    "runs": [
     {
-     "verdict": "KNOWN",
-     "why": "was not refused; answered 1,213 chars: '19 of 19 dependencies declared in `/var/task`:\\n\\n- `anthropic` 0.70 (pypi, requirements.txt) \u2014 not stored\\n- `anyio` 4.0 ('",
-     "seconds": 16.324,
-     "ok": true,
-     "text": "19 of 19 dependencies declared in `/var/task`:\n\n- `anthropic` 0.70 (pypi, requirements.txt) \u2014 not stored\n- `anyio` 4.0 (pypi, pyproject.toml) \u2014 not stored\n- `beautifulsoup4` 4.12 (pypi, pyproject.toml) \u2014 not stored\n- `fastapi` 0.110 (pypi, requirements.txt) \u2014 not stored\n- `google-genai` 1.0 (pypi, requirements.txt) \u2014 not stored\n- `groq` 0.11 (pypi, requirements.txt) \u2014 not stored\n- `linkify-it-py` 2.0 (pypi, requirements.txt) \u2014 not stored\n- `lxml` 5.0 (pypi, pyproject.toml) \u2014 not stored\n- `markdown-it-py` 3.0 (pypi, requirements.txt) \u2014 not stored\n- `markdownify` 0.13 (pypi, pyproject.toml) \u2014 st",
+     "verdict": "SKIP",
+     "why": "only meaningful against a hosted server",
+     "seconds": 0.0,
+     "ok": false,
+     "text": "",
      "meta": {}
     }
    ]
@@ -2183,22 +2410,22 @@
    "suite": "store",
    "name": "scan_project_foreign_path",
    "tool": "scan_project",
-   "verdict": "KNOWN",
-   "why": "the refusal leaks '/var/task': 'Error executing tool scan_project: Not a directory: /var/task/C:\\\\Users\\\\nobody\\\\project'",
-   "seconds": 1.828,
-   "max_seconds": 1.828,
+   "verdict": "SKIP",
+   "why": "only meaningful against a hosted server",
+   "seconds": 0.0,
+   "max_seconds": 0.0,
    "budget": null,
    "slow": false,
-   "known": "Evaluation \u00a72.5",
+   "known": "Issues.md H2",
    "note": "an absolute client path; the refusal must not leak the server's working directory",
    "writes": false,
    "runs": [
     {
-     "verdict": "KNOWN",
-     "why": "the refusal leaks '/var/task': 'Error executing tool scan_project: Not a directory: /var/task/C:\\\\Users\\\\nobody\\\\project'",
-     "seconds": 1.828,
+     "verdict": "SKIP",
+     "why": "only meaningful against a hosted server",
+     "seconds": 0.0,
      "ok": false,
-     "text": "Error executing tool scan_project: Not a directory: /var/task/C:\\Users\\nobody\\project",
+     "text": "",
      "meta": {}
     }
    ]
@@ -2209,8 +2436,8 @@
    "tool": "list_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 11.193,
-   "max_seconds": 11.193,
+   "seconds": 0.402,
+   "max_seconds": 0.402,
    "budget": 15.0,
    "slow": false,
    "known": "",
@@ -2220,46 +2447,46 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 11.193,
+     "seconds": 0.402,
      "ok": true,
-     "text": "6 of 6 ok; per-call max 10.7s",
+     "text": "6 of 6 ok; per-call max 0.4s",
      "meta": {
       "results": [
        {
         "ok": true,
-        "seconds": 10.172,
+        "seconds": 0.326,
         "error": "",
-        "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-1"
+        "text": "DocsForge build `1ce0c43` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-21 01:01)"
        },
        {
         "ok": true,
-        "seconds": 10.447,
+        "seconds": 0.331,
         "error": "",
-        "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-1"
+        "text": "DocsForge build `1ce0c43` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-21 01:01)"
        },
        {
         "ok": true,
-        "seconds": 9.895,
+        "seconds": 0.359,
         "error": "",
-        "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-1"
+        "text": "DocsForge build `1ce0c43` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-21 01:01)"
        },
        {
         "ok": true,
-        "seconds": 10.412,
+        "seconds": 0.341,
         "error": "",
-        "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-1"
+        "text": "DocsForge build `1ce0c43` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-21 01:01)"
        },
        {
         "ok": true,
-        "seconds": 10.7,
+        "seconds": 0.31,
         "error": "",
-        "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-1"
+        "text": "DocsForge build `1ce0c43` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-21 01:01)"
        },
        {
         "ok": true,
-        "seconds": 10.528,
+        "seconds": 0.319,
         "error": "",
-        "text": "DocsForge build `5826f61` \u2014 7 technologies stored in postgres (docsforge-smart-cd31.b.aivencloud.com:20277/defaultdb):\n\n- **angular** \u2014 85 pages across 1 version, 982,301 chars\n    versions: 2026-09-1"
+        "text": "DocsForge build `1ce0c43` \u2014 2 technologies stored in postgres (127.0.0.1:5432/docsforge):\n\n- **benchmark-petstore** \u2014 1 pages across 1 version, 8,650 chars\n    versions: v3 (1 pages, 2026-09-21 01:01)"
        }
       ]
      }
@@ -2272,10 +2499,10 @@
    "tool": "search_knowledge_base",
    "verdict": "PASS",
    "why": "",
-   "seconds": 15.794,
-   "max_seconds": 15.794,
+   "seconds": 0.376,
+   "max_seconds": 0.376,
    "budget": 15.0,
-   "slow": true,
+   "slow": false,
    "known": "",
    "note": "",
    "writes": false,
@@ -2283,51 +2510,76 @@
     {
      "verdict": "PASS",
      "why": "",
-     "seconds": 15.794,
+     "seconds": 0.376,
      "ok": true,
-     "text": "6 of 6 ok; per-call max 15.3s",
+     "text": "6 of 6 ok; per-call max 0.3s",
      "meta": {
       "results": [
        {
         "ok": true,
-        "seconds": 14.726,
+        "seconds": 0.325,
         "error": "",
-        "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI "
+        "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-cont"
        },
        {
         "ok": true,
-        "seconds": 15.316,
+        "seconds": 0.254,
         "error": "",
-        "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI "
+        "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-cont"
        },
        {
         "ok": true,
-        "seconds": 14.651,
+        "seconds": 0.202,
         "error": "",
-        "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI "
+        "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-cont"
        },
        {
         "ok": true,
-        "seconds": 14.933,
+        "seconds": 0.321,
         "error": "",
-        "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI "
+        "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-cont"
        },
        {
         "ok": true,
-        "seconds": 13.906,
+        "seconds": 0.217,
         "error": "",
-        "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI "
+        "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-cont"
        },
        {
         "ok": true,
-        "seconds": 14.771,
+        "seconds": 0.293,
         "error": "",
-        "text": "10 passage(s) for 'angular', from a ranked search over 20 matching page(s) \u2014 about 2,270 tokens rather than the whole pages:\n\n- **angular** 2026-09-13 \u00b7 Angular CLI \u2022 Overview \u2022 Angular \u2014 Angular CLI "
+        "text": "10 passage(s) for 'click', from a ranked search over 20 matching page(s) \u2014 about 1,275 tokens rather than the whole pages:\n\n- **click** 8.5.0 \u00b7 click-contrib \u2014 Click Documentation (8.5.x) \u2014 click-cont"
        }
       ]
      }
     }
    ]
+  },
+  {
+   "suite": "cleanup",
+   "name": "forget_benchmark_corpus",
+   "tool": "forget_documentation",
+   "verdict": "PASS",
+   "why": "",
+   "seconds": 0.116,
+   "max_seconds": 0.116,
+   "budget": 5.0,
+   "slow": false,
+   "known": "",
+   "note": "removes what harvest_docs_small stored; the whole-technology corpus is kept",
+   "writes": true,
+   "runs": [
+    {
+     "verdict": "PASS",
+     "why": "",
+     "seconds": 0.116,
+     "ok": true,
+     "text": "Deleted **benchmark-petstore** (all versions) \u2014 1 version(s), 1 pages, 8,650 characters.\n\nThis cannot be undone; re-harvesting means crawling the site again.",
+     "meta": {}
+    }
+   ]
   }
- ]
+ ],
+ "bench": 1
 }

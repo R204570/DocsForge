@@ -1,21 +1,25 @@
 """Run the live benchmarks against a DocsForge deployment and write the numbers.
 
-    python -m benchmarks.run                      # every read-only suite
-    python -m benchmarks.run --suite guard        # one suite (repeatable)
-    python -m benchmarks.run --case redirect      # cases whose name contains this
-    python -m benchmarks.run --repeat 3           # median of three, per case
-    python -m benchmarks.run --allow-writes       # include the suite that changes the store
-    python -m benchmarks.run --list               # what would run, and nothing else
-    python -m benchmarks.run --diff a.json b.json # what changed between two runs
+    python -m scripts.benchmark.run --offline            # the whole thing on this machine (the usual run)
+    python -m scripts.benchmark.run --offline --publish  # ... and publish it as benchmarks/bench-<next>/
+    python -m scripts.benchmark.run                      # every read-only suite against the hosted server
+    python -m scripts.benchmark.run --suite guard        # one suite (repeatable)
+    python -m scripts.benchmark.run --case redirect      # cases whose name contains this
+    python -m scripts.benchmark.run --repeat 3           # median of three, per case
+    python -m scripts.benchmark.run --list               # what would run, and nothing else
+    python -m scripts.benchmark.run --diff a.json b.json # what changed between two runs
 
 Where the server is and how to authenticate: `--url` / `--token`, else
 `DOCSFORGE_MCP_URL` / `DOCSFORGE_MCP_TOKEN`, else the registration in
 `~/.claude.json`. The token is never written to the results.
 
-Each run lands in `benchmarks/results/` as `<timestamp>.json` (every row,
-every answer's first lines, every timing) and `<timestamp>.md` (the table).
-The exit code is 1 when any case FAILs or ERRORs; KNOWN gaps and SLOW
-timings do not fail the run, they are what the report is for.
+An unpublished run lands in `offline/results/` (ignored by git) as
+`<timestamp>.json` and `.md`. `--publish` writes it as `benchmarks/bench-N/`
+instead -- `results.json`, and a `README.md` that opens with the table and
+ends with an "Issues faced" section listing every case that did not pass,
+to be finished by hand with what was found. The exit code is 1 when any
+case FAILs or ERRORs; KNOWN gaps and SLOW timings do not fail the run, they
+are what the report is for.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -35,8 +40,11 @@ from . import cases as C
 from .live import CALL_TIMEOUT, Live, Result, fan_out, resolve_target
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-RESULTS = HERE / "results"
+ROOT = HERE.parent.parent
+#: Unpublished runs. Under the offline root, which git ignores.
+RESULTS = ROOT / "offline" / "results"
+#: Published runs, one folder each, numbered in order: the public record.
+PUBLISHED = ROOT / "benchmarks"
 
 PASS, FAIL, ERROR, KNOWN, FIXED, SKIP = "PASS", "FAIL", "ERROR", "KNOWN", "FIXED", "SKIP"
 BAD = {FAIL, ERROR}
@@ -327,16 +335,37 @@ async def run(args) -> int:
         "rows": rows,
     }
 
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    base = RESULTS / stamp.strftime("%Y%m%d-%H%M%S")
-    base.with_suffix(".json").write_text(json.dumps(report, indent=1), encoding="utf-8")
-    base.with_suffix(".md").write_text(markdown(report), encoding="utf-8")
+    if getattr(args, "publish", None):
+        number = next_bench() if args.publish is True else int(args.publish)
+        folder = PUBLISHED / f"bench-{number}"
+        folder.mkdir(parents=True, exist_ok=True)
+        report["bench"] = number
+        (folder / "results.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+        written = folder / "README.md"
+        written.write_text(markdown(report, published=True), encoding="utf-8")
+    else:
+        RESULTS.mkdir(parents=True, exist_ok=True)
+        base = RESULTS / stamp.strftime("%Y%m%d-%H%M%S")
+        base.with_suffix(".json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+        written = base.with_suffix(".md")
+        written.write_text(markdown(report), encoding="utf-8")
 
     print(f"\n{counts[PASS]} pass, {counts[FAIL]} fail, {counts[ERROR]} error, "
           f"{counts[KNOWN]} known gap(s), {counts[FIXED]} fixed, {counts[SKIP]} skipped; "
           f"{slow} over budget; {elapsed:.0f}s in all")
-    print(f"build {ctx.build or '?'} -> {base.with_suffix('.md')}")
+    print(f"build {ctx.build or '?'} -> {written}")
     return 1 if counts[FAIL] or counts[ERROR] else 0
+
+
+def next_bench() -> int:
+    """One above the highest `benchmarks/bench-N` that exists."""
+    taken = []
+    if PUBLISHED.exists():
+        for entry in PUBLISHED.iterdir():
+            m = re.fullmatch(r"bench-(\d+)", entry.name)
+            if m and entry.is_dir():
+                taken.append(int(m.group(1)))
+    return max(taken, default=0) + 1
 
 
 def summarize(case: C.Case, runs: list[dict]) -> dict:
@@ -370,10 +399,13 @@ def format_row(row: dict) -> str:
     return f"{row['verdict']:7s} {row['suite']:12s} {row['name']:40s} {row['seconds']:8.2f}  {detail}"
 
 
-def markdown(report: dict) -> str:
+def markdown(report: dict, published: bool = False) -> str:
     c = report["counts"]
+    number = report.get("bench")
+    mode = "offline" if _loopback(report["url"]) else "hosted"
     lines = [
-        f"# DocsForge live benchmarks -- {report['at']}",
+        (f"# bench-{number} -- {report['at'][:10]}, {mode}" if published
+         else f"# DocsForge live benchmarks -- {report['at']}"),
         "",
         f"Server: `{report['url']}` -- build `{report['build'] or '?'}` "
         f"(v{report['server'].get('version', '?')}). "
@@ -397,10 +429,27 @@ def markdown(report: dict) -> str:
         lines.append(f"| {r['verdict']} | {r['suite']} | `{r['name']}` | "
                      f"{r['seconds']:.2f}{flag} | {budget} | {detail} |")
     if report.get("stored"):
-        lines += ["", "## Stored at the time", ""]
+        lines += ["", "## Stored at the end", ""]
         for t in report["stored"]:
             lines.append(f"- **{t['name']}** -- {t['pages']} pages, {t['chars']:,} chars"
                          f"{' ' + t['flags'] if t['flags'] else ''}; {t['labels']}")
+    if published:
+        # Every case that did not pass, with what the server actually said,
+        # as the skeleton of the section a person finishes: what was wrong,
+        # whether it is DocsForge's, and what was done about it.
+        lines += ["", "## Issues faced", ""]
+        found = [r for r in report["rows"] if r["verdict"] in (FAIL, ERROR, KNOWN)]
+        if not found:
+            lines.append("None: every case passed or was skipped for a stated reason.")
+        for i, r in enumerate(found, 1):
+            lines += [f"### {i}. `{r['suite']}/{r['name']}` -- {r['verdict']}", ""]
+            if r["note"]:
+                lines.append(f"*{r['note']}*")
+                lines.append("")
+            lines.append(f"**What the server said:** {r['why'] or _first_line(r)}")
+            lines.append("")
+            lines.append("**What it means:** _(to be written)_")
+            lines.append("")
     return "\n".join(lines) + "\n"
 
 
@@ -437,16 +486,18 @@ def _jsonable(meta: dict) -> dict:
 
 
 def parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="python -m benchmarks.run", description=__doc__,
+    ap = argparse.ArgumentParser(prog="python -m scripts.benchmark.run", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", help="the /mcp endpoint (default: env, ~/.claude.json, or the hosted server)")
     ap.add_argument("--token", help="bearer token (default: env or ~/.claude.json)")
     ap.add_argument("--offline", action="store_true",
                     help="run everything against a DocsForge started on this machine, "
                          "on a local database, writes and whole harvests included "
-                         "(see benchmarks/offline.py)")
+                         "(see scripts/benchmark/offline.py)")
     ap.add_argument("--reset", action="store_true",
                     help="with --offline: drop and recreate the offline database first")
+    ap.add_argument("--publish", nargs="?", const=True, default=None, metavar="N",
+                    help="write the run as benchmarks/bench-N/ (next number when N is omitted)")
     ap.add_argument("--suite", action="append", default=[], choices=C.SUITES,
                     help="run only this suite; repeatable")
     ap.add_argument("--case", action="append", default=[],

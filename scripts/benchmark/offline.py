@@ -1,11 +1,11 @@
 """The whole of DocsForge on this machine: a local database, a local MCP
 server, and the benchmarks pointed at it -- with nothing shared.
 
-    python -m benchmarks.offline             # start the offline server, leave it up (Ctrl-C stops it)
-    python -m benchmarks.offline --bench     # start it, run every suite (writes and whole harvests too), stop it
-    python -m benchmarks.run --offline       # the same as --bench
-    python -m benchmarks.offline --env       # show the environment the server gets, secrets masked
-    python -m benchmarks.offline --reset     # drop and recreate the offline database first
+    python -m scripts.benchmark.offline             # start the offline server, leave it up (Ctrl-C stops it)
+    python -m scripts.benchmark.offline --bench     # start it, run every suite (writes and whole harvests too), stop it
+    python -m scripts.benchmark.run --offline       # the same as --bench
+    python -m scripts.benchmark.offline --env       # show the environment the server gets, secrets masked
+    python -m scripts.benchmark.offline --reset     # drop and recreate the offline database first
 
 The hosted DocsForge is stateless, ephemeral, and shares one Aiven database
 with everything that connects to it -- so a harvest there is cut at the
@@ -54,7 +54,7 @@ from urllib.parse import quote, unquote, urlsplit, urlunsplit
 import httpx2 as httpx
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = HERE.parent.parent
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
@@ -363,7 +363,7 @@ def bench(off: Offline, reset: bool, run_args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m benchmarks.offline", description=__doc__,
+    ap = argparse.ArgumentParser(prog="python -m scripts.benchmark.offline", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bench", action="store_true",
                     help="run every benchmark suite against the offline server, then stop it")
