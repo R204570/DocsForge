@@ -649,8 +649,45 @@ def test_the_browser_renders_a_public_page_as_before(monkeypatch):
     page = _Page(["https://public.example/", "https://public.example/app.js"])
     f = df.Fetcher(df.Options(verbose=False, allow_private=False, js=True))
     monkeypatch.setattr(f, "_page", lambda: page)
-    assert f._render("https://public.example/") == "<html>rendered</html>"
+    assert f.render("https://public.example/") == "<html>rendered</html>"
+    # `render_at` also says where the browser ended up; a fake page with no
+    # `url` is taken to have stayed put.
+    assert f.render_at("https://public.example/") == ("<html>rendered</html>",
+                                                      "https://public.example/")
     assert all(d == "continue" for _, d in page.decisions)
+
+
+def test_every_inet_aton_spelling_of_loopback_is_read_as_loopback():
+    # What libc's inet_aton accepts, and so what a Linux resolver hands back
+    # for these "hostnames": all four are 127.0.0.1.
+    for spelling in ("2130706433", "0x7f000001", "0177.0.0.1", "127.1", "0177.0000.0.01"):
+        assert str(df._inet_aton(spelling)) == "127.0.0.1", spelling
+    assert str(df._inet_aton("8.8.8.8")) == "8.8.8.8"
+    assert str(df._inet_aton("0xa9.0xfe.169.254")) == "169.254.169.254"
+    # Not addresses: names, a part out of range, Python-only digit syntax.
+    for not_one in ("example.com", "256.1.1.1", "1.2.3.4.5", "1_0.0.0.1", "0x", "", "::1"):
+        assert df._inet_aton(not_one) is None, not_one
+
+
+def test_alternate_loopback_spellings_are_refused_without_a_resolver(monkeypatch):
+    # Measured 2026-09-20 by the offline benchmark on Windows, whose resolver
+    # rejects every one of these: `http://2130706433/` was not refused, it
+    # "failed to resolve" -- sixteen seconds later, after a DNS lookup for a
+    # host called 2130706433. The verdict must not depend on the platform's
+    # resolver, so the resolver is taken away here and the guard still
+    # answers 127.0.0.1.
+    def no_resolver(*a, **k):
+        raise OSError(11001, "getaddrinfo failed")
+    monkeypatch.setattr(df.socket, "getaddrinfo", no_resolver)
+    f = df.Fetcher(df.Options(verbose=False, allow_private=False))
+    try:
+        for spelling in ("2130706433", "0x7f000001", "0177.0.0.1", "127.1"):
+            with pytest.raises(df.ForgeError, match="private/loopback.*127.0.0.1"):
+                f.guard(f"http://{spelling}/")
+        # A public literal is still let through, resolver or no resolver.
+        f.guard("http://8.8.8.8/")
+    finally:
+        f.close()
 
 
 def test_guard_rejects_non_http_schemes():
