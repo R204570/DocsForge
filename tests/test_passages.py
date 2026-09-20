@@ -148,3 +148,24 @@ def test_retrieval_narrows_what_is_returned_not_what_is_stored(kb):
     before = ft.store().entry("effect", "v3")["pages"]
     ft.tool_search_knowledge_base("exponential backoff", kind="api")
     assert ft.store().entry("effect", "v3")["pages"] == before
+
+
+def test_a_partial_match_says_which_words_no_passage_contains(kb):
+    # Measured live 2026-09-19 against the hosted store: searching for
+    # 'zzqx-token-that-no-page-contains-9182' returned "10 passage(s) for
+    # 'zzqx-token-that-no-page-contains-9182'" -- ten ranked passages about
+    # Angular's injection tokens, because both stores fall back from every
+    # word to any word, and the fallback said nothing about it. A model
+    # reading that header cites a passage as the answer to a question it
+    # never addressed. The passages may stay; the header must own up.
+    _store(kb)
+    out = ft.tool_search_knowledge_base("zzqx-exponential-backoff-9182")
+    assert "passage(s) for" in out
+    assert "none of them contains 'zzqx', '9182'" in out, out.splitlines()[0]
+    assert "they match the rest of the query" in out
+
+
+def test_a_full_match_carries_no_caveat(kb):
+    _store(kb)
+    out = ft.tool_search_knowledge_base("exponential backoff")
+    assert "none of them contains" not in out

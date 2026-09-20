@@ -1035,6 +1035,25 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
             f"and are not counted as covered:\n{listed}"
             + (f"\n… and {len(unreadable) - 10} more" if len(unreadable) > 10 else "")
         )
+    # Asked for and refused is a different fact from reached and unreadable,
+    # and used to be filed under it: thirty-three 429s from a rate-limited
+    # site were reported as "nothing on them read like documentation"
+    # (offline benchmark, 2026-09-20). They say nothing about the pages.
+    refused = stats.get("refused") or []
+    if refused:
+        listed = "\n".join(f"- {u}" for u in refused[:10])
+        warning += (
+            f"\n\n**{len(refused)} page(s) refused by the site (HTTP 429, rate "
+            f"limited)** — not fetched, so nothing is known about them; they are "
+            f"missing from this copy for the site's reasons, not for anything "
+            f"about the documentation. Harvest again later:\n{listed}"
+            + (f"\n… and {len(refused) - 10} more" if len(refused) > 10 else "")
+        )
+    elif stats.get("throttled"):
+        warning += (
+            f"\n\nThe site asked this harvest to slow down {stats['throttled']} "
+            f"time(s) (HTTP 429 with Retry-After) and was waited for each time; "
+            f"every page was fetched.")
 
     warning += note + release_claim + inferred_release
 
@@ -1876,7 +1895,22 @@ def tool_search_knowledge_base(query: str, technology: str | None = None,
 
     ranked = "ranked" if backend.kind == "postgres" else "unranked (file store)"
     tokens = sum(section.tokens for section in best)
-    lines = [f"{len(best)} passage(s) for {query!r}, from a {ranked} search "
+    # Which words of the query none of these passages contains, judged by
+    # the rule the ranker scores with. Both stores search for every word
+    # first and fall back to any of them, and the fallback used to come back
+    # dressed as a match for the whole query: measured live 2026-09-19,
+    # 'zzqx-token-that-no-page-contains-9182' returned ten ranked passages
+    # about injection tokens with nothing to say that 'zzqx' and '9182'
+    # appear in no page at all. They are still the best passages there are
+    # for the words that do occur; the header now says which words they are
+    # not an answer for, so a model does not cite them as one.
+    absent = [t for t in psg._terms(query)
+              if not any(t in s.heading_path.lower() or t in s.text.lower() for s in best)]
+    caveat = ""
+    if absent:
+        shown = ", ".join(repr(t) for t in absent[:5]) + (", …" if len(absent) > 5 else "")
+        caveat = f" — none of them contains {shown}; they match the rest of the query —"
+    lines = [f"{len(best)} passage(s) for {query!r}{caveat}, from a {ranked} search "
              f"over {len(hits)} matching page(s) — about {tokens:,} tokens "
              f"rather than the whole pages:", ""]
     for section in best:
