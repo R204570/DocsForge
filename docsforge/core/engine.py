@@ -158,6 +158,11 @@ class Options:
     #: 1.10" with it stores the wrong documentation under the right name.
     #: Empty means "whatever is current", which is what that file is for.
     version: str = ""
+    #: What the registry says is current, when the caller named nothing. Not
+    #: a request -- the label still comes from what the pages show -- but
+    #: the first thing consulted when a sitemap files several releases side
+    #: by side and one of them has to be the current one (Issues.md V1).
+    release_hint: str = ""
     # Fetching a user-supplied URL server-side is an SSRF vector, so private /
     # loopback targets are refused unless explicitly allowed.
     allow_private: bool = field(
@@ -1585,6 +1590,195 @@ def _urls_for_release(urls: list[str], asked: str, opts: Options,
     if len(kept) != len(urls):
         _log(opts, f"  narrowed {len(urls)} URLs to {len(kept)} under release {asked}")
     return kept
+
+
+#: Path segments a site uses for a release line rather than a number. The
+#: first group names the current release; the second names one nobody should
+#: be handed when they asked for nothing in particular.
+_CURRENT_LINES = ("stable", "latest", "current")
+_DEV_LINES = frozenset(("dev", "next", "main", "master", "canary", "nightly",
+                        "unstable", "edge", "alpha", "beta", "rc"))
+#: A numbered release line as a path segment: `v6`, `4.2`, `1.10.4`. Stricter
+#: than `_VERSION`, which a caller's own request is matched against: a bare
+#: integer here is a chapter, a page of a blog archive or a year, and
+#: `docs.python.org/3/` is the current documentation, filed beside `/3.12/`.
+_RELEASE_LINE = re.compile(r"^(v\d+(\.\d+)*|\d+\.\d+(\.\d+)*)$", re.I)
+
+
+def _release_segment(url: str) -> tuple[int, str] | None:
+    """`(depth, segment)` of the first path part that names a release line,
+    or None."""
+    for depth, part in enumerate(p for p in urlparse(url).path.split("/") if p):
+        low = part.lower()
+        if low in _CURRENT_LINES or low in _DEV_LINES or _RELEASE_LINE.match(part):
+            return depth, low
+    return None
+
+
+def _release_groups(urls: list[str]) -> dict[str, list[str]]:
+    """The URLs by the release line each is filed under, `""` for none.
+
+    Judged at the shallowest depth any URL names a release, so
+    `/en/dev/releases/5.2/` is filed under `dev`, and `/en/5.2/releases/4.2/`
+    under `5.2` -- a release that scopes a path comes early in it.
+    """
+    found = [(_release_segment(u), u) for u in urls]
+    depths = [seg[0] for seg, _ in found if seg is not None]
+    if not depths:
+        return {"": list(urls)}
+    shallowest = min(depths)
+    groups: dict[str, list[str]] = {}
+    for seg, url in found:
+        key = seg[1] if seg is not None and seg[0] == shallowest else ""
+        groups.setdefault(key, []).append(url)
+    return groups
+
+
+def _entry_page(url: str, fetcher: Fetcher) -> tuple[str, list[str]]:
+    """Where the start URL lands, and the same-host links on that page.
+
+    One request, made only when a sitemap lists several releases and nothing
+    cheaper says which is current: the page a site sends its readers to is
+    the site's own answer.
+    """
+    try:
+        r = fetcher.get(url, timeout=10, allow_redirects=True)
+    except ForgeError:
+        return "", []
+    landed = getattr(r, "url", "") or ""
+    host = (urlparse(url).hostname or "").lower()
+    links: list[str] = []
+    if "html" in (r.headers.get("content-type") or "").lower():
+        try:
+            soup = _soup(_decode(r), "html.parser")
+        except Exception:  # noqa: BLE001 -- a page that will not parse is no evidence
+            return landed, []
+        for a in soup.find_all("a", href=True):
+            link = urljoin(landed or url, a["href"])
+            if (urlparse(link).hostname or "").lower() == host:
+                links.append(link)
+    return landed, links
+
+
+def _prefer_current_release(urls: list[str], opts: Options, hint: str = "",
+                            entry=None) -> tuple[list[str], str]:
+    """One release, not all of them, when the caller asked for nothing else.
+
+    A sitemap that files every release side by side -- `docs.djangoproject.com`
+    lists `/en/4.2/` beside `/en/6.1/` and `/en/dev/`; `python-poetry.org`
+    lists `/docs/1.8/` and `/docs/main/` beside `/docs/` -- is sorted however
+    the site sorts it, so a capped harvest of Django returned forty pages of
+    `/en/dev/` labelled with PyPI's 6.1.1, Poetry's current release came back
+    three releases mixed, and an uncapped harvest would have stored every
+    release under one label. Measured 2026-09-21, `benchmarks/bench-2`
+    (Issues.md V1); the named-release path had been fixed for this two days
+    earlier and this is its twin.
+
+    The current release is, in order: the one the registry says is current
+    (`hint`); the pages filed under no release at all, when there are enough
+    of them to be the documentation rather than a stray index; the release
+    the entry page redirects to, then the one it links to most (one request,
+    paid only when the cheaper signals are silent); the line the site calls
+    `stable`, `latest` or `current`; the highest-numbered release. A
+    development line is never chosen by number, only by the site pointing
+    at it. Returns the URLs kept and the release they were kept for, `""`
+    when the list was left alone.
+    """
+    groups = _release_groups(urls)
+    if len(groups) < 2:
+        return urls, ""
+    named = [k for k in groups if k]
+
+    def choose(key: str, why: str) -> tuple[list[str], str]:
+        _log(opts, f"  the sitemap files {len(named)} releases side by side "
+                   f"({', '.join(sorted(named))}); taking {key or 'the unversioned pages'} "
+                   f"as current: {why}")
+        return groups[key], key
+
+    if hint:
+        agreeing = [k for k in named
+                    if versions.same_release(k, hint) or versions.same_release(hint, k)]
+        if agreeing:
+            return choose(max(agreeing, key=versions.sort_key), f"the registry's release is {hint}")
+    if len(groups.get("", [])) >= 3:
+        return choose("", "the current documentation is filed under no release")
+    landed, links = entry() if entry is not None else ("", [])
+    seg = _release_segment(landed) if landed else None
+    if seg is not None and seg[1] in groups:
+        return choose(seg[1], f"the site redirects its front page there")
+    tally: dict[str, int] = {}
+    for link in links:
+        s = _release_segment(link)
+        key = s[1] if s is not None else ""
+        if key in groups:
+            tally[key] = tally.get(key, 0) + 1
+    if tally:
+        most = max(tally, key=lambda k: (tally[k], k != ""))
+        if most:
+            return choose(most, f"the front page links there {tally[most]} times")
+    for line in _CURRENT_LINES:
+        if line in groups:
+            return choose(line, f"the site calls it {line}")
+    numbered = [k for k in named if k not in _DEV_LINES and versions.release_parts(k)]
+    if numbered:
+        return choose(max(numbered, key=versions.sort_key), "the highest-numbered release")
+    return urls, ""
+
+
+def _url_for_release(url: str, asked: str, fetcher: Fetcher, opts: Options,
+                     stats: dict | None = None) -> str:
+    """The start URL with the release asked for in place of the one it names.
+
+    `pydantic` resolves to `/docs/validation/latest/llms.txt`, and a request
+    for 1.10 was answered with that file: a manifest scoped below the site
+    root skips the site-wide release check, so the 2.x dump was stored under
+    **1.10** with a caveat appended (bench-2, Issues.md V2). The site
+    publishes `/docs/validation/1.10/llms-full.txt`, one path segment away.
+
+    So when the URL names a release line -- `latest`, `v6`, `2.9` -- that is
+    not the one asked for, ask the site for the same path under the release
+    asked for. One request; the harvest starts there if the site answers
+    under that release, and where it started is left alone otherwise: a URL
+    that names no release, one that already names the right one, and a site
+    that has no such path all go on as before.
+    """
+    seg = _release_segment(url)
+    if seg is None:
+        return url
+    depth, current = seg
+    if versions.same_release(asked, current):
+        return url
+    wanted = asked.strip()
+    if current.startswith("v") and versions.release_parts(current) and \
+            versions.release_parts(wanted) and not wanted.lower().startswith("v"):
+        wanted = "v" + wanted           # the site's spelling: /docs/v6/ asks for /docs/v7/
+    parsed = urlparse(url)
+    parts = parsed.path.split("/")
+    seen = -1
+    for i, part in enumerate(parts):
+        if part:
+            seen += 1
+            if seen == depth:
+                parts[i] = wanted
+                break
+    candidate = parsed._replace(path="/".join(parts)).geturl()
+    try:
+        r = fetcher.get(candidate, timeout=10, allow_redirects=True)
+    except ForgeError:
+        return url
+    if getattr(r, "status_code", 0) != 200:
+        return url
+    landed = _release_segment(getattr(r, "url", "") or candidate)
+    if landed is None or not versions.same_release(asked, landed[1]):
+        return url                      # sent back to the release it already had
+    _log(opts, f"  {url} is the {current} documentation; {asked} was asked for, "
+               f"and the site answers for it at {candidate}")
+    if stats is not None:
+        stats["release_url"] = candidate
+        # The site filing the pages under the release asked for is what
+        # makes the label a finding rather than the request repeated back.
+        stats["release_confirmed"] = True
+    return candidate
 
 
 def _links_for_release(links: list[tuple[str, str]], asked: str) -> list[tuple[str, str]]:
@@ -3333,6 +3527,10 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
     own = fetcher is None
     fetcher = fetcher or Fetcher(opts)
     try:
+        if (opts.version or "").strip():
+            # A release was asked for and the URL may name another: start
+            # where the site files the one asked for, if it does.
+            url = _url_for_release(url, opts.version.strip(), fetcher, opts, stats)
         det = detect_source(url, fetcher)
         if det.kind in ("llms_txt", "openapi", "github", "raw_text"):
             # A site publishes one llms.txt for its current release. When the
@@ -3414,8 +3612,16 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
             if len(scoped) != before:
                 _log(opts, f"  narrowed {before} {index_kind} URLs to {len(scoped)} "
                            f"(documentation, default language)")
-            scoped = _urls_for_release(scoped, _requested_release(url, opts),
-                                       opts, stats)
+            asked = _requested_release(url, opts)
+            if not asked:
+                # Nothing asked for means the current release, not every
+                # release the site has ever published under one label.
+                scoped, current = _prefer_current_release(
+                    scoped, opts, hint=opts.release_hint,
+                    entry=lambda: _entry_page(url, fetcher))
+                if current and stats is not None:
+                    stats["current_release"] = current
+            scoped = _urls_for_release(scoped, asked, opts, stats)
             # One or two hits usually means the index does not really cover
             # the docs; a crawl will do better than a near-empty list.
             if len(scoped) >= 3:

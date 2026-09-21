@@ -114,6 +114,11 @@ search names, on every passage, which release it came from; a version that
 is not stored is refused by name. Then `cleanup` forgets all five, so a
 rerun measures the harvests again.
 
+Two cases are marked as a known gap: `jest_default_is_current` and
+`pydantic_default_is_current`, where the store's ordering (`Issues.md` V3,
+a DECISION) hands the pinned older release to a versionless read because
+the current one is labelled by a date or by `latest`.
+
 Every harvest is capped at `DOCSFORGE_VERSIONS_PAGES` pages (default 40):
 the question is which release a page belongs to, not whether every page
 arrived, and the `offline` suite already measures a harvest run to the end.

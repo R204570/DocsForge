@@ -310,7 +310,7 @@ def tool_save_docs(url: str, out_dir: str = "docs_md", crawl: bool = False,
 # ─────────────────────────────────────────────────────────────
 # Schemas (JSON Schema, shared by MCP and Groq)
 # ─────────────────────────────────────────────────────────────
-def _version_label(url: str, docs: list[Doc], declared: str = "") -> str:
+def _version_label(url: str, docs: list[Doc], declared: str = "", site: str = "") -> str:
     """What to call this harvest, checked against what it actually collected.
 
     A start URL like `/docs/validation/2.11/get-started/` names a version, but
@@ -320,18 +320,35 @@ def _version_label(url: str, docs: list[Doc], declared: str = "") -> str:
     only when the pages that came back live under it.
 
     `declared` is what the source said about itself — an `llms.txt` header's
-    `Version:` line. It is consulted only where the URL named nothing, and
-    only when it is a real release number: the date fallback exists to admit
-    "we could not establish a version", and replacing it with "latest" or
-    "stable" would dress that admission up as an answer without adding one.
+    `Version:` line, or failing that the registry's current release. It is
+    consulted only where the URL named nothing, and only when it is a real
+    release number: the date fallback exists to admit "we could not establish
+    a version", and replacing it with "latest" or "stable" would dress that
+    admission up as an answer without adding one.
+
+    `site` is the release line the site files these pages under, when it
+    files several side by side and the harvest chose one (engine
+    `_prefer_current_release`). The pages themselves say it, so it outranks
+    a registry release that disagrees with it: `sequelize.org/` names no
+    version, and forty pages of `/docs/v6/` were filed under a date
+    (bench-2, Issues.md V1).
     """
     label = _version_from_url(url)
     if label == time.strftime("%Y-%m-%d"):
         # The URL named no version. A file that states its own outranks the
         # day we happened to fetch it -- that is the whole ordering in
         # versions.py, applied one step earlier.
-        if declared and versions.kind(declared) == versions.RELEASE:
+        release = bool(declared) and versions.kind(declared) == versions.RELEASE
+        filed = bool(site) and versions.kind(site) == versions.RELEASE
+        if release and (not filed or versions.same_release(site, declared)
+                        or versions.same_release(declared, site)):
             return _kb_slug(declared)
+        if filed:
+            return _kb_slug(site)
+        if release:
+            return _kb_slug(declared)
+        if site:
+            return _kb_slug(site)      # `stable`, `latest`: what the site calls it
         return label
 
     segment = f"/{label}/"
@@ -860,6 +877,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
     opts = _options(crawl=True, max_pages=max_pages, js=js, delay=0.2,
                     cap=HARVEST_PAGE_CAP, version=version)
     opts.scope = scope or "section"
+    opts.release_hint = release_hint or ""
 
     started = time.time()
     stats: dict = {}
@@ -914,18 +932,32 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
 
         # v3 and v2 of the same library contradict each other, so they are
         # stored side by side rather than one overwriting the other.
+        site = stats.get("current_release", "")
         label = (_kb_slug(version) if version
                  else _version_label(url, docs,
-                                     stats.get("declared_version", "") or release_hint))
+                                     stats.get("declared_version", "") or release_hint,
+                                     site=site))
         inferred_release = ""
-        if (not version and release_hint and not stats.get("declared_version")
-                and label == _kb_slug(release_hint)):
-            inferred_release = (
-                f"\n\nVersion **{label}** is the registry's current release, not "
-                f"something the site said: its URLs name no version, so it is "
-                f"taken to document the current one. Pass `version=` to file it "
-                f"under something else."
-            )
+        if not version and not stats.get("declared_version"):
+            if release_hint and label == _kb_slug(release_hint):
+                if site:
+                    inferred_release = (
+                        f"\n\nVersion **{label}** is the registry's current release; "
+                        f"the site files these pages under `{site}`, which agrees."
+                    )
+                else:
+                    inferred_release = (
+                        f"\n\nVersion **{label}** is the registry's current release, not "
+                        f"something the site said: its URLs name no version, so it is "
+                        f"taken to document the current one. Pass `version=` to file it "
+                        f"under something else."
+                    )
+            elif site and label == _kb_slug(site):
+                inferred_release = (
+                    f"\n\nVersion **{label}** is the release the site files these pages "
+                    f"under. It keeps other releases beside it; this is the one it "
+                    f"presents as current. Pass `version=` for another."
+                )
 
         # Did anything actually show these pages are that release, or is the
         # label just the request repeated back? `versions.same_release` is
@@ -949,6 +981,12 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
                     f"manifest declaration — shows these pages document that "
                     f"release. Treat the version as unverified, and say so if "
                     f"you answer from it."
+                )
+            elif stats.get("release_url"):
+                release_claim = (
+                    f"\n\nThe site files **{version}** at `{stats['release_url']}`, "
+                    f"and the harvest started there rather than at the current "
+                    f"release's URL."
                 )
         truncated = bool(stats.get("truncated"))
         # Completeness is measured, not assumed. `None` means the harvest never

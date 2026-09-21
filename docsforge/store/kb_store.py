@@ -972,10 +972,20 @@ class PostgresStore:
         return _PgWriter(self, tech, version, source, strategy, expected)
 
     def delete(self, tech: str, version: str | None = None) -> int:
+        """Remove a technology or one version of it; how many versions went.
+
+        Versions, whichever way it was asked, because that is what the file
+        store counts and what the tool reports: deleting a whole technology
+        used to return the `technology` rowcount, so two versions of
+        `django` were reported as "1 version(s)" (bench-2, Issues.md V4).
+        """
         self.migrate()
         with self._borrow() as cx:
             if version is None:
-                n = cx.execute("delete from technology where name = %s", (tech,)).rowcount
+                n = cx.execute(
+                    "select count(*) from doc_version v join technology t on t.id = v.technology_id "
+                    " where t.name = %s", (tech,)).fetchone()[0]
+                cx.execute("delete from technology where name = %s", (tech,))
             else:
                 n = cx.execute(
                     "delete from doc_version v using technology t "

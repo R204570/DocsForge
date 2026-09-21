@@ -1,7 +1,8 @@
 # Issues
 
 The register. Rebuilt on **2026-09-21** from the live benchmark suite
-(`scripts/benchmark/`, published as `benchmarks/bench-1/`), the hosted
+(`scripts/benchmark/`, published as `benchmarks/bench-1/` and, with the
+`versions` suite, `benchmarks/bench-2/`), the hosted
 read-only run of 2026-09-19 against build `5826f61`, and the independent
 evaluation of 2026-09-16 (`Evaluation.md`, since retired into this file).
 Entries carried from the 2026-09-10 register keep their ids and say whether
@@ -146,6 +147,96 @@ refused at the gate, or deselected by intent.
 Carried, not re-measured. `?hl=ko` translations counted as coverage gaps
 (700 of 705 on tensorflow.org). **To fix:** `_prefer_default_locale` reads
 `?hl=` beside the path segment.
+
+---
+
+## Versions
+
+Found by the `versions` suite (`scripts/benchmark/versions.py`), first run
+as `benchmarks/bench-2/` on 2026-09-21: five technologies each learned at
+two releases by name.
+
+### V1 — an unpinned harvest of a site that files releases side by side took the sitemap's first release · fixed (2026-09-21)
+
+`learn_technology(name="django")` resolved to `docs.djangoproject.com/`,
+whose English sitemap lists 11,209 URLs across every release; nothing chose
+among them when no release was asked for, so the harvest took the sitemap
+in the sitemap's order — forty pages of `/en/dev/`, stored under PyPI's
+**6.1.1** with the note that "its URLs name no version". Poetry's forty
+pages under **2.5.1** were fifteen of `/docs/`, twelve of `/docs/1.8/` and
+twelve of `/docs/main/`; Jest's, under a date, were 29.7 and 30.0 with the
+current `/docs/` never reached; Sequelize's were all v6, by luck of order,
+under a date. Uncapped, every release under one label — the failure the
+*pinned* path was fixed for on 2026-09-19 (`_urls_for_release`), one branch
+over. Bench-2 cases `*_current_pages_are_current`.
+
+**Fixed:** `engine._prefer_current_release`, applied on the sitemap path
+when no release was asked for and the sitemap files more than one. The
+current release is, in order: the one the registry says is current
+(`Options.release_hint`, handed down by `learn_technology`); the pages
+filed under no release, when there are enough of them; the release the
+front page redirects to, then the one it links to most (one request, paid
+only when the cheaper signals are silent — `sequelize.org` links v6 eight
+times and v7 once); `stable`/`latest`/`current`; the highest-numbered
+release. A development line is never chosen by number. The label follows:
+`_version_label(site=)` takes the release the site filed the pages under
+when the start URL names none, so Sequelize is **v6**, not a date, and
+Django's **6.1.1** now says the site agrees. Bare integers are not release
+lines (`docs.python.org/3/` is the current documentation beside `/3.12/`;
+`/blog/2016/09/` is a date). `tests/test_harvest.py`, from
+`test_an_unpinned_harvest_takes_the_registry_release_not_the_sitemap_order`.
+
+### V2 — a pinned release against a section-scoped `llms.txt` was taken as published · fixed (2026-09-21)
+
+`pydantic` resolves to `pydantic.dev/docs/validation/latest/llms.txt`. A
+release-named request against a *site-wide* manifest is checked
+(`_scope_site_wide_llms`); one already scoped below the root returned early
+and was taken as published, so `learn_technology("pydantic",
+version="1.10")` stored the 2.x `llms-full.txt` — 695 pages — under
+**1.10**, with the honest caveat appended. The site publishes
+`/docs/validation/1.10/llms-full.txt`, 218 KB, one path segment from the URL
+the resolver found. Bench-2 `pydantic_pinned`, `pydantic_pinned_pages_are_1.10`.
+
+**Fixed:** `engine._url_for_release`, run first in `harvest()` when a
+release was asked for: if the start URL names a release line that is not
+the one asked for, the same path under the release asked for is fetched
+once, and the harvest starts there when the site answers under that release
+(a 404, or a redirect back to the release it already had, leaves the URL
+alone). The site's spelling is kept (`/docs/v6/` asked for 7 tries
+`/docs/v7/`). Answering there is what makes the label a finding, so
+`release_confirmed` is set and the result says where it started.
+`test_a_pinned_release_moves_the_start_url_when_the_site_answers_there`.
+
+### V3 — a pinned older release outranks a current one labelled by date or `latest` · **DECISION**
+
+`versions.sort_key` ranks release numbers above harvest dates above
+everything else, so that "no version named" means the newest release
+rather than the most recently fetched. Two consequences measured in
+bench-2: with Jest's current docs filed under a date (found by its own
+domain, no registry release) and 29.7 pinned for another project, every
+versionless read of `jest` answers from 29.7; with Pydantic's current docs
+filed under **latest** (the site's own alias, unorderable) and 1.10 pinned,
+every versionless read answers from 1.10 — after V2, real v1 documentation
+handed to callers who named nothing. Bench-2 `jest_default_is_current`,
+`pydantic_default_is_current`; reported KNOWN by the suite.
+
+**The decision:** either (a) the site's aliases for its current release —
+`latest`, `stable`, `current` — rank above release numbers, since they are
+the site's claim of currency at harvest time, and a date-labelled corpus
+ranks above a release number that was *pinned* (which needs the store to
+record that a version was requested rather than found); or (b) the
+ordering stays, and `learn_technology(name)` on a technology whose stored
+versions are all pinned re-harvests the current one instead of answering
+"already stored". (a) degrades one case: `latest` harvested in January
+outranks `2.11` harvested in June. (b) costs a harvest. Neither is done.
+
+### V4 — `forget_documentation` counted one version for two · fixed (2026-09-21)
+
+`Deleted **django** (all versions) — 1 version(s), 80 pages`: the Postgres
+`delete(tech)` returned the `technology` rowcount, where the file store
+returns the number of versions removed. The tool had the doomed versions
+listed and reported the store's number instead. Five bench-2 `cleanup`
+rows. **Fixed:** the store counts the versions before the cascade.
 
 ---
 

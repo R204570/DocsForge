@@ -81,6 +81,7 @@ class Versioned:
     current: Callable[[str, str], bool]   # (page url, current label) -> is this page the current release's?
     query: str                  # a phrase both releases document, on an early page
     newest: str = "current"     # which of the two the default read must prefer: "current" | "pinned"
+    newest_gap: str = ""        # an Issues.md id when the store's ordering is known to get `newest` wrong
     note: str = ""
 
     def key(self, which: str) -> str:
@@ -106,7 +107,7 @@ TECHNOLOGIES: list[Versioned] = [
     Versioned(
         "jest", "jestjs.io", pinned="29.7", pinned_path="/docs/29.7/",
         current=lambda url, label: bool(re.search(r"jestjs\.io/docs/(?!\d|next/)", url)),
-        query="expect matchers",
+        query="expect matchers", newest_gap="Issues.md V3",
         note="resolved by its own domain, so the current harvest is labelled by date, not npm's release"),
     Versioned(
         "sequelize", "sequelize.org", pinned="v7", pinned_path="/docs/v7/",
@@ -116,7 +117,7 @@ TECHNOLOGIES: list[Versioned] = [
     Versioned(
         "pydantic", "pydantic.dev", pinned="1.10", pinned_path="/docs/validation/1.10/",
         current=lambda url, label: "/docs/validation/latest/" in url,
-        query="BaseModel validation",
+        query="BaseModel validation", newest_gap="Issues.md V3",
         note="/docs/validation/1.10/ exists, but only latest publishes an llms.txt and no sitemap covers the docs"),
 ]
 
@@ -328,8 +329,10 @@ def _cases(t: Versioned) -> list[Case]:
              note="no page stored as the current release comes from another release's path"),
         Case("versions", f"{n}_default_is_{t.newest}", "learn_technology",
              args={"name": n}, check=check_default(t), writes=True, skip_if=local_only,
-             budget=15.0,
-             note=f"with both stored, a versionless call names the {t.newest} release and fetches nothing"),
+             budget=15.0, known=t.newest_gap,
+             note=f"with both stored, a versionless call names the {t.newest} release and fetches nothing"
+                  + ("; a date or `latest` label ranks below any release number, so the pinned one wins"
+                     if t.newest_gap else "")),
         Case("versions", f"{n}_search_scoped_to_{t.pinned}", "search_knowledge_base",
              args={"query": t.query, "technology": n, "version": t.pinned, "limit": 10},
              check=check_scoped_search(t), writes=True, skip_if=local_only, budget=10.0),
