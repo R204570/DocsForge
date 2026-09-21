@@ -82,6 +82,43 @@ release), a deep page must read back, and a search must answer from it. The
 `forget_documentation` is enabled offline because the store is disposable.
 The whole-technology corpus is kept: it is the offline knowledge base.
 
+## Versions: five technologies, two releases each
+
+```
+python -m scripts.benchmark.run --offline --reset --suite versions --suite cleanup
+```
+
+[versions.py](versions.py) is the version contract measured by name alone:
+`learn_technology(name)` for the current documentation, then
+`learn_technology(name, version=...)` for a release pinned the way a
+lockfile pins it, and then every read and search that has to keep the two
+apart. Five technologies, chosen as five shapes of versioned site (each
+checked by hand on 2026-09-21):
+
+| technology | shape | current | pinned |
+|---|---|---|---|
+| `django` (pypi) | Sphinx; the English sitemap lists every release side by side, 11,209 URLs | PyPI's release | `4.2` under `/en/4.2/` |
+| `poetry` (pypi) | Hugo; current docs unversioned at `/docs/`, beside `/docs/1.8/` and `/docs/main/` | PyPI's release | `1.8` under `/docs/1.8/`, 15 pages, whole |
+| `jest` (npm) | Docusaurus; `/docs/` beside `/docs/29.7/`, `/docs/30.0/`, `/docs/next/`; found by its own domain, so no registry release | a date | `29.7` under `/docs/29.7/`, 37 pages, whole |
+| `sequelize` (npm) | Docusaurus; both releases in the path, `/docs/v6/` stable and `/docs/v7/` newer | a date | `v7` — the *newer* one, so the default read must prefer it |
+| `pydantic` (pypi) | MkDocs; `/docs/validation/1.10/` exists but only `latest` publishes `llms.txt`, and no sitemap covers the docs | `latest` | `1.10` |
+
+Nine cases per technology: the two harvests (each a `harvest` case: the
+call, and the poll to the end when it hands back an id at the deadline);
+the listing shows exactly two releases; every page read back under the
+pinned label lives under that release's path; no page under the current
+label comes from another release's path; a versionless `learn_technology`
+names the release a versionless read would give and fetches nothing; a
+search scoped to the pinned release answers only from it; an unscoped
+search names, on every passage, which release it came from; a version that
+is not stored is refused by name. Then `cleanup` forgets all five, so a
+rerun measures the harvests again.
+
+Every harvest is capped at `DOCSFORGE_VERSIONS_PAGES` pages (default 40):
+the question is which release a page belongs to, not whether every page
+arrived, and the `offline` suite already measures a harvest run to the end.
+The ten harvests take about eight minutes.
+
 ## Reaching a hosted server
 
 `--url` and `--token`, else `DOCSFORGE_MCP_URL` and `DOCSFORGE_MCP_TOKEN`,
@@ -104,8 +141,9 @@ the store behind it is the real one.
 | `store` | `list_`, `read_`, `search_knowledge_base` against the largest stored corpus, their error paths, `harvest_status`, `forget_*` on unknown names, `scan_project` hosted | the store, read-only |
 | `concurrency` | six clients listing at once, six searching at once | the store, read-only |
 | `offline` | `scan_project` on this repo; a technology harvested whole and read back | **the offline store** |
+| `versions` | five technologies each learned at two releases by name; per-release reads, searches and the default | **the offline store** |
 | `writes` | `harvest_docs` of a one-page corpus, read and searched back; `learn_technology` on a stored name | **the store** |
-| `cleanup` | remove `benchmark-petstore` | **the store**, where deletion is enabled |
+| `cleanup` | remove `benchmark-petstore` and the five versioned technologies | **the store**, where deletion is enabled |
 
 ## Reading a result
 
