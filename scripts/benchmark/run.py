@@ -37,7 +37,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import cases as C
+from . import versions as V
 from .live import CALL_TIMEOUT, Live, Result, fan_out, resolve_target
+
+#: Everything that can run: the general cases, then the versions matrix.
+CASES: list[C.Case] = C.CASES + V.CASES
+SUITES: list[str] = list(dict.fromkeys(c.suite for c in CASES))
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -77,20 +82,24 @@ async def perform(case: C.Case, live: Live, ctx: C.Context, allow_writes: bool,
         # The same call again and again until the answer stops saying
         # "running": how a harvest that outlives one tool call is waited for.
         started = time.perf_counter()
-        limit = case.timeout or 900.0
+        r, polls = await poll(live, case.tool, args, timeout, case.timeout or 900.0)
+        r.seconds = time.perf_counter() - started
+        r.meta["polls"] = polls
+    elif kind == "harvest":
+        # A harvest as one observation: the call, and -- when it hands back
+        # an id at the deadline -- the poll that follows it to the end. The
+        # result is then the harvest's own report, which `harvest_status`
+        # repeats under "What the harvest reported".
+        started = time.perf_counter()
+        r = await live.call(case.tool, args, timeout=timeout)
         polls = 0
-        while True:
-            before = time.perf_counter()
-            r = await live.call(case.tool, args, timeout=timeout)
-            polls += 1
-            if r.error or not r.ok or C.settled(r.text):
-                break
-            if time.perf_counter() - started > limit:
-                break
-            # The server waits up to `wait` seconds itself; an instant
-            # answer means it had nothing to wait on, so pace the next ask.
-            if time.perf_counter() - before < 2.0:
-                await asyncio.sleep(2.0)
+        handed = re.search(r"[Hh]arvest id `([^`]+)`", r.text)
+        if not r.error and r.ok and handed and "still running" in r.text:
+            first = r.text
+            r, polls = await poll(live, "harvest_status",
+                                  {"harvest": handed.group(1), "wait": 25},
+                                  timeout, case.timeout or 900.0)
+            r.meta["handoff"] = first[:300]
         r.seconds = time.perf_counter() - started
         r.meta["polls"] = polls
     elif kind == "health":
@@ -152,9 +161,30 @@ async def perform(case: C.Case, live: Live, ctx: C.Context, allow_writes: bool,
     return r, (KNOWN if case.known else FAIL), why
 
 
+async def poll(live: Live, tool: str, args: dict, timeout: float,
+               limit: float) -> tuple[Result, int]:
+    """Call `tool` until its answer has settled, or `limit` seconds pass.
+
+    The server waits up to `wait` seconds itself; an instant answer means
+    it had nothing to wait on, so the next ask is paced rather than spun.
+    """
+    started = time.perf_counter()
+    polls = 0
+    while True:
+        before = time.perf_counter()
+        r = await live.call(tool, args, timeout=timeout)
+        polls += 1
+        if r.error or not r.ok or C.settled(r.text):
+            return r, polls
+        if time.perf_counter() - started > limit:
+            return r, polls
+        if time.perf_counter() - before < 2.0:
+            await asyncio.sleep(2.0)
+
+
 async def refresh_listing(live: Live, ctx: C.Context, timeout: float) -> None:
     """Re-read what is stored, quietly, after something changed it."""
-    listing = next(c for c in C.CASES if c.name == "listing")
+    listing = next(c for c in CASES if c.name == "listing")
     r = await live.call(listing.tool, {}, timeout=timeout)
     if not r.error:
         listing.check(r, ctx)
@@ -244,11 +274,11 @@ def build_lineage(ctx: C.Context) -> Result:
 #: that read it, so a fresh offline database has a corpus by the time the
 #: store cases ask for the largest one. Cleanup is last whatever else runs.
 WRITING_ORDER = ["transport", "detect", "fetch", "guard", "resolve",
-                 "offline", "writes", "store", "concurrency", "cleanup"]
+                 "offline", "versions", "writes", "store", "concurrency", "cleanup"]
 
 
 def select(suites: list[str], names: list[str], allow_writes: bool) -> list[C.Case]:
-    chosen = [c for c in C.CASES
+    chosen = [c for c in CASES
               if (not suites or c.suite in suites)
               and (not names or any(n in c.name for n in names))]
     if not allow_writes and not suites:
@@ -284,7 +314,7 @@ async def run(args) -> int:
     # The listing is what tells the store cases what to ask about, and the
     # tool list is what says whether deletion is enabled, so both run first
     # whether or not they were selected -- recorded only when they were.
-    prerequisites = [c for c in C.CASES
+    prerequisites = [c for c in CASES
                      if c.name in ("tools_list", "listing") and c not in chosen]
 
     stamp = datetime.now(timezone.utc)
@@ -313,6 +343,10 @@ async def run(args) -> int:
             row = summarize(case, runs)
             rows.append(row)
             print(format_row(row), flush=True)
+        # "Stored at the end" means after the last case, cleanup included:
+        # bench-1 and bench-2 listed corpora their own cleanup had removed.
+        if ctx.stale:
+            await refresh_listing(live, ctx, args.timeout)
 
     elapsed = time.perf_counter() - started
     counts = {v: sum(1 for r in rows if r["verdict"] == v)
@@ -498,7 +532,7 @@ def parser() -> argparse.ArgumentParser:
                     help="with --offline: drop and recreate the offline database first")
     ap.add_argument("--publish", nargs="?", const=True, default=None, metavar="N",
                     help="write the run as benchmarks/bench-N/ (next number when N is omitted)")
-    ap.add_argument("--suite", action="append", default=[], choices=C.SUITES,
+    ap.add_argument("--suite", action="append", default=[], choices=SUITES,
                     help="run only this suite; repeatable")
     ap.add_argument("--case", action="append", default=[],
                     help="run only cases whose name contains this; repeatable")
