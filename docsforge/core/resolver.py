@@ -1190,6 +1190,48 @@ def _path_identity(candidate: "Candidate", slug: str) -> str:
     return ""
 
 
+def _scope_identity(candidate: "Candidate", name: str) -> str:
+    """An npm scope that the registry-nominated host carries as its own.
+
+    `@tanstack/react-query` documents itself at `tanstack.com/query`. The
+    gate normalises the name to `react-query`, which no hostname, repository
+    or path carries — the pages say "TanStack Query" — so the real
+    documentation stood on `registry-agreement` alone and was refused
+    (`Issues.md` R7, every run, hosted and offline).
+
+    What the gate was missing is that a scope is not a bare name. npm binds a
+    scope to one account or organisation; nobody can publish under
+    `@tanstack/` but TanStack. So when npm, asked about this scoped package,
+    nominates this exact URL, *and* the host carries the scope as a whole
+    label, the publisher's registry entry points at the publisher's own
+    domain. Two facts, from the registry and from DNS, agreeing.
+
+    Deliberately narrow, so it cannot become the loosening R7 warned about:
+
+      * the name must be scoped — a bare `click` gets nothing from this;
+      * the URL must be an npm nomination for that scoped name, so
+        `tanstack.com/router` earns nothing for `@tanstack/react-query`;
+      * forges and package hosts are refused, as `_owns_the_name` refuses
+        them: `github.com/tanstack` is an account on somebody else's host.
+
+    And it never lets a page about `click` identify `@anyone/click`: the
+    signal is about the scope's domain, not the package's bare tail.
+    """
+    text = (name or "").strip().lower()
+    if not (text.startswith("@") and "/" in text):
+        return ""
+    scope = text[1:].split("/", 1)[0]
+    if not scope or not candidate.source.startswith("npm:"):
+        return ""
+    if is_forge(candidate.url) or is_package_host(candidate.url):
+        return ""
+    flat = scope.replace("-", "")
+    for label in _host(candidate.url).split("."):
+        if label == scope or label.replace("-", "") == flat:
+            return scope
+    return ""
+
+
 def identity_signals(candidate: Candidate, name: str, body: str,
                      facts: dict | None = None) -> list[str]:
     """Independent reasons to believe this page documents *this* project.
@@ -1248,6 +1290,9 @@ def identity_signals(candidate: Candidate, name: str, body: str,
     if _path_identity(candidate, slug):
         found.append("path-identity")
 
+    if _scope_identity(candidate, name):
+        found.append("scope-domain")
+
     hay = normalise(text)
     hits = hay.count(slug) if slug else 0
     flat = slug.replace("-", "")
@@ -1268,7 +1313,51 @@ def identity_signals(candidate: Candidate, name: str, body: str,
 #: Signals that identify a project rather than merely describe one. Mention
 #: counts are deliberately excluded: they are corroboration, never proof.
 STRONG = ("own-domain", "docs-host", "install:", "repo-backlink",
-          "registry-agreement", "repo-identity", "path-identity")
+          "registry-agreement", "repo-identity", "path-identity",
+          "scope-domain")
+
+
+#: The strong signals that come from owning the name — the host carries it,
+#: or is the docs host of a domain that does. Everything else in STRONG says
+#: something about the *project*: how it installs, where its source lives,
+#: what a registry nominated.
+OWNERSHIP = ("own-domain", "docs-host")
+
+
+def ownership_only(signals: list[str]) -> bool:
+    """Identified on owning the name and saying it, and nothing else.
+
+    The one path a name-squatter satisfies (`Issues.md` R10): `flask` reached
+    a to-do app at flask.io and `polars` a third-party site, each on
+    `own-domain` plus mentions. Not refused for it — plenty of genuine sites
+    publish nothing but prose — but not final either: see `_resolve_uncached`.
+    """
+    strong = [s for s in signals if s.startswith(STRONG)]
+    return bool(strong) and all(s.startswith(OWNERSHIP) for s in strong)
+
+
+def _settle_held(held: "Candidate", candidates: list["Candidate"]) -> "Candidate":
+    """Decide a domain answer that was held for standing on ownership alone.
+
+    It loses only to a verified page that shows something about the *project*
+    — an install line, its source repository, a registry's nomination — and
+    is not the source tree itself. Ranking the two by `evidence` could not
+    do this: `evidence` asks who owns the name before it asks anything else,
+    so `polars.dev`, a third-party guide that owns the word, kept beating
+    `docs.pola.rs`, which carries Polars' repository and does not own
+    "polars" as a label. Measured offline, 2026-09-22.
+
+    Where no such page exists the held answer stands, exactly as it would
+    have before it was held: `pydantic.dev/docs/validation/latest/` and
+    `docs.pydantic.dev` both stand on ownership alone, and swapping one
+    official page for the other on the `docs-host` bit is not what holding
+    is for.
+    """
+    # The held page is in `candidates` too, re-verified against the
+    # registry's facts; if that gave it evidence of its own, it competes.
+    better = [c for c in candidates
+              if c.verified and not is_forge(c.url) and not ownership_only(c.signals)]
+    return max(better, key=evidence) if better else held
 
 
 def is_identified(signals: list[str]) -> bool:
@@ -1629,7 +1718,12 @@ REJECT_TTL = 7 * 86400
 #:      Django's. Every wrong answer of 2026-09-10 was cached under rules 3
 #:      with a 30-day TTL, and this is what stops them being served until
 #:      October.
-RULES = 6
+#:   7  `scope-domain` — a scoped npm name is identified on its scope's own
+#:      domain when npm nominated the URL (R7); and a domain answer that
+#:      stands on owning the name alone no longer pre-empts the registries
+#:      (R10). Entries cached under 6 include refusals of every scoped
+#:      package and squatters resolved without a registry being asked.
+RULES = 7
 
 
 def _cache_file() -> Path:
@@ -1945,7 +2039,7 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
             for cand in domain[:limit]:
                 verify(cand, name, fetcher, {"via_domain": True}, state=state)
             picked = best_verified(domain[:limit])
-            if picked is not None:
+            if picked is not None and not ownership_only(picked.signals):
                 result.candidates = domain[:limit]
                 result.best = picked
                 result.resolved_via = "domain"
@@ -1955,6 +2049,15 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                     f"where the two disagree the registry is usually a "
                     f"different project that shares the word.")
                 return result
+            # Owning the name and saying it is all this page showed — no
+            # install line, no source repository, nothing a registry said.
+            # That is the one path a squatter satisfies (`Issues.md` R10), so
+            # it is held rather than returned: if no registry knows the name
+            # it stands, and if one does, it competes with what the registry
+            # nominated instead of pre-empting it.
+            provisional = picked
+        else:
+            provisional = None
 
         # 2. Registries, as the fallback.
         found, hit = from_registries(name, result.ecosystem, fetcher)
@@ -1971,6 +2074,16 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
             # got the correction below the day this bug was found for it;
             # the release never did.
             result.release = release_from(found, result.ecosystem)
+        if not found and provisional is not None:
+            # Nothing contradicts the domain: it stands, as it always did.
+            result.candidates = domain[:limit]
+            result.best = provisional
+            result.resolved_via = "domain"
+            result.note = (
+                f"Resolved from {name!r}'s own domain, on owning the name "
+                f"alone: no registry knows {name!r}, so nothing could confirm "
+                f"or contradict it.")
+            return result
         if not found:
             # No registry knows it. That used to end the search, which is what
             # made every multi-word name unreachable — no registry knows
@@ -2019,6 +2132,8 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                             via_domain=cand.source.startswith("domain:")),
                        state=state)
             picked = best_verified(result.candidates)
+            if provisional is not None:
+                picked = _settle_held(provisional, result.candidates)
             blocker = unexamined_above(picked, result.candidates)
             if blocker is not None:
                 # Not the ladder tail either: its laps -- name shapes,

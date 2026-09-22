@@ -897,8 +897,11 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
     #: record of how big each stored page was.
     sink = None
 
+    # Whether this version was asked for or found as current is what decides
+    # which version a read naming none gets (`versions.default_key`).
     with reasoning.active(reasoner), store().writer(slug, provisional, url,
-                                                    "crawl") as writer:
+                                                    "crawl",
+                                                    pinned=bool(version)) as writer:
         # Opened by hand rather than `with trace.stage(...) as sub:`, because
         # the fetcher below must be able to `.tick()` this same stage *while*
         # `harvest()` is still running, not only report it once the call
@@ -1187,7 +1190,7 @@ def tool_list_knowledge_base() -> str:
         if labels:
             lines.append(f"    versions: {labels}")
     lines += ["", "Pass `version=` to read_knowledge_base to pick one; "
-                  "it defaults to the newest version stored."]
+                  "it defaults to the current release (listed first)."]
     lines.append(_capacity_note(backend))
     return flight + "\n".join(lines)
 
@@ -1438,7 +1441,22 @@ def tool_learn_technology(name: str, version: str | None = None,
     if known:
         backend = store()
         entry = backend.entry(known, version)
-        if entry is not None:
+        # Naming no version asks for the current release. If every version
+        # stored was pinned by name for some project, none of them is known to
+        # be that, and answering "already stored" hands back a release nobody
+        # here asked for (`Issues.md` V3: pydantic 1.10 for a versionless
+        # learn). Harvest the current one beside them instead.
+        pinned_only = (version is None and entry is not None
+                       and entry.get("pinned") is True)
+        if pinned_only:
+            trace.event("only pinned versions stored", target=name,
+                        message=f"{known} holds only versions asked for by name; "
+                                f"harvesting the current release")
+            have = ", ".join(v["version"] for v in backend.versions(known))
+            note = (f"**{known}** is stored only at versions asked for by name "
+                    f"(have: {have}), so none is known to be the current release. "
+                    f"Harvesting the current one now.\n\n")
+        elif entry is not None:
             trace.event("already stored", target=name,
                        message=f"{known} {entry['version']} — nothing fetched",
                        result={"technology": known, "version": entry["version"],
@@ -1449,12 +1467,13 @@ def tool_learn_technology(name: str, version: str | None = None,
                 f"Read it with `read_knowledge_base(name=\"{known}\", "
                 f"version=\"{entry['version']}\")`. Nothing was fetched."
             )
-        try:
-            have = ", ".join(v["version"] for v in backend.versions(known))
-            note = (f"**{known}** is stored, but not version {version!r} "
-                    f"(have: {have}). Harvesting it now.\n\n")
-        except StoreError:
-            note = ""
+        else:
+            try:
+                have = ", ".join(v["version"] for v in backend.versions(known))
+                note = (f"**{known}** is stored, but not version {version!r} "
+                        f"(have: {have}). Harvesting it now.\n\n")
+            except StoreError:
+                note = ""
     else:
         note = ""
 

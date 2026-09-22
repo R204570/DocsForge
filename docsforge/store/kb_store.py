@@ -108,6 +108,24 @@ def version_from_url(url: str) -> str:
     return time.strftime("%Y-%m-%d")
 
 
+def _default_key(row: dict) -> tuple:
+    """`versions.default_key` for one stored row, from either store."""
+    return versions_mod.default_key(row["version"], row.get("pinned"),
+                                    row.get("saved", 0.0))
+
+
+def _default_row(rows: list[dict]) -> dict:
+    """The row a read that names no version gets."""
+    return max(rows, key=_default_key)
+
+
+def _latest(labels, pinned, saved) -> str:
+    """`_default_row` over the parallel arrays a grouped query returns."""
+    rows = [{"version": v, "pinned": p, "saved": float(t or 0)}
+            for v, p, t in zip(labels or [], pinned or [], saved or []) if v]
+    return _default_row(rows)["version"] if rows else ""
+
+
 class StoreError(RuntimeError):
     """Something the caller can act on: no such entry, unreachable database."""
 
@@ -205,8 +223,14 @@ class FileStore:
         return f"{tech}@{version}"
 
     # -- writing ------------------------------------------------
-    def writer(self, tech, version, source, strategy, expected: int | None = None):
+    def writer(self, tech, version, source, strategy, expected: int | None = None,
+               pinned: bool | None = None):
         """A writer that makes each page durable as it arrives.
+
+        `pinned` is whether the caller asked for this version by name (True)
+        or the harvest took the release the site presented as current
+        (False). It decides which version a read that names none gets — see
+        `versions.default_key`. None records nothing, as before.
 
         Blue/green: pages stream into a `.partial` file that no reader can see,
         and the real file is only replaced once the harvest settles. A crash
@@ -214,24 +238,25 @@ class FileStore:
         which is the property the old delete-then-write transaction gave by
         accident, kept deliberately here.
         """
-        return _FileWriter(self, tech, version, source, strategy, expected)
+        return _FileWriter(self, tech, version, source, strategy, expected, pinned)
 
     def save(self, tech, version, source, strategy, pages, complete,
-             expected: int | None = None) -> dict:
+             expected: int | None = None, pinned: bool | None = None) -> dict:
         """Write a whole harvest at once. Delegates, so there is one write path.
 
         Kept because callers and tests use it, but it is now a thin wrapper: a
         batch save and a streamed one go through exactly the same code, so
         neither can drift from the other.
         """
-        with self.writer(tech, version, source, strategy, expected) as w:
+        with self.writer(tech, version, source, strategy, expected, pinned) as w:
             for title, url, body in pages:
                 w.add(title, url, body)
             return w.settle(complete=complete, expected=expected)
 
     def _finish(self, tech, version, source, strategy, path, text_len,
-                titles, complete, expected) -> dict:
+                titles, complete, expected, pinned=None) -> dict:
         index = self._load()
+        previous = index.get(self._key(tech, version)) or {}
         index[self._key(tech, version)] = {
             "technology": tech, "version": version, "source": source,
             "strategy": strategy, "pages": len(titles), "characters": text_len,
@@ -242,6 +267,7 @@ class FileStore:
             "saved": time.time(),
             "complete": complete,
             "expected": expected,
+            "pinned": versions_mod.still_pinned(pinned, previous.get("pinned")),
             "titles": list(titles[:2000]),
         }
         self._save(index)
@@ -271,24 +297,21 @@ class FileStore:
             tech = grouped.setdefault(row["technology"], {
                 "name": row["technology"], "versions": 0, "pages": 0,
                 "characters": 0, "latest": "", "harvested": "",
-                "complete": True, "saved": 0.0, "_labels": [],
+                "complete": True, "saved": 0.0, "_rows": [],
             })
             tech["versions"] += 1
             tech["pages"] += row["pages"]
             tech["characters"] += row["characters"]
             tech["complete"] = merge_complete(tech["complete"], row.get("complete"))
-            tech["_labels"].append((row.get("saved", 0.0), row["version"]))
+            tech["_rows"].append(row)
             if row.get("saved", 0) >= tech["saved"]:
                 tech["saved"] = row.get("saved", 0)
                 tech["harvested"] = row["harvested"]
 
-        # "latest" is the newest version, not the newest download. Handing a
-        # model 1.10 because it was crawled after 2.11 is the contradiction the
-        # versioned store exists to prevent. Labels that carry no ordering fall
-        # back to harvest time, hence the pre-sort.
+        # "latest" is the version a read naming none would get — the current
+        # release, not the newest download and not the highest pinned number.
         for tech in grouped.values():
-            labels = sorted(tech.pop("_labels"), reverse=True)
-            tech["latest"] = versions_mod.newest([label for _, label in labels])
+            tech["latest"] = _default_row(tech.pop("_rows"))["version"]
 
         rows = sorted(grouped.values(), key=lambda t: t["name"])
         if query:
@@ -303,12 +326,10 @@ class FileStore:
         rows = [dict(r) for r in self._rows() if r["technology"] == tech]
         if not rows:
             raise StoreError(f"nothing stored for {tech!r}")
-        # Newest *version* first, not most recently harvested — a caller that
-        # names no version is asking for the current one. Harvest time only
-        # breaks ties between labels that cannot be ordered against each other.
-        rows.sort(key=lambda r: (versions_mod.sort_key(r["version"]),
-                                 r.get("saved", 0.0), r["harvested"]),
-                  reverse=True)
+        # The version a read naming none gets comes first — the current
+        # release, not the most recently harvested and not the highest number
+        # someone pinned (`versions.default_key`).
+        rows.sort(key=_default_key, reverse=True)
         return rows
 
     def entry(self, tech: str, version: str | None = None) -> dict | None:
@@ -497,11 +518,12 @@ class _FileWriter:
     #: however large the harvest grows.
     COPY_CHUNK = 1 << 20
 
-    def __init__(self, store, tech, version, source, strategy, expected):
+    def __init__(self, store, tech, version, source, strategy, expected, pinned=None):
         self.store = store
         self.tech, self.version = tech, version
         self.source, self.strategy = source, strategy
         self.expected = expected
+        self.pinned = pinned
         self.titles: list[str] = []
         self.urls: list[str] = []
         #: Pages the store itself refused. Empty for files, which refuse
@@ -577,7 +599,7 @@ class _FileWriter:
         return self.store._finish(
             self.tech, self.version, self.source, self.strategy, self.path,
             len(head) + self._chars + 1, self.titles, complete,
-            self.expected if expected is None else expected)
+            self.expected if expected is None else expected, self.pinned)
 
     def close(self) -> None:
         """Abandon an unsettled harvest. The stored version stays as it was."""
@@ -820,8 +842,19 @@ class PostgresStore:
             self._upgrade_v2(cx)
             self._upgrade_v3(cx)
             self._upgrade_v4(cx)
+            self._upgrade_v5(cx)
             cx.commit()
         self._ready = True
+
+    @staticmethod
+    def _upgrade_v5(cx) -> None:
+        """Record whether a version was asked for or found as current.
+
+        Null for every row written before this: the store never kept it, and
+        guessing would be the failure this column exists to stop (`Issues.md`
+        V3). Those rows keep the label ordering they always had.
+        """
+        cx.execute("alter table doc_version add column if not exists pinned boolean")
 
     @staticmethod
     def _upgrade_v4(cx) -> None:
@@ -961,15 +994,16 @@ class PostgresStore:
 
     # -- writing ------------------------------------------------
     def save(self, tech, version, source, strategy, pages, complete,
-             expected: int | None = None) -> dict:
-        with self.writer(tech, version, source, strategy, expected) as w:
+             expected: int | None = None, pinned: bool | None = None) -> dict:
+        with self.writer(tech, version, source, strategy, expected, pinned) as w:
             for title, url, body in pages:
                 w.add(title, url, body)
             return w.settle(complete=complete, expected=expected)
 
-    def writer(self, tech, version, source, strategy, expected: int | None = None):
+    def writer(self, tech, version, source, strategy, expected: int | None = None,
+               pinned: bool | None = None):
         """A writer that makes each page durable as it arrives."""
-        return _PgWriter(self, tech, version, source, strategy, expected)
+        return _PgWriter(self, tech, version, source, strategy, expected, pinned)
 
     def delete(self, tech: str, version: str | None = None) -> int:
         """Remove a technology or one version of it; how many versions went.
@@ -1067,7 +1101,10 @@ class PostgresStore:
                    coalesce(sum(length(p.content)), 0),
                    to_char(max(v.harvested_at), 'YYYY-MM-DD HH24:MI'),
                    array_agg(v.complete),
-                   array_agg(v.version order by v.harvested_at desc)
+                   array_agg(v.version order by v.harvested_at desc),
+                   array_agg(v.pinned order by v.harvested_at desc),
+                   array_agg(extract(epoch from v.harvested_at)
+                             order by v.harvested_at desc)
               from technology t
               left join doc_version v
                      on v.technology_id = t.id and v.state = 'ready'
@@ -1091,7 +1128,7 @@ class PostgresStore:
             # A technology with no versions at all is vacuously whole; the
             # left join hands us [null] for it, which must not read as unknown.
             "complete": merge_complete(*(r[5] or [])) if r[1] else True,
-            "latest": versions_mod.newest([v for v in (r[6] or []) if v]),
+            "latest": _latest(r[6], r[7], r[8]),
         } for r in rows], total
 
     def versions(self, tech: str) -> list[dict]:
@@ -1101,7 +1138,7 @@ class PostgresStore:
                 select v.version, v.source, v.strategy, v.complete,
                        to_char(v.harvested_at, 'YYYY-MM-DD HH24:MI'),
                        count(p.id), coalesce(sum(length(p.content)), 0),
-                       v.expected, extract(epoch from v.harvested_at)
+                       v.expected, extract(epoch from v.harvested_at), v.pinned
                   from doc_version v
                   join technology t on t.id = v.technology_id
                   left join page p on p.version_id = v.id
@@ -1114,14 +1151,13 @@ class PostgresStore:
         out = [{
             "technology": tech, "version": r[0], "source": r[1], "strategy": r[2],
             "complete": r[3], "harvested": r[4], "pages": r[5], "characters": r[6],
-            "expected": r[7], "saved": float(r[8] or 0),
+            "expected": r[7], "saved": float(r[8] or 0), "pinned": r[9],
             "file": f"postgres://{self.location} ({tech} {r[0]})",
         } for r in rows]
-        # Newest version first — `entry(tech, None)` takes the head of this
-        # list, and "no version named" means "the current one", not "the one
-        # that happened to be downloaded most recently".
-        out.sort(key=lambda r: (versions_mod.sort_key(r["version"]), r["saved"]),
-                 reverse=True)
+        # The default version first — `entry(tech, None)` takes the head of
+        # this list, and "no version named" means "the current release", not
+        # the newest download nor the highest number someone pinned.
+        out.sort(key=_default_key, reverse=True)
         return out
 
     def entry(self, tech: str, version: str | None = None) -> dict | None:
@@ -1141,11 +1177,13 @@ class PostgresStore:
             # the older major. Rows arrive harvest-newest-first so that labels
             # carrying no ordering still break ties sensibly.
             rows = cx.execute(
-                "select v.id, v.version from doc_version v "
+                "select v.id, v.version, v.pinned, extract(epoch from v.harvested_at) "
+                "  from doc_version v "
                 "  join technology t on t.id = v.technology_id "
                 " where t.name = %s and v.state = 'ready' "
                 " order by v.harvested_at desc", (tech,)).fetchall()
-            row = max(rows, key=lambda r: versions_mod.sort_key(r[1])) if rows else None
+            row = max(rows, key=lambda r: versions_mod.default_key(
+                r[1], r[2], float(r[3] or 0))) if rows else None
         else:
             row = cx.execute(
                 "select v.id from doc_version v join technology t on t.id = v.technology_id "
@@ -1359,12 +1397,13 @@ class _PgWriter:
     complete to replace it with.
     """
 
-    def __init__(self, store, tech, version, source, strategy, expected):
+    def __init__(self, store, tech, version, source, strategy, expected, pinned=None):
         store.migrate()
         self.store = store
         self.tech, self.version = tech, version
         self.source, self.strategy = source, strategy
         self.expected = expected
+        self.pinned = pinned
         self.titles: list[str] = []
         self.urls: list[str] = []
         self.rejected: list[tuple[str, str]] = []
@@ -1467,12 +1506,16 @@ class _PgWriter:
             self.strategy = strategy
             self.cx.execute("update doc_version set strategy = %s where id = %s",
                             (strategy, self.version_id))
+        previous = self.cx.execute(
+            "select pinned from doc_version where technology_id = %s and version = %s "
+            "and state = 'ready'", (self.tech_id, self.version)).fetchone()
+        pinned = versions_mod.still_pinned(self.pinned, previous[0] if previous else None)
         self.cx.execute(
             "delete from doc_version where technology_id = %s and version = %s "
             "and state = 'ready'", (self.tech_id, self.version))
         self.cx.execute(
-            "update doc_version set state = 'ready', complete = %s, expected = %s "
-            "where id = %s", (complete, expected, self.version_id))
+            "update doc_version set state = 'ready', complete = %s, expected = %s, "
+            "pinned = %s where id = %s", (complete, expected, pinned, self.version_id))
         self.cx.commit()
         self._done()
         return {
@@ -1481,7 +1524,7 @@ class _PgWriter:
             "pages": self._n, "characters": self._chars,
             "file": f"postgres://{self.store.location} ({self.tech} {self.version})",
             "harvested": time.strftime("%Y-%m-%d %H:%M"), "complete": complete,
-            "expected": expected, "titles": self.titles[:2000],
+            "expected": expected, "pinned": pinned, "titles": self.titles[:2000],
             "rejected": list(self.rejected),
         }
 

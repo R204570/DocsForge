@@ -314,6 +314,31 @@ def test_a_release_number_outranks_a_harvest_date(store):
     assert store.entry("pytest-demo")["version"] == "2.11"
 
 
+def test_a_found_current_release_outranks_a_pinned_older_one(store):
+    """`Issues.md` V3, measured on Pydantic: current docs filed under
+    `latest`, 1.10 pinned for another project, and every versionless read
+    answered from 1.10."""
+    store.save("pytest-demo", "latest", "https://x.dev/docs/", "crawl", PAGES,
+               complete=True, pinned=False)
+    store.save("pytest-demo", "1.10", "https://x.dev/1.10/", "crawl",
+               [("Old", "https://x.dev/o", "old")], complete=True, pinned=True)
+
+    assert store.entry("pytest-demo")["version"] == "latest"
+    assert store.versions("pytest-demo")[0]["version"] == "latest"
+    techs, _ = store.technologies()
+    assert [t for t in techs if t["name"] == "pytest-demo"][0]["latest"] == "latest"
+    _, _, blocks = store.read("pytest-demo")
+    assert blocks == len(PAGES)
+
+
+def test_re_fetching_the_current_release_by_name_keeps_it_current(store):
+    store.save("pytest-demo", "2.11", "https://x.dev/docs/", "crawl", PAGES,
+               complete=True, pinned=False)
+    store.save("pytest-demo", "2.11", "https://x.dev/docs/", "crawl", PAGES,
+               complete=True, pinned=True)
+    assert store.entry("pytest-demo")["pinned"] is False
+
+
 def test_completeness_can_be_unknown(store):
     """`None` is not `True`. A copy nobody measured must not report itself
     whole — that is the defect the flag existed to warn about."""

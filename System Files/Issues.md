@@ -42,7 +42,7 @@ release is now the winning candidate's own, scoped to its registry, and a
 candidate is judged against its own registry's facts rather than the pool's.
 bench-1 `offline/whole_corpus_stored` asserts `click` is filed under `8.x`.
 
-### R7 — a scoped npm name cannot pass the identity gate · **DECISION**
+### R7 — a scoped npm name cannot pass the identity gate · fixed (2026-09-22)
 
 `find_docs("@tanstack/react-query")` refuses: npm nominates
 `tanstack.com/query` and `github.com/TanStack/query`, the pages write
@@ -54,6 +54,17 @@ resolve every scoped package — and let `@anyone/click` be identified by a
 page about `click`. **The decision:** whether a scope-qualified match on the
 registry's *own* nominated homepage counts as identification, given the
 registry already binds the scoped name to that URL.
+
+**Decided: yes, narrowly.** `resolver._scope_identity` adds a strong signal,
+`scope-domain`, when the name is scoped, npm nominated this exact URL for
+it, and the host carries the scope as a whole label (`tanstack.com` for
+`@tanstack`). npm binds a scope to one account, so that is the publisher's
+registry entry pointing at the publisher's own domain; with
+`registry-agreement` it is two. Forges and package hosts are refused, an
+unnominated URL on the scope's domain earns nothing, and a bare name has no
+scope to offer — so `@anyone/click` is never identified by a page about
+`click`. Offline 2026-09-22: `scoped_npm_name` passes, resolved to
+tanstack.com. RULES 7.
 
 ### R8 — a name nobody knows walks the whole ladder · open
 
@@ -77,13 +88,36 @@ same-named project, not the ladder's tail, not the same project's code
 host; the refusal names the page and is not cached. Four regression tests
 in `tests/test_resolver.py`.
 
-### R10 — hostname ownership plus repeated mentions is the one path a name-squatter satisfies · **DECISION**
+### R10 — hostname ownership plus repeated mentions is the one path a name-squatter satisfies · fixed (2026-09-22)
 
 Carried, not re-measured this round. `flask` reached a to-do app at
 flask.io and `polars` a third-party site on `own-domain` + mentions.
 Closing it means raising the gate — requiring a structural signal
 (`install:`, `repo-backlink`, `repo-identity`) beside ownership — which
 would also refuse some genuine sites that publish nothing but prose.
+
+**Decided: neither refuse nor accept — hold.** A domain-lap answer whose
+strong signals are all ownership (`own-domain`, `docs-host`;
+`resolver.ownership_only`) no longer ends resolution. The registry lap runs:
+if no registry knows the name the domain answer stands, exactly as before,
+and says it stood on ownership alone; if one does, the domain page competes
+with the registry's nominations under `evidence`, re-verified against that
+registry's facts. A prose-only genuine site is not refused, and a squatter no
+longer pre-empts the registry. Costs registry requests only for weak domain
+answers.
+
+Holding alone was not enough, measured offline 2026-09-22: in the registry
+lap `evidence` ranks who owns the name before anything else, so `polars.dev`
+— a third-party "PySpark transition guide" — still beat `docs.pola.rs`,
+which carries Polars' repository but does not own "polars" as a label. And
+`pydantic` swapped `pydantic.dev/docs/validation/latest/` for
+`docs.pydantic.dev` on the `docs-host` bit, losing the versioned path the
+1.10 pin is found from. `resolver._settle_held` now decides a held answer:
+it loses only to a verified, non-forge page with evidence about the project
+itself, and otherwise stands. Offline re-run: `flask` →
+flask.palletsprojects.com, `polars` → pola.rs, `pydantic` unchanged
+(`squatted_name_flask`, `squatted_name_polars`, `resolve/pydantic`, and
+every `pydantic_*` version case pass). RULES 7.
 
 ### R11 — evidence links included stylesheets, decoded nothing, and matched "api" inside "googleapis" · fixed (`a8d27a9`)
 
@@ -207,7 +241,7 @@ alone). The site's spelling is kept (`/docs/v6/` asked for 7 tries
 `release_confirmed` is set and the result says where it started.
 `test_a_pinned_release_moves_the_start_url_when_the_site_answers_there`.
 
-### V3 — a pinned older release outranks a current one labelled by date or `latest` · **DECISION**
+### V3 — a pinned older release outranks a current one labelled by date or `latest` · fixed (2026-09-22)
 
 `versions.sort_key` ranks release numbers above harvest dates above
 everything else, so that "no version named" means the newest release
@@ -228,7 +262,26 @@ record that a version was requested rather than found); or (b) the
 ordering stays, and `learn_technology(name)` on a technology whose stored
 versions are all pinned re-harvests the current one instead of answering
 "already stored". (a) degrades one case: `latest` harvested in January
-outranks `2.11` harvested in June. (b) costs a harvest. Neither is done.
+outranks `2.11` harvested in June. (b) costs a harvest.
+
+**Decided: (a)'s prerequisite, a better ordering than (a), and (b)'s half.**
+Every version now records `pinned` — True when the caller named it, False
+when the harvest took the site's current release, null for rows written
+before (Postgres `_upgrade_v5`; a key in the file index). A read naming no
+version takes, in order: the most recently harvested *found* version (each
+was current when it ran, so the latest capture is the latest claim — which
+avoids (a)'s January-`latest`-over-June-`2.11` degradation), then
+unrecorded rows by label as before, then pinned rows by label
+(`versions.default_key`). Re-fetching a found release by name keeps it found
+(`versions.still_pinned`). And `learn_technology(name)` with no version,
+when every stored version is pinned, harvests the current release instead
+of answering "already stored". Existing stores are unchanged until a
+technology is re-harvested. Offline 2026-09-22, the versions suite from a
+reset: all five `*_default_is_current` cases pass — jest answers from its
+dated current harvest over pinned 29.7, pydantic from `latest` over pinned
+1.10, and sequelize from v6 (npm's latest) over v7, which is newer but was
+asked for by name. That last case expected v7 until now; the expectation
+changed with this decision.
 
 ### V4 — `forget_documentation` counted one version for two · fixed (2026-09-21)
 
@@ -280,7 +333,7 @@ full wait.
 
 ## Hosted
 
-### H1 — the function runs in `iad1`; the database is in Singapore · **DECISION**
+### H1 — the function runs in `iad1`; the database is in Singapore · fixed in config (2026-09-22), not yet deployed
 
 Every store-backed call is 8–30 round trips at ~250 ms each: hosted
 `list_knowledge_base` ~9 s, `read_` 4–9 s, `search_` 12–15 s; the same calls
@@ -288,6 +341,9 @@ offline are under 1 s. Measured 2026-09-19 (`X-Vercel-Id: bom1::iad1`;
 database at 168.144.251.227). `"regions": ["sin1"]` in `vercel.json` moves
 the function next to the database; Hobby allows one region. A change to
 the production deployment, so the operator's call.
+
+**Decided by the operator: `sin1`.** Set in `vercel.json`; takes effect on
+the next production deploy. Re-measure the hosted read-only run afterwards.
 
 ### H2 — `scan_project` over a hosted connection scans the server · open (`Evaluation.md` §2.5)
 

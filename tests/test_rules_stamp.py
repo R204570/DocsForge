@@ -59,6 +59,9 @@ DECIDERS = (
     # stamp at 5 in silence. Now a named function, so it can be watched.
     "_facts_for",           # which registry's claims a candidate is judged by
     "release_from",         # whose release number the winner carries
+    "_scope_identity",      # whether a scoped name is claimed by its scope's domain
+    "ownership_only",       # whether a domain answer is final or held for the registries
+    "_settle_held",         # what a held domain answer loses to
 )
 
 
@@ -123,8 +126,13 @@ def fingerprint() -> str:
 #: `repo-backlink`, and it was stored as version 0.1.0, npm's number. An
 #: entry cached under rules 5 can be a refusal for a name that now resolves,
 #: an `npm` ecosystem for a PyPI project, or a release from the wrong one.
-FINGERPRINT = "fbc0c144926d4c32"
-EXPECTED_RULES = 6
+#:
+#: RULES 7 (2026-09-22): `scope-domain` (R7), and a domain answer standing on
+#: ownership alone is held for the registry lap rather than returned (R10).
+#: An entry cached under 6 can be a refusal of a scoped package that now
+#: resolves, or a squatter chosen before any registry was asked.
+FINGERPRINT = "a51448b8ea5f9f59"
+EXPECTED_RULES = 7
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

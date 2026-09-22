@@ -107,17 +107,18 @@ TECHNOLOGIES: list[Versioned] = [
     Versioned(
         "jest", "jestjs.io", pinned="29.7", pinned_path="/docs/29.7/",
         current=lambda url, label: bool(re.search(r"jestjs\.io/docs/(?!\d|next/)", url)),
-        query="expect matchers", newest_gap="Issues.md V3",
+        query="expect matchers",
         note="resolved by its own domain, so the current harvest is labelled by date, not npm's release"),
     Versioned(
         "sequelize", "sequelize.org", pinned="v7", pinned_path="/docs/v7/",
         current=lambda url, label: "/docs/v6/" in url,
-        query="findAll where", newest="pinned",
-        note="both releases are versioned in the path; v6 is npm's latest, v7 is newer"),
+        query="findAll where",
+        note="both releases are versioned in the path; v6 is npm's latest, v7 is newer "
+             "and was asked for by name, so a versionless read gets v6 (Issues.md V3)"),
     Versioned(
         "pydantic", "pydantic.dev", pinned="1.10", pinned_path="/docs/validation/1.10/",
         current=lambda url, label: "/docs/validation/latest/" in url,
-        query="BaseModel validation", newest_gap="Issues.md V3",
+        query="BaseModel validation",
         note="/docs/validation/1.10/ exists, but only latest publishes an llms.txt and no sitemap covers the docs"),
 ]
 
@@ -233,7 +234,8 @@ def check_pages(t: Versioned, which: str):
 
 def check_default(t: Versioned):
     """`learn_technology(name)` on a stored technology names the release a
-    versionless read would give: the newest by the store's own ordering."""
+    versionless read would give: the release found as current, never one
+    that was only asked for by name (`Issues.md` V3)."""
     def check(r: Result, ctx: Context) -> str | None:
         if not r.ok:
             return f"tool error: {r.text[:160]!r}"

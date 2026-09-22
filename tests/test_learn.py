@@ -131,6 +131,32 @@ def test_asking_for_a_version_that_is_not_stored_harvests_it(kb, monkeypatch):
     assert "not version 'v2'" in out and "have: v3" in out
 
 
+def test_a_versionless_learn_does_not_settle_for_a_pinned_version(kb, monkeypatch):
+    """`Issues.md` V3: only 1.10 is stored, pinned for some project. A caller
+    naming no version wants the current release, not 1.10."""
+    ft.store().save("effect", "v2", "https://x.dev/docs/v2/", "crawl", PAGES,
+                    complete=True, pinned=True)
+    monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution())
+    seen = {}
+
+    def fake_harvest(url, name=None, version=None, **kw):
+        seen.update(version=version)
+        return "Harvested **effect** v3"
+
+    monkeypatch.setattr(ft, "_harvest_now", fake_harvest)
+    out = ft.tool_learn_technology("effect")
+    assert seen == {"version": None}
+    assert "only at versions asked for by name" in out and "have: v2" in out
+
+
+def test_a_versionless_learn_is_satisfied_by_a_found_version(kb, monkeypatch):
+    ft.store().save("effect", "v3", "https://x.dev/docs/", "crawl", PAGES,
+                    complete=True, pinned=False)
+    monkeypatch.setattr(ft, "_resolve",
+                        lambda *a, **k: pytest.fail("must not resolve when stored"))
+    assert "already stored" in ft.tool_learn_technology("effect")
+
+
 # ── search ───────────────────────────────────────────────
 def test_search_finds_a_page_without_knowing_the_technology(kb):
     stored()
