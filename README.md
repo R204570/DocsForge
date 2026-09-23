@@ -11,8 +11,8 @@ as you can. Every report makes it more reliable.
 **Want to contribute?** Email **rajpatel9408019@gmail.com** with the subject
 **DocsForge Contribution Proposal**, and include:
 
-- Your **résumé/CV** and **GitHub** — this is what I read to get a picture of your work
-- Your experience with crawlers, MCP tools or AI agents
+- Your **GitHub** — this is what I read to get a picture of your work
+- Your experience with crawlers, MCP tools or AI agents or any project related to it
 - What you'd like to work on, and any ideas you already have
 
 Useful ground: crawling and scraping, documentation extraction, MCP tools, AI
