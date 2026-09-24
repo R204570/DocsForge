@@ -10,6 +10,7 @@ there and nowhere else.
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -59,10 +60,12 @@ def test_site_pages_are_public_and_self_contained(gated, path, marker):
     # The version chip is the package's, not whatever the page was drawn with.
     assert f"v{mcp_server.__version__}" in r.text and "{{VERSION}}" not in r.text
     assert "{{BASE_URL}}" not in r.text and "YOUR-HOST" not in r.text
-    # Self-contained: nothing fetched from elsewhere (the client picker on
-    # /connect is the page's own inline script), and nothing from the local
-    # web chat — that surface is not part of the hosted process.
-    assert "<script src=" not in r.text
+    # Self-contained: the Google tag is the one script fetched from elsewhere
+    # (the client picker on /connect is the page's own inline script), and
+    # nothing from the local web chat — that surface is not part of the hosted
+    # process.
+    assert re.findall(r'<script\b[^>]*\bsrc="([^"]*)"', r.text) == [
+        "https://www.googletagmanager.com/gtag/js?id=G-KTBKMGZM75"]
     assert "/api/" not in r.text and "app.js" not in r.text and "/static/" not in r.text
 
 

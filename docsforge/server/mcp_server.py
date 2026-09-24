@@ -179,9 +179,10 @@ register()
 # a token requirement on every local `--http` run too.
 # ─────────────────────────────────────────────────────────────
 
-#: The public site: three self-contained HTML pages, no assets, nothing from
-#: the web chat in `app.py` — that surface is for local testing and is not
-#: part of the hosted process. Package data, so it ships in the wheel.
+#: The public site: three self-contained HTML pages, no assets, no outside
+#: script but the Google tag, nothing from the web chat in `app.py` — that
+#: surface is for local testing and is not part of the hosted process.
+#: Package data, so it ships in the wheel.
 SITE = Path(__file__).resolve().parent / "site"
 PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html"}
 
