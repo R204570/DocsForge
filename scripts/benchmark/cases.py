@@ -697,7 +697,15 @@ CASES: list[Case] = [
          check=resolves_to("docs.djangoproject.com"), budget=30.0),
     Case("resolve", "scoped_npm_name", "find_docs", args={"name": "@tanstack/react-query"},
          check=resolves_to("tanstack.com", "npm"), budget=30.0,
-         note="the site says 'TanStack Query', never the scoped name, so the identity gate refuses"),
+         note="the site says 'TanStack Query', never the scoped name; identified on "
+              "`scope-domain`, npm's nomination on the scope's own domain (Issues.md R7)"),
+    Case("resolve", "squatted_name_flask", "find_docs", args={"name": "flask"},
+         check=resolves_to("flask.palletsprojects.com", "pypi"), budget=45.0,
+         note="flask.io owns the name and says it, and nothing else; it must not "
+              "pre-empt PyPI's nomination (Issues.md R10)"),
+    Case("resolve", "squatted_name_polars", "find_docs", args={"name": "polars"},
+         check=resolves_to("pola.rs"), budget=45.0,
+         note="a third-party site once won on own-domain plus mentions (Issues.md R10)"),
     Case("resolve", "ecosystem_pin", "find_docs", args={"name": "click", "ecosystem": "pypi"},
          check=resolves_to("click.palletsprojects.com", "pypi"), budget=30.0),
     Case("resolve", "unknown_name_is_honest", "find_docs",

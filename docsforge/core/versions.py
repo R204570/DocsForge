@@ -136,3 +136,60 @@ def why(label: str) -> str:
     """
     return {RELEASE: "release number", DATE: "harvest date",
             UNKNOWN: "unrecognised label"}[kind(label)]
+
+
+# ── The default version ────────────────────────────────────────────────────
+#
+# `sort_key` answers "which label is newer". A read that names no version asks
+# something else — "which of these is the current release" — and the label
+# alone cannot answer it. Measured in bench-2 (`Issues.md` V3): Jest's current
+# docs were filed under a harvest date and Pydantic's under `latest`, each
+# beside an older release pinned for another project, and every versionless
+# read answered from the pinned one, because a release number outranks
+# anything that is not one.
+#
+# What does answer it is how each version got into the store. A harvest that
+# named no version took the release the site presented as current *when it
+# ran*; a harvest that named one took what it was told to. So:
+#
+#   found as current   newest harvest first — each was current at its time,
+#                      so the latest capture is the latest claim of currency
+#   not recorded       stores written before the store kept this; ordered by
+#                      label, as they always were
+#   pinned             asked for by name; ordered by label, and only the
+#                      answer when nothing was ever found as current
+FOUND, UNRECORDED, PINNED = 2, 1, 0
+
+
+def provenance(pinned) -> int:
+    """`pinned` as stored — True, False, or None for a row that predates it."""
+    if pinned is None:
+        return UNRECORDED
+    return PINNED if pinned else FOUND
+
+
+def default_key(label: str, pinned, saved: float = 0.0) -> tuple:
+    """A key under which the maximum is the version a versionless read gets.
+
+    The first element decides between provenances, so the differently shaped
+    tails are never compared with each other.
+    """
+    rank = provenance(pinned)
+    if rank == FOUND:
+        return (rank, float(saved or 0.0))
+    return (rank, sort_key(label), float(saved or 0.0))
+
+
+def still_pinned(pinned, previous) -> bool | None:
+    """What a harvest replacing a stored row under the same label records.
+
+    Currency belongs to the release, not to the harvest that last touched it:
+    6.1.1 found as current and later re-fetched by name is still the release
+    that was found as current. So a replacement stays "found" if either
+    harvest found it, and is only pinned when every harvest of it was.
+    """
+    if pinned is None:
+        return previous
+    if pinned and previous is False:
+        return False
+    return bool(pinned)

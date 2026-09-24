@@ -925,6 +925,40 @@ def test_a_path_name_alone_identifies_nothing():
     assert resolver._path_identity(unvouched, "langgraph") == ""
 
 
+# --- a scoped npm package (`Issues.md` R7) -----------------------------------
+
+def test_a_scoped_package_is_identified_on_its_scopes_own_domain():
+    """Measured every run: npm nominates `tanstack.com/query` for
+    `@tanstack/react-query`, the pages say "TanStack Query", and the gate
+    refused on `registry-agreement` alone."""
+    nominated = Candidate("https://tanstack.com/query", "npm:homepage", 0.8)
+    signals = resolver.identity_signals(
+        nominated, "@tanstack/react-query", "<h1>TanStack Query</h1>",
+        {"homepage": "https://tanstack.com/query"})
+    assert "scope-domain" in signals and "registry-agreement" in signals
+    assert resolver.is_identified(signals)
+
+
+def test_a_scope_earns_nothing_for_a_bare_name():
+    """The loosening R7 warned about: a page on `click.example` must not
+    identify `@anyone/click`, and a bare `click` has no scope to offer."""
+    page = Candidate("https://click.example/", "npm:homepage", 0.8)
+    assert resolver._scope_identity(page, "@anyone/click") == ""
+    assert resolver._scope_identity(page, "click") == ""
+
+
+def test_a_scope_needs_npm_to_have_nominated_the_url():
+    found = Candidate("https://tanstack.com/router", "probe:/docs/", 0.5)
+    assert resolver._scope_identity(found, "@tanstack/react-query") == ""
+
+
+@pytest.mark.parametrize("url", ["https://github.com/tanstack/query",
+                                 "https://www.npmjs.com/package/@tanstack/react-query"])
+def test_a_scope_is_not_claimed_on_a_host_it_does_not_own(url):
+    hosted = Candidate(url, "npm:repository", 0.8)
+    assert resolver._scope_identity(hosted, "@tanstack/react-query") == ""
+
+
 def test_a_project_suffix_domain_is_the_projects_own():
     """`djangoproject.com` is Django's own domain. Refusing it the claim meant
     `docs.djangoproject.com` earned no `docs-host`, so `django` resolved to
@@ -1284,3 +1318,100 @@ def test_the_same_registrys_repository_does_not_stand_in_for_unreadable_docs():
     assert got.best is None
     assert got.unexamined is True
     assert "docs.zorp.example" in got.note
+
+
+# ── owning the name is not the last word (`Issues.md` R10) ───────────
+def test_ownership_alone_is_told_apart_from_evidence_about_the_project():
+    assert resolver.ownership_only(["own-domain", "names-it:40"])
+    assert resolver.ownership_only(["own-domain", "docs-host"])
+    assert not resolver.ownership_only(["own-domain", "install:pypi"])
+    assert not resolver.ownership_only(["own-domain", "repo-identity"])
+    assert not resolver.ownership_only(["names-it:40"])
+
+
+def _squatted(monkeypatch, pypi_knows_it: bool) -> FakeFetcher:
+    """flask.io: a to-do app that owns the name and says it constantly, and
+    nothing else. PyPI's flask documents itself at flask.palletsprojects.com."""
+    monkeypatch.setattr(resolver, "from_domains", lambda name, fetcher, state=None: [
+        Candidate("https://flask.io/", "domain:flask.io", 0.9, "own domain")])
+    pages = {
+        "https://flask.io": FakeResponse(
+            "<h1>Flask</h1> the flask to-do app. " + "flask " * 40,
+            url="https://flask.io/"),
+    }
+    if pypi_knows_it:
+        pages.update({
+            "https://pypi.org/pypi/flask/json": registry(
+                {"info": {"version": "3.1.2", "project_urls": {
+                    "Documentation": "https://flask.palletsprojects.com/",
+                    "Source": "https://github.com/pallets/flask"}}}),
+            "https://flask.palletsprojects.com": FakeResponse(
+                "<h1>Flask</h1> pip install flask "
+                "https://github.com/pallets/flask " + "flask " * 40,
+                url="https://flask.palletsprojects.com/"),
+        })
+    return FakeFetcher(pages)
+
+
+def test_a_domain_that_only_owns_the_name_does_not_pre_empt_the_registry(monkeypatch):
+    """Measured: `flask` reached a to-do app at flask.io on `own-domain`
+    plus mentions, and the registries were never asked."""
+    got = resolver.resolve("flask", ecosystem="pypi",
+                           fetcher=_squatted(monkeypatch, True), use_memory=False)
+    assert got.best is not None
+    assert got.best.url.rstrip("/") == "https://flask.palletsprojects.com"
+
+
+def test_a_domain_that_only_owns_the_name_stands_when_no_registry_knows_it(monkeypatch):
+    """Genuine sites that publish nothing but prose are not refused for it."""
+    got = resolver.resolve("flask", fetcher=_squatted(monkeypatch, False),
+                           use_memory=False)
+    assert got.best is not None and got.best.url.rstrip("/") == "https://flask.io"
+    assert got.resolved_via == "domain"
+    assert "owning the name alone" in got.note
+
+
+def test_a_held_domain_that_wins_is_among_the_candidates(monkeypatch):
+    """Cut to `limit` by confidence, the held page fell out of `candidates`
+    and still came back as `best`, so `find_docs` printed a "Best:" that was
+    none of the candidates listed above it."""
+    monkeypatch.setattr(resolver, "from_domains", lambda name, fetcher, state=None: [
+        Candidate("https://flask.io/", "domain:flask.io", 0.3, "own domain")])
+    fetcher = FakeFetcher({
+        "https://flask.io": FakeResponse(
+            "<h1>Flask</h1> the flask to-do app. " + "flask " * 40,
+            url="https://flask.io/"),
+        # All PyPI offers is the source tree, which cannot outrank a held page.
+        "https://pypi.org/pypi/flask/json": registry(
+            {"info": {"version": "3.1.2", "project_urls": {
+                "Source": "https://github.com/pallets/flask"}}}),
+    })
+    got = resolver.resolve("flask", ecosystem="pypi", fetcher=fetcher,
+                           use_memory=False, limit=1)
+    assert got.best is not None and got.best.url.rstrip("/") == "https://flask.io"
+    assert any(c is got.best for c in got.candidates)
+
+
+def test_a_held_domain_loses_only_to_evidence_about_the_project():
+    """Measured offline 2026-09-22: `polars.dev`, a third-party guide that
+    owns the word, outranked `docs.pola.rs` in the registry lap, because
+    `evidence` asks who owns the name first."""
+    held = Candidate("https://polars.dev/", "domain:dev", 0.9)
+    held.verified, held.signals = True, ["own-domain", "names-it:25"]
+    docs = Candidate("https://docs.pola.rs/api/python/stable/", "pypi:Documentation", 0.8)
+    docs.verified, docs.signals = True, ["repo-backlink", "repo-identity", "names-it:151"]
+    source = Candidate("https://github.com/pola-rs/polars", "pypi:Repository", 0.6)
+    source.verified, source.signals = True, ["repo-identity", "registry-agreement"]
+    assert resolver._settle_held(held, [held, docs, source]) is docs
+
+
+def test_a_held_domain_stands_against_another_page_that_only_owns_the_name():
+    """pydantic: `pydantic.dev/docs/validation/latest/` and `docs.pydantic.dev`
+    both stand on ownership alone; holding must not swap one for the other."""
+    held = Candidate("https://pydantic.dev/docs/validation/latest/llms.txt", "domain:dev", 0.9)
+    held.verified, held.signals = True, ["own-domain", "names-it:168"]
+    other = Candidate("https://docs.pydantic.dev", "pypi:Documentation", 0.8)
+    other.verified, other.signals = True, ["own-domain", "docs-host", "names-it:44"]
+    source = Candidate("https://github.com/pydantic/pydantic", "pypi:Homepage", 0.6)
+    source.verified, source.signals = True, ["registry-agreement", "repo-identity"]
+    assert resolver._settle_held(held, [held, other, source]) is held

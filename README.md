@@ -48,9 +48,9 @@ It ships in three forms, all sharing one extraction engine:
 ```
 main.py                 the only script in the root: starts the MCP server
 docsforge/              the package
-  core/                 engine (fetch/extract/crawl), resolver, llmsfinder, versions,
-                        manifests, federation, selection, passages, reasoning,
-                        observation, instrument
+  core/                 engine (fetch/extract/crawl), resolver, languages, topics,
+                        llmsfinder, versions, manifests, federation, selection,
+                        passages, reasoning, observation, instrument
   store/                kb_store — Markdown files or Postgres
   tools/                forge_tools, harvest_jobs, tracing, applog
   server/               mcp_server, app (+ static/)
@@ -79,6 +79,9 @@ System Files/           Architecture, PRD, Design, Workflow, Issues, Audit
 - **JS rendering** (`--js`) via Playwright, reusing a single browser across the whole run.
 - **Single-file output** (`--single-file`) to concatenate everything into one `.md`.
 - **Provenance headers** — every output file records its source URL, type, and scrape time.
+- **Whole, checked** — a site's `llms.txt`, generator manifest, sitemaps and the links on its own pages are read together, so a curated or stale list is never taken for the whole; dead entries and tables of contents are reported, not counted as gaps.
+- **Any kind of site** — the section is read from the site's own sidebar; pages that render client-side are taken from their Markdown copy or rendered; docsify sites are read from their Markdown files; tabs, code lines and links survive extraction intact.
+- **Scoped asks** — `language` for one language's edition ("langgraph for node"), `topic` for the part about one subject ("go for web dev"), each harvested whole and filed apart.
 - **Durable as it goes** — a page is stored before the next is fetched, so an interrupted crawl keeps what it had, and a page the store refuses costs that page rather than the whole harvest.
 - **Concurrent fetching** — pages overlap within a per-host politeness cap, so a crawl waits once instead of once per page, and returns the same pages in the same order a sequential run would.
 
@@ -222,14 +225,14 @@ Or in an MCP client config file:
 | `detect_source_type` | `url` | Which strategy the URL would use — a cheap probe. |
 | `fetch_docs` | `url`, `crawl`, `max_pages`, `js`, `force` | The extracted Markdown. |
 | `save_docs` | `url`, `out_dir`, `crawl`, `max_pages`, `js`, `force`, `single_file` | Paths written to disk. |
-| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope`, `version` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
-| `learn_technology` | `name`, `version`, `ecosystem`, `max_pages`, `js`, `intent`, `corpora`, `strict` | **Learns a library from its name alone — no URL.** Resolves, verifies, harvests, stores. |
+| `harvest_docs` | `url`, `name`, `max_pages`, `js`, `scope`, `version`, `topic` | Learns a whole technology from one URL and stores it. Unlimited by default. Returns a summary. |
+| `learn_technology` | `name`, `language`, `topic`, `version`, `ecosystem`, `max_pages`, `js`, `intent`, `corpora`, `strict` | **Learns a library from its name alone — no URL.** Resolves, verifies, harvests, stores. `language` takes one language's edition ("langgraph for node"), `topic` the part about one subject ("go for web dev"). |
 | `harvest_status` | `harvest`, `wait` | How a harvest is getting on — phase, pages of how many, elapsed — and how it ended. Omit `harvest` for every harvest in flight; `wait` lets it run up to the deadline before answering. |
-| `find_docs` | `name`, `ecosystem` | Where a name resolves to, with evidence. Harvests nothing. |
+| `find_docs` | `name`, `ecosystem`, `language` | Where a name resolves to, with evidence. Harvests nothing. |
 | `scan_project` | `path`, `unknown_only` | A project's dependencies, versions, and which are documented. |
 | `search_knowledge_base` | `query`, `technology`, `version`, `limit` | Ranked search across every stored page at once. |
 | `list_knowledge_base` | — | What has already been harvested, and which versions of each. |
-| `read_knowledge_base` | `name`, `section`, `version` | Reads stored docs back, optionally only matching pages. Defaults to the newest version. |
+| `read_knowledge_base` | `name`, `section`, `version` | Reads stored docs back, optionally only matching pages. Defaults to the current release (the one `list_knowledge_base` lists first). |
 | `forget_resolution` | `name` | Forgets where a name previously resolved to, so the next lookup starts over. Deletes no documentation. Omit `name` to clear all. |
 | `forget_selection` | `name` | Forgets which corpora were chosen for a technology, so it asks again. Deletes no documentation. |
 
@@ -444,11 +447,29 @@ so reaching further never means believing more:
 
 | Lap | What it tries |
 |---|---|
-| **memory** | A resolution seen in the last 30 days. Costs zero requests. Refusals are re-tried after 7 days, because a site can add the evidence later. |
+| **memory** | A resolution seen in the last 30 days, per language asked for. Costs zero requests. Refusals are re-tried after 7 days, because a site can add the evidence later. |
+| **language** | When the name *is* a language or runtime — `go`, `python`, `rust`, `node` — its own manual (`go.dev/doc/`), verified like anything else. A language is not a package: asked for `go`, a registry offered a Rust crate. |
 | **domain** | `{name}.dev` / `.io` / `.org` / `.com`, and the docs root beneath whichever answers. |
-| **registries** | Exact-name lookup in npm, PyPI and crates.io. |
+| **registries** | Exact-name lookup in npm, PyPI and crates.io. A winning GitHub repository gives way to the documentation site it declares as its homepage. |
 | **name shapes** | For multi-word names: `opentelemetry.io`, `airflow.apache.org`, `tanstack.com/query`, `docs.spring.io/spring-boot`. |
-| **search** | npm and crates.io fuzzy search, then `DOCSFORGE_SEARCH` if you configure one. Never a search engine's HTML. |
+| **search** | npm and crates.io fuzzy search — only the registry you named, if you named one — then `DOCSFORGE_SEARCH` if you configure one. Never a search engine's HTML. |
+
+**One language's edition.** Many projects document each language separately —
+LangGraph and LangChain at `/oss/python/…` and `/oss/javascript/…`, Playwright at
+`playwright.dev/docs/` (Node) and `/python/docs/`. With `language=`, the name is
+resolved as usual and then the asked language's edition is found beside it: a
+language segment swapped, a prefix added, a host label swapped, or the section a
+many-language front page links to. It is taken only when the page's own code shows
+that language, or the site files it under that language's name, and it is stored as
+`<name>-<language>`:
+
+```
+learn_technology(name="langgraph", language="node")
+  -> Resolved langgraph (javascript) to docs.langchain.com/oss/javascript/langgraph/overview
+     docs.langchain.com/oss/python/langgraph/overview documents langgraph for another
+     language; the site publishes the javascript edition at …, and that is what was asked for.
+  -> Harvested langgraph-javascript — 43 pages via llms-full.txt
+```
 
 The whole ladder is capped at 40 requests and 20 seconds, so a name that does
 not exist refuses promptly instead of wandering.
@@ -517,9 +538,40 @@ harvest_docs(url="https://www.effect.website/docs/v3/getting-started/introductio
 Give it any page of a docs site and it finds the rest, best strategy first:
 
 1. **`llms.txt` / `llms-full.txt`** — the site already published itself for machines.
-2. **`sitemap.xml`**, filtered to the docs section — complete, cheap, and it finds
-   pages nothing links to. Located via `robots.txt` first, then the usual paths.
-3. **A scoped crawl** — works anywhere, but only reaches what is linked.
+   The files nearest the docs section are asked for before the origin's (an origin's
+   is often about the company: `resend.com/llms-full.txt` is 8 KB of product overview,
+   `/docs/llms-full.txt` is 2.2 MB of documentation). A dump is cut into the pages it
+   says it holds, each under its own URL.
+2. **The site's own lists** — its generator's manifest (Sphinx `objects.inv`, MkDocs
+   search index) and its sitemaps (XML, plain text or gzipped, every one `robots.txt`
+   declares, the section's own first), read *together*.
+3. **A crawl**, seeded with everything those lists name and following every link
+   inside the section — so a stale sitemap is not a ceiling — or from the start page
+   alone when nothing is listed.
+
+**First is not only.** A published `llms.txt` is then checked against the site's
+other lists, and against the links on its own pages: what they name in the section
+and the file left out is fetched too. Measured, `llms.txt` files are often curated
+subsets — Angular's lists 85 pages, AWS's two of the Lambda guide's hundreds,
+GitHub's seven of Actions — and each used to be stored as complete.
+
+**The section is the site's.** The boundary is read from the start page's own
+sidebar, after following any redirect, not guessed from the URL's shape:
+`angular.dev/overview` is a page, not a folder called `overview`;
+`docs.github.com/en/actions` is Actions, not all of GitHub's docs.
+
+**JavaScript sites.** A page with no readable HTML is taken from its Markdown copy
+when it declares one (`<link rel="alternate" type="text/markdown">` — Apple,
+Cloudflare, Mintlify and Fern do), and otherwise rendered once in a browser if it ships
+the scripts that draw it; a site that is mostly rendered switches the rest of the
+crawl to rendering. Rendering waits for the content, not for the network to go
+quiet, skips images and fonts, and opens collapsed sidebar sections so the links
+behind them are found. docsify sites are read from their `_sidebar.md` and each
+route's Markdown file directly.
+
+**Clean pages.** Every tab of a tab set is kept under its label, every code line on
+its own line with the block's language on the fence, every link made absolute;
+heading permalinks, copy buttons and "Edit this page" are dropped.
 
 Everything lands as one Markdown file with a contents index, and
 `read_knowledge_base(name, section=...)` reads it back so a stored technology is
@@ -677,6 +729,28 @@ Results land in `measurements/` as JSON plus a readable table, and the run is
 resumable. This exists because every adaptive rule the crawler runs is a
 threshold over a number, and thresholds picked before the numbers are guesses.
 
+### The field test: real sites, every generator
+
+`scripts/fieldtest.py` harvests 53 real documentation sites chosen for the generator
+that built them — Docusaurus, MkDocs, Sphinx, VitePress, Starlight, Nextra,
+Mintlify, GitBook, ReadMe, mdBook, Hugo, Antora, docsify, rustdoc, godoc, and
+hand-built React, Next and SvelteKit sites, Apple's and Microsoft's among them — one
+subprocess per site, and measures every page it stored: strategy, coverage claim,
+code blocks with collapsed lines, relative links, UI chrome, permalink marks, thin
+and untitled pages. Every page is written out so a number can be checked by reading.
+
+```bash
+python scripts/fieldtest.py                         # all 53, 15 pages each, ~5 minutes
+python scripts/fieldtest.py --pages 0 docusaurus flask go-dev   # uncapped, chosen sites
+python scripts/fieldtest.py --list
+```
+
+The first run (2026-09-24) found a dozen ways a real site defeated the harvester —
+one-page harvests of Next.js, Laravel, Angular and the Rust book, a company overview
+stored as Resend's docs, a Rust crate resolved for `langgraph` on npm, seven-minute
+timeouts reading AWS's sitemap index — each now a test in `tests/test_realworld.py`
+and an entry in `System Files/Issues.md`.
+
 ## Measuring whether any of it helps
 
 `scripts/measure_answers.py` asks the only question that matters: does a harvested
@@ -777,6 +851,28 @@ learn_technology(name="stripe", intent="resolve-import", strict=True)
 your intent requires came back complete. It is the figure a downstream system
 can refuse to act on.
 
+### One subject, whole
+
+`topic` keeps a harvest to what the caller is working on, without handing back
+shards:
+
+```python
+learn_technology(name="go", topic="web development")
+# -> 21 pages: Writing Web Applications (and its code), the RESTful API tutorial,
+#    the JSON tutorial, plus getting started, install and Effective Go.
+#    40 pages judged outside the topic, listed by section: /doc/database/ (9),
+#    /doc/modules/ (7), ... "Ask again with a broader topic, or none, to take those too."
+```
+
+Every page is judged by its title, address, headings and prose against the topic's
+words, widened by a small stated vocabulary (for "web": http, server, handler,
+router, middleware, template, websocket… weighed above words that merely travel with
+it, like json or request). Pages that introduce the technology are always kept. A
+topic crawl follows only the pages it kept, so it stays on the subject instead of
+fetching the whole site to discard most of it. The harvest is filed as
+`<name>-<topic>`, so it is never mistaken for the whole manual, and the answer says
+which terms it used and what it left out.
+
 ## Answering from what is stored
 
 `search_knowledge_base` returns **passages**, not pages. Results are chunked on
@@ -838,11 +934,9 @@ pitch is calibrated confidence cannot be selective about its own.
   Check the URL in the result before trusting a harvest, pass `ecosystem=` when
   you know it, and use `forget_resolution` when it is wrong.
 
-  What still fails: `flask` reaches an unrelated to-do app at flask.io and
-  `polars` a third-party site. Both are the same remaining case — a domain that
-  genuinely owns the word and repeats it — and closing it means raising the
-  identity gate itself, which is a decision about a stated invariant rather than
-  a fix.
+  `flask` and `polars`, which used to reach a to-do app at flask.io and a
+  third-party site, now resolve to their own documentation: a domain that stands
+  on owning the name alone is held until the registries have been asked (R10).
 
   What was closed, each after being caught live: a domain probe no longer keeps
   its ownership claim when it redirects onto a code host (`mojo.dev` lands on a
@@ -884,6 +978,20 @@ pitch is calibrated confidence cannot be selective about its own.
   as a partial copy. That is deliberate: a partial corpus presented as a whole
   one is the failure this project exists to refuse. Whether it should be
   readable behind an explicit opt-in is an open question.
+- **A site that is only an app is slow to harvest.** A page with no readable HTML,
+  no Markdown copy and no sitemap entry is found by rendering, one page at a time
+  on one browser — correct, and minutes where a static site takes seconds.
+- **One sidebar for a whole product family says nothing narrower.** Firebase's
+  navigation spans every Firebase product, so a harvest from
+  `firebase.google.com/docs/firestore` keeps to `/docs/`. Pass
+  `scope="/docs/firestore/"`, or a `topic`, to keep to Firestore.
+- **A topic is judged by its words.** Relevance is title, address, headings and
+  prose against a stated vocabulary, not understanding: a borderline page can land
+  on either side. The answer names the terms used and lists what was left out by
+  section, so a wrong call is visible and can be widened.
+- **A language's edition is found only where the site shows it.** The page's own
+  code, or the site filing it under the language's name. A project that documents
+  every language on one page (Stripe) is harvested with all of them, and says so.
 - **Background harvests do not survive a restart.** The pages do — they are
   written as they are fetched — and the *report* of one is now visible from any
   process, so a harvest started by the MCP subprocess shows up in the panel and
@@ -1008,7 +1116,7 @@ compiler. Edit in Stitch, download, re-run.
 ## Tests
 
 ```bash
-DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,076 offline tests, no network
+DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,165 offline tests, no network
 
 # The 37 Postgres tests skip unless you point them at a throwaway database,
 # which makes a green run look more complete than it is — set this before

@@ -77,3 +77,41 @@ def test_the_provenance_of_a_label_is_reportable():
     assert versions.why("2.11") == "release number"
     assert versions.why("2026-08-20") == "harvest date"
     assert versions.why("stable") == "unrecognised label"
+
+
+# ── The default version (`Issues.md` V3) ─────────────────────────────────────
+def _default(*rows):
+    return max(rows, key=lambda r: versions.default_key(*r))[0]
+
+
+def test_a_found_date_outranks_a_pinned_release():
+    """bench-2 `jest_default_is_current`: Jest's current docs under a date,
+    29.7 pinned for another project, and every versionless read got 29.7."""
+    assert _default(("29.7", True, 50.0), ("2026-09-21", False, 10.0)) == "2026-09-21"
+
+
+def test_a_found_alias_outranks_a_pinned_release():
+    """bench-2 `pydantic_default_is_current`: `latest` beside a pinned 1.10."""
+    assert _default(("1.10", True, 50.0), ("latest", False, 10.0)) == "latest"
+
+
+def test_among_found_versions_the_newest_harvest_is_current():
+    """Each was the current release when it was harvested, so the later
+    capture is the later claim — `latest` from January does not outrank
+    2.11 from June, the case plain alias-ranking would have got wrong."""
+    assert _default(("latest", False, 1.0), ("2.11", False, 9.0)) == "2.11"
+
+
+def test_rows_that_never_recorded_it_keep_label_ordering():
+    assert _default(("2.11", None, 1.0), ("1.10", None, 9.0)) == "2.11"
+
+
+def test_pinned_versions_are_ordered_by_label_among_themselves():
+    assert _default(("1.10", True, 9.0), ("2.11", True, 1.0)) == "2.11"
+
+
+def test_re_fetching_a_found_release_by_name_keeps_it_found():
+    assert versions.still_pinned(True, False) is False
+    assert versions.still_pinned(False, True) is False
+    assert versions.still_pinned(True, None) is True
+    assert versions.still_pinned(None, False) is False

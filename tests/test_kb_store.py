@@ -314,6 +314,31 @@ def test_a_release_number_outranks_a_harvest_date(store):
     assert store.entry("pytest-demo")["version"] == "2.11"
 
 
+def test_a_found_current_release_outranks_a_pinned_older_one(store):
+    """`Issues.md` V3, measured on Pydantic: current docs filed under
+    `latest`, 1.10 pinned for another project, and every versionless read
+    answered from 1.10."""
+    store.save("pytest-demo", "latest", "https://x.dev/docs/", "crawl", PAGES,
+               complete=True, pinned=False)
+    store.save("pytest-demo", "1.10", "https://x.dev/1.10/", "crawl",
+               [("Old", "https://x.dev/o", "old")], complete=True, pinned=True)
+
+    assert store.entry("pytest-demo")["version"] == "latest"
+    assert store.versions("pytest-demo")[0]["version"] == "latest"
+    techs, _ = store.technologies()
+    assert [t for t in techs if t["name"] == "pytest-demo"][0]["latest"] == "latest"
+    _, _, blocks = store.read("pytest-demo")
+    assert blocks == len(PAGES)
+
+
+def test_re_fetching_the_current_release_by_name_keeps_it_current(store):
+    store.save("pytest-demo", "2.11", "https://x.dev/docs/", "crawl", PAGES,
+               complete=True, pinned=False)
+    store.save("pytest-demo", "2.11", "https://x.dev/docs/", "crawl", PAGES,
+               complete=True, pinned=True)
+    assert store.entry("pytest-demo")["pinned"] is False
+
+
 def test_completeness_can_be_unknown(store):
     """`None` is not `True`. A copy nobody measured must not report itself
     whole — that is the defect the flag existed to warn about."""
@@ -406,6 +431,26 @@ def test_deleting_one_version_leaves_the_others(store):
 
     store.delete("pytest-demo")
     assert store.technologies()[1] == 0
+
+
+def _abandon(store, version):
+    """A harvest that died part-way: Postgres keeps its row as 'failed'."""
+    with pytest.raises(RuntimeError):
+        with store.writer("pytest-demo", version, "https://x.dev/docs/", "crawl") as w:
+            w.add(*PAGES[0])
+            raise RuntimeError("the harvest died")
+
+
+def test_deleting_counts_only_versions_that_finished(store):
+    """A failed harvest's row went with the delete and into its count, so two
+    readable versions were reported as "3 version(s)" beside the pages of two."""
+    _save(store, version="v2", pages=PAGES[:1])
+    _save(store, version="v3", pages=PAGES)
+    _abandon(store, "v4")
+    _abandon(store, "v3")
+
+    assert store.delete("pytest-demo", "v3") == 1
+    assert store.delete("pytest-demo") == 1
 
 
 def test_the_suite_stays_off_the_developers_database_after_app_is_imported():

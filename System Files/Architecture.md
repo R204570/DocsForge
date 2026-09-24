@@ -8,6 +8,10 @@ opt-in gates: live network, a throwaway Postgres, browser rendering) and the
 live benchmark suite in `scripts/benchmark/` (76 cases, published as
 `benchmarks/bench-N/`).
 
+Revised 2026-09-24 for the real-world acquisition work — §2, §5, §6, §7, §8
+and §12 — after `scripts/fieldtest.py` harvested 53 documentation sites and
+found where real sites defeat the harvester (`Issues.md` A1–A12, L1–L6).
+
 ---
 
 ## 1. One engine, three surfaces
@@ -57,7 +61,10 @@ docsforge/__main__.py        python -m docsforge <URL>          -> the CLI
 docsforge/core/              acquisition, identity and scope
   engine.py                    Fetcher (the SSRF guard, redirects, 429), detection,
                                extraction, the acquisition ladder, the crawl
-  resolver.py                  name -> where it documents itself; the identity gate
+  resolver.py                  name -> where it documents itself; the identity gate;
+                               one language's edition (`language=`)
+  languages.py                 language aliases, editions, code evidence, official manuals
+  topics.py                    a topic as a rule for which pages belong
   llmsfinder.py                llms.txt shape, links, density
   manifests.py                 generator manifests (Sphinx objects.inv, MkDocs search index)
                                and project manifests (package.json, pyproject, ...)
@@ -82,6 +89,7 @@ docsforge/server/
 docsforge/providers/         one model backend per file, for the web chat
 scripts/
   benchmark/                   the live suite: run.py, cases.py, live.py, offline.py
+  fieldtest.py                 53 real documentation sites, every page measured
   measure*.py, smoke_*.py      the older harnesses and smoke drivers
 tests/                       the offline suite
 benchmarks/                  published benchmark runs, bench-1 onward
@@ -107,12 +115,14 @@ graph TD
   end
   subgraph Identity
     RES["core/resolver.py"]
+    LANG["core/languages.py"]
     INST["core/instrument.py"]
     REA["core/reasoning.py"]
   end
   subgraph Scope
     FED["core/federation.py"]
     SEL["core/selection.py"]
+    TOP["core/topics.py"]
   end
   subgraph Storage
     KB["store/kb_store.py"]
@@ -138,6 +148,9 @@ graph TD
   RES --> INST
   RES --> REA
   RES --> VS
+  RES --> LANG
+  FT --> LANG
+  DF --> TOP
   FED --> SEL
   DF --> KB
   KB --> PAS
@@ -212,7 +225,7 @@ connection open across that is the problem, not a smaller version of it.
 ## 5. The Fetcher: every request through one door
 
 `engine.Fetcher.get` is the only place an HTTP request leaves the package, and
-it does four things on every one:
+it does five things on every one:
 
 1. **Guard the URL**: scheme, host, and the address the host resolves to —
    private, loopback, link-local, reserved, multicast and unspecified ranges
@@ -229,16 +242,61 @@ it does four things on every one:
    crawl resolves relative links against that, or a declared `<base href>`.
    Resolving against the normalised spelling it had asked for turned
    `quickstart/` under `/en/stable` into `/en/quickstart`, 38 times.
+5. **Ask again after a reset**: a connection cut mid-request is retried
+   twice, after a growing pause (`_reset_tolerant`). Only a reset — a name
+   that does not resolve, a refused connection and a timeout are answers,
+   and the resolver probes guessed domains that mostly do not exist
+   (`Issues.md` N1).
+
+A URL is fetched as the site spells it (`_fetchable`) and keyed by
+`_page_key`, under which `/x`, `/x/`, `/x.md` and `/x/index.html` are one
+page: a server owes `/book` nothing it owes `/book/` (A1).
 
 An HTTP failure is an `HTTPStatusError` carrying its status, so a caller can
 tell a 404 (the page is not there) from a 429 (the site said not now).
+
+**Rendering** (`_render`) is the one other door, and the same guard stands in
+it: every request the page makes passes `page.route`, which also turns away
+images, media and fonts. It waits for the document and then a bounded settle
+(`_settle`: load, a short network-idle window, visible text unchanged across
+checks), never for `networkidle` alone, which a page holding an analytics
+connection never reaches. One browser context serves the whole harvest, and
+the first rendered pages have their collapsed sidebar sections opened
+(`_expand_navigation`) so the links behind them are found. Playwright's sync
+API belongs to one thread, so rendered pages are fetched on the crawl's own
+thread, never from its pool.
 
 ---
 
 ## 6. The acquisition ladder
 
-Tried in order, stopping at the first rung that answers. The claim is that
-more laps never mean a lower bar.
+*Revised 2026-09-24 after the field test (`Issues.md` A1–A12).* Before any
+rung: the start URL is landed (redirects, client-side stubs), and the section
+is read from the page's own sidebar (`_resolve_section`) into
+`Options.section`, which every rung below reads through `_scope_for`.
+
+```mermaid
+flowchart TD
+  L0["0 · land the start URL; read the section from its sidebar"]
+  L1["1 · llms-full.txt / llms.txt, nearest the section first<br/>a dump cut into the pages it names; an index fetched"]
+  S["then: the site's lists and the delivered pages' links<br/>what they name in the section and the file left out is fetched too"]
+  L2["2 · the site's lists, together<br/>generator manifest + every sitemap (section's own first, budgeted)"]
+  L3["3 · crawl seeded with those lists, following in-section links<br/>(or from the start page when nothing is listed)"]
+  L0 --> L1
+  L1 -->|delivered| S
+  L1 -->|absent or refused| L2 --> L3
+```
+
+The crawl is one loop for every HTML page, listed or found: concurrent over
+plain HTTP, adaptive (the Plan), a Markdown twin taken when a page declares one
+and its HTML is unreadable, one rendered retry for a page that ships the
+scripts to draw itself, and a switch to rendering (on the main thread) once a
+site proves mostly client-side. `_admission` keeps what it finds to the
+harvest's language and release; a topic (`Options.topic`, `topics.Selector`)
+judges every page at the sink and follows only the kept ones. docsify sites
+bypass it all: their `_sidebar.md` names the Markdown files.
+
+The rungs as they stood before, kept for the incidents that shaped them:
 
 ```mermaid
 flowchart TD
@@ -252,10 +310,15 @@ flowchart TD
 ```
 
 **A file the site published about itself outranks anything inferred about
-it.** A sitemap is a hint addressed to crawlers; `llms.txt` is a statement
-addressed to us. **An index is not documentation**: shape is classified by
-link density before anything is stored, and an index of 229 links is a table
-of contents, not a corpus.
+it — and does not exhaust it.** A sitemap is a hint addressed to crawlers;
+`llms.txt` is a statement addressed to us, and is read first. It is then
+checked against the site's other statements (A6): the sitemap and manifest
+for the same section, and the links on the pages it delivered. What they name
+and it left out is fetched too; when they agree, nothing more is fetched.
+**An index is not documentation**: shape is classified by link density before
+anything is stored, and an index of 229 links is a table of contents, not a
+corpus. **A dump is cut where it says its pages are** (`Source:`, `URL:`, a
+heading that links to the page), each page under its own address.
 
 **The request decides the pathway, not the file.** `llms.txt` describes the
 current release. Asked for a named release, the harvest checks whether the
@@ -273,15 +336,26 @@ the site*, a different fact from *reached and unreadable*, and the corpus is
 
 | Claim | Means |
 |---|---|
-| `expected` | unique actionable pages the manifest or sitemap lists |
+| `expected` | every page known to exist in the section: what the published file, manifest and sitemaps list, plus what their pages link to inside it |
 | `acquired` | how many of those came back |
-| `whole` | `acquired == expected`; `False` for a partial corpus; `None` when nothing established a denominator (a drained crawl frontier) |
+| `whole` | `acquired == expected` with nothing left queued; `False` for a partial corpus; `None` when nothing established a denominator (a crawl from one page, no list anywhere) |
 
 `expected` is measured against what the site says exists, never against the
-slice a page limit left behind. `unextractable` (reached, nothing on it read
-like documentation) and `refused` (asked for, HTTP 429) are listed by URL in
-the harvest's coverage note, because a hole nobody is told about is
-indistinguishable from a page that never existed.
+slice a page limit left behind. `listed` and `found_by_links` say how much of
+it each source contributed, and a published file checked against the site's
+lists records what it left out in `supplemented`. `unextractable` (reached,
+nothing on it read like documentation) and `refused` (asked for, HTTP 429)
+are listed by URL in the harvest's coverage note, because a hole nobody is
+told about is indistinguishable from a page that never existed. Two things
+are listed and *not* counted as holes (A13): `dead` pages, listed or linked
+and answering 404 or 410 — the site's list is stale, the copy is not short —
+and `index_pages`, tables of contents that are all links, followed to what
+they list and not stored.
+
+A topic (`topics.Selector`) changes what is expected, not what is claimed: a
+page judged outside the topic is not expected, a page judged inside it that
+failed to arrive still counts against it, and `stats["topic"]` lists the
+terms used and what was left out, by section.
 
 ---
 
@@ -293,22 +367,39 @@ harvest, because the caller has been given a reason to stop checking.
 
 ```mermaid
 flowchart TD
-  N["name"] --> MEM{"remembered, under<br/>the current RULES?"}
+  N["name (+ language)"] --> MEM{"remembered for this name and language,<br/>under the current RULES?"}
   MEM -->|yes| DONE["done, no requests"]
-  MEM -->|no| L1["L1 · the project's own domain<br/>name.dev/io/org/com, namelang.org, name-lang.org"]
-  L1 -->|verified| DONE2["resolved via domain;<br/>registries not consulted"]
-  L1 -->|not| L2["L2 · registries: PyPI, npm, crates.io<br/>each candidate judged against its own registry"]
+  MEM -->|no| L0["L0 · a language or runtime?<br/>its own manual (go.dev/doc/), verified"]
+  L0 -->|verified| OK
+  L0 -->|not one| L1["L1 · the project's own domain<br/>name.dev/io/org/com, namelang.org, name-lang.org"]
+  L1 -->|"verified, and more than ownership"| DONE2["resolved via domain;<br/>registries not consulted"]
+  L1 -->|"not, or ownership only (held)"| L2["L2 · registries: PyPI, npm, crates.io<br/>each candidate judged against its own registry"]
   L2 --> GATE{"identity gate"}
   GATE -->|"a stronger candidate<br/>could not be read"| BLOCK["refuse: nothing weaker<br/>is accepted in its place"]
   GATE -->|passes| OK["verified; ecosystem and release<br/>are the winner's own"]
-  GATE -->|"none"| L3["L3 · name shapes<br/>L4 · evidence the failed pages gave away<br/>L5 · registry search"]
+  GATE -->|"none"| L3["L3 · name shapes<br/>L4 · evidence the failed pages gave away<br/>L5 · search, the named registry only"]
   L3 --> GATE
+  OK --> REPO["a winning repository gives way<br/>to the docs site it declares, if that passes"]
+  REPO --> ED{"language asked for?"}
+  ED -->|yes| EDN["that language's edition:<br/>segment / prefix / host swapped, or the<br/>front page's language section, or its registry"]
 ```
 
 The whole ladder is capped at 40 requests. **Strong signals** identify a
 project rather than describe one: `own-domain`, `docs-host`, `install:`,
 `repo-backlink`, `registry-agreement`, `repo-identity`. Mention counts are
-corroboration, never proof.
+corroboration, never proof. Mentions and install lines are counted in a
+page's visible text over its first 600 KB; links are judged over its first
+40 KB only (L5 — a footer's GitHub link is not identity).
+
+**An edition is found, never assumed** (`_switch_to_language`). From where the
+resolved page *lands*, the asked language's edition is tried beside it —
+`/oss/python/` → `/oss/javascript/`, `playwright.dev/docs/` →
+`playwright.dev/python/docs/`, `python.x.com` → `js.x.com`, or the section a
+many-language front page links to — and taken only when its own code is in
+that language (`languages.written_for`, measured on extracted content, never
+raw HTML) or the site files it under that language's name. Failing that, the
+language's registry is resolved and switched the same way. Otherwise the
+answer says no edition was found.
 
 Rules the gate learned the hard way, each after being caught live:
 
@@ -329,12 +420,25 @@ Rules the gate learned the hard way, each after being caught live:
   (fixed 2026-09-20).
 - **Evidence links are anchors only, decoded, and judged by their own
   words**: `fonts.googleapis.com` is not an API reference.
+- **A language is not a package** (L4): `go` reached `docs.rs/go`, a Rust
+  crate, because `go.dev` stood on ownership alone and the only registry
+  that knew the word answered. Languages and runtimes resolve to their own
+  manuals first.
+- **Search keeps to the registry named** (L2): `langgraph` on npm reached
+  `docs.rs/rust-langgraph`. A search hit is judged against its own registry
+  entry only when its package *is* the name.
+- **A repository is where the code is, not the documentation** (L3): a
+  winning GitHub repository gives way to the site it declares as its
+  homepage, if that site passes the gate.
 
 ### The cache is evidence, and evidence goes stale
 
 A resolution is filed for 30 days, a refusal for 7, both stamped with the
-`RULES` revision that decided them and discarded on recall if the stamp no
-longer matches. Two things are never filed: a refusal reached without reading
+`RULES` revision that decided them (8 since 2026-09-24) and discarded on
+recall if the stamp no longer matches; `tests/test_rules_stamp.py`
+fingerprints the functions that decide an answer so the stamp cannot be
+forgotten. Each language asked for is filed under its own key
+(`langgraph@javascript`), and `forget_resolution` clears them all. Two things are never filed: a refusal reached without reading
 the candidates (the network talking, not the name), and a refusal for want of
 examination (a rate limit talking).
 
@@ -355,6 +459,14 @@ Two versions of one library are kept side by side, because they contradict
 each other. `core/versions.py` orders labels so "latest" means newest rather
 than most recently fetched; a release number outranks a harvest date, and a
 date only appears when a harvest failed to find a number.
+
+Two other things that are not the whole manual are filed as technologies of
+their own, so a later "already stored" can never hand one back for the other:
+a language's edition, when the site files it apart, as `<name>-<language>`
+(`langgraph-javascript`), and a harvest kept to a topic as `<name>-<topic>`
+(`go-web-development`). Name matching (`stored_name`) will not stretch a
+prefix across the hyphen, so `langgraph` never answers with
+`langgraph-javascript`.
 
 | | `FileStore` | `PostgresStore` |
 |---|---|---|
@@ -423,5 +535,14 @@ percentage where the backend has no denominator.
 - **Reporting coverage it did not measure.** `complete`, `incomplete`,
   `unknown` and now `refused` are distinct, and none is rendered as success.
 - **Restructuring what a publisher wrote.** Relevance is applied at read
-  time; ingestion never reshapes what was published.
+  time; ingestion never reshapes what was published. It does drop the page's
+  furniture — permalink marks, copy buttons, "Edit this page" — and resolve
+  links that would point nowhere once stored, because none of that is what
+  was published (`Design.md` §16).
+- **Taking one list for the whole.** A curated `llms.txt`, a manifest that
+  covers the API and not the guides, a stale sitemap: each is checked against
+  the others and the links on the pages themselves.
+- **Broadening a scoped request, or narrowing one silently.** A section, an
+  edition and a topic are each kept to exactly, and whatever a topic left out
+  is listed.
 - **Letting one dead page end a run** — or one 429 pretend the page was empty.

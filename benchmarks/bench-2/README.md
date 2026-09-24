@@ -212,6 +212,13 @@ They name `dev`. Uncapped, this harvest would have stored every release
 Django has under one label -- the failure the pinned path was fixed for on
 2026-09-19, one branch over. Recorded as `Issues.md` V1.
 
+**Done about it:** `_prefer_current_release` in the engine, run on the
+sitemap path when no release was asked for: the registry's release first,
+then the unversioned pages, then the front page's redirect and links, then
+`stable`/`latest`, then the highest number. Re-run the same day on the
+fixed build: forty pages of `/en/6.1/`, labelled 6.1.1, with the note that
+the site agrees.
+
 ### 6. `versions/poetry_current_pages_are_current` -- FAIL
 
 **What the server said:** 11 of the 18 pages shown under '2.5.1' are not
@@ -223,6 +230,9 @@ current docs unversioned at `/docs/` and keeps `/docs/1.8/` and
 of `/docs/`, twelve of `/docs/1.8/`, twelve of `/docs/main/` and the front
 page -- three releases under the current one's number, with 7+ of the real
 current pages "still queued" behind them.
+
+**Done about it:** V1's fix; re-run, the current harvest is the sixteen
+pages of `/docs/`, whole.
 
 ### 7. `versions/jest_current_pages_are_current` -- FAIL
 
@@ -237,6 +247,9 @@ while the unversioned `/docs/` -- the current release, thirty-seven pages
 -- was never reached. The pinned `29.7` in the row above is the same
 thirty-seven pages, correctly labelled. So the store holds Jest 29.7 twice,
 under two names, and nothing of Jest 30.
+
+**Done about it:** V1's fix; re-run, the current harvest is the
+thirty-seven pages of `/docs/`, whole, still labelled by date (see 8).
 
 ### 8. `versions/jest_default_is_current` -- FAIL
 
@@ -271,6 +284,12 @@ whole under **1.10** -- the v1 that contradicts it on every page -- with
 the caveat appended. The site publishes
 `/docs/validation/1.10/llms-full.txt`, 218 KB: the release asked for is
 one path segment away from the URL the resolver found. Recorded as V2.
+
+**Done about it:** `_url_for_release` in the engine: a release-named
+request whose URL names another release line tries the same path under
+the release asked for, once, and starts there if the site answers.
+Re-run: 105 pages from `/docs/validation/1.10/llms-full.txt`, labelled
+1.10, confirmed, no caveat.
 
 ### 10. `versions/pydantic_pinned_pages_are_1.10` -- FAIL
 
@@ -307,6 +326,9 @@ afterwards); the count is the Postgres store's `delete()` returning the
 number of versions removed. The tool had already listed the doomed
 versions and did not use the list. `Issues.md` V4; a two-line fix.
 
+**Done about it:** the store counts the versions before the cascade.
+Re-run: "2 version(s)" on all five.
+
 ### 13-16. `cleanup/forget_poetry`, `forget_jest`, `forget_sequelize`, `forget_pydantic` -- FAIL
 
 The same count, four more times. Each deleted both versions.
@@ -319,7 +341,8 @@ The same count, four more times. Each deleted both versions.
 - `sequelize`'s current harvest is labelled **2026-09-21** although 39 of
   its 40 pages live under `/docs/v6/` and the fortieth is `/docs/v6`
   itself: the label comes from the start URL and the registry, never from
-  what the pages unanimously say. Part of V1.
+  what the pages unanimously say. Part of V1; after the fix the label
+  is **v6**.
 - `pydantic_current` labelled **latest**, 695 pages via `llms-full.txt` in
   2 s, ignoring the page cap: a full dump is one request, and the cap
   bounds requests. Correct.

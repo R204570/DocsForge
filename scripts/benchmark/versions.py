@@ -81,6 +81,7 @@ class Versioned:
     current: Callable[[str, str], bool]   # (page url, current label) -> is this page the current release's?
     query: str                  # a phrase both releases document, on an early page
     newest: str = "current"     # which of the two the default read must prefer: "current" | "pinned"
+    newest_gap: str = ""        # an Issues.md id when the store's ordering is known to get `newest` wrong
     note: str = ""
 
     def key(self, which: str) -> str:
@@ -111,8 +112,9 @@ TECHNOLOGIES: list[Versioned] = [
     Versioned(
         "sequelize", "sequelize.org", pinned="v7", pinned_path="/docs/v7/",
         current=lambda url, label: "/docs/v6/" in url,
-        query="findAll where", newest="pinned",
-        note="both releases are versioned in the path; v6 is npm's latest, v7 is newer"),
+        query="findAll where",
+        note="both releases are versioned in the path; v6 is npm's latest, v7 is newer "
+             "and was asked for by name, so a versionless read gets v6 (Issues.md V3)"),
     Versioned(
         "pydantic", "pydantic.dev", pinned="1.10", pinned_path="/docs/validation/1.10/",
         current=lambda url, label: "/docs/validation/latest/" in url,
@@ -232,7 +234,8 @@ def check_pages(t: Versioned, which: str):
 
 def check_default(t: Versioned):
     """`learn_technology(name)` on a stored technology names the release a
-    versionless read would give: the newest by the store's own ordering."""
+    versionless read would give: the release found as current, never one
+    that was only asked for by name (`Issues.md` V3)."""
     def check(r: Result, ctx: Context) -> str | None:
         if not r.ok:
             return f"tool error: {r.text[:160]!r}"
@@ -328,8 +331,10 @@ def _cases(t: Versioned) -> list[Case]:
              note="no page stored as the current release comes from another release's path"),
         Case("versions", f"{n}_default_is_{t.newest}", "learn_technology",
              args={"name": n}, check=check_default(t), writes=True, skip_if=local_only,
-             budget=15.0,
-             note=f"with both stored, a versionless call names the {t.newest} release and fetches nothing"),
+             budget=15.0, known=t.newest_gap,
+             note=f"with both stored, a versionless call names the {t.newest} release and fetches nothing"
+                  + ("; a date or `latest` label ranks below any release number, so the pinned one wins"
+                     if t.newest_gap else "")),
         Case("versions", f"{n}_search_scoped_to_{t.pinned}", "search_knowledge_base",
              args={"query": t.query, "technology": n, "version": t.pinned, "limit": 10},
              check=check_scoped_search(t), writes=True, skip_if=local_only, budget=10.0),

@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": [
+    "sin1"
+  ],
   "functions": {
     "docsforge/server/vercel.py": {
       "maxDuration": 300,

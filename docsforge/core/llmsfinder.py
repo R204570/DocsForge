@@ -231,6 +231,10 @@ def parse_llms_links(text: str, base_url: str) -> list[tuple[str, str]]:
 
 
 def is_markdown_link(url: str) -> bool:
-    """Check if a URL points directly to a Markdown document twin."""
+    """Check if a URL points directly to a Markdown document twin.
+
+    `.mdx` included: Mintlify and Fern serve a page's source at `<page>.mdx`,
+    and an `llms.txt` that links those was fetched as HTML and parsed as a
+    web page it is not."""
     path = urlparse(url).path.lower()
-    return path.endswith((".md", ".markdown", ".raw.txt")) or "/raw/" in path
+    return path.endswith((".md", ".mdx", ".mdc", ".markdown", ".raw.txt")) or "/raw/" in path

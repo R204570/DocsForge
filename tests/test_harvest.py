@@ -804,3 +804,173 @@ def test_refresh_reaches_a_detached_harvest_too(tmp_path):
     handoff = source.split("handoff=", 1)[1]
     assert '"refresh": refresh' in handoff[:500]
     assert "hand_off(label, handoff, tool=tool)" in inspect.getsource(ft._as_harvest)
+
+
+# ── no release asked for means the current one, not every one ───────────────
+
+class _Site:
+    """A fetcher that answers a few URLs, remembers what was asked, and can
+    redirect its front page the way `docs.djangoproject.com/` does."""
+
+    def __init__(self, pages=None, landing=None):
+        self.pages = pages or {}
+        self.landing = landing or {}
+        self.calls = []
+
+    def get(self, url, **kw):
+        self.calls.append(url)
+        if url not in self.pages:
+            raise df.ForgeError(f"404 {url}")
+        r = _Resp(self.pages[url])
+        r.url = self.landing.get(url, url)
+        return r
+
+    def text(self, url, **kw):
+        return self.get(url).text
+
+
+def _django_sitemap():
+    return ([f"https://docs.d.dev/en/{v}/topics/{i}/" for v in ("dev", "4.2", "6.1", "3.2")
+             for i in range(4)] + ["https://docs.d.dev/en/"])
+
+
+def test_an_unpinned_harvest_takes_the_registry_release_not_the_sitemap_order():
+    """Measured 2026-09-21 (bench-2, Issues.md V1): `learn_technology("django")`
+    took the English sitemap in the sitemap's order -- forty pages of
+    `/en/dev/` -- and stored them under PyPI's 6.1.1."""
+    kept, chosen = df._prefer_current_release(_django_sitemap(), df.Options(verbose=False),
+                                              hint="6.1.1")
+    assert chosen == "6.1"
+    assert kept and all("/en/6.1/" in u for u in kept)
+
+
+def test_the_unversioned_pages_are_the_current_release_when_there_are_enough():
+    """`python-poetry.org` keeps the current docs at `/docs/` beside `/docs/1.8/`
+    and `/docs/main/`; forty pages stored as 2.5.1 were three releases mixed."""
+    urls = ([f"https://p.org/docs/{p}/" for p in ("cli", "basic-usage", "config", "faq")]
+            + [f"https://p.org/docs/1.8/{p}/" for p in ("cli", "basic-usage")]
+            + [f"https://p.org/docs/main/{p}/" for p in ("cli", "basic-usage")])
+    kept, chosen = df._prefer_current_release(urls, df.Options(verbose=False))
+    assert chosen == "" and len(kept) == 4
+    assert not [u for u in kept if "/1.8/" in u or "/main/" in u]
+
+
+def test_the_front_page_decides_when_nothing_cheaper_does():
+    """`sequelize.org` files `/docs/v6/` (stable) beside `/docs/v7/` (alpha),
+    was found by its own domain so no registry release is known, and its
+    front page links to v6 eight times and v7 once. One request, paid only
+    here."""
+    urls = [f"https://s.org/docs/v6/{i}/" for i in range(3)] + \
+           [f"https://s.org/docs/v7/{i}/" for i in range(3)]
+    front = "".join(f'<a href="/docs/v6/{i}/">v6</a>' for i in range(8)) + '<a href="/docs/v7/">v7</a>'
+    site = _Site({"https://s.org/": front})
+    kept, chosen = df._prefer_current_release(
+        urls, df.Options(verbose=False), entry=lambda: df._entry_page("https://s.org/", site))
+    assert chosen == "v6" and all("/docs/v6/" in u for u in kept)
+    assert site.calls == ["https://s.org/"], "the front page was read once"
+
+
+def test_a_front_page_that_redirects_names_the_current_release():
+    """`docs.djangoproject.com/` answers 302 to `/en/6.1/`: the site's own
+    statement of which release is current, with no registry needed."""
+    site = _Site({"https://docs.d.dev/": "<html></html>"},
+                 landing={"https://docs.d.dev/": "https://docs.d.dev/en/6.1/"})
+    kept, chosen = df._prefer_current_release(
+        _django_sitemap(), df.Options(verbose=False),
+        entry=lambda: df._entry_page("https://docs.d.dev/", site))
+    assert chosen == "6.1"
+
+
+def test_a_development_line_is_never_current_by_number():
+    """With no registry, no front page and no `stable`, the highest-numbered
+    release is current; `dev`, `next` and `main` are never chosen by number."""
+    urls = [f"https://d.dev/en/{v}/x/" for v in ("dev", "4.2", "5.0", "next")]
+    kept, chosen = df._prefer_current_release(urls, df.Options(verbose=False),
+                                              entry=lambda: ("", []))
+    assert chosen == "5.0"
+    only_dev = [f"https://d.dev/en/{v}/x/" for v in ("dev", "next")]
+    assert df._prefer_current_release(only_dev, df.Options(verbose=False),
+                                      entry=lambda: ("", []))[1] == ""
+
+
+def test_a_site_with_one_release_or_none_is_left_alone():
+    one = [f"https://d.dev/en/5.2/{i}/" for i in range(3)]
+    none = [f"https://d.dev/docs/{i}/" for i in range(3)]
+    for urls in (one, none):
+        kept, chosen = df._prefer_current_release(urls, df.Options(verbose=False), hint="5.2")
+        assert kept == urls and chosen == ""
+
+
+def test_a_bare_integer_is_not_a_release_line():
+    """`jestjs.io/blog/2016/09/01/` sits beside `/docs/29.7/`; a year, a day, a
+    numbered chapter or a page of an archive is not a release line to be
+    chosen or filed under. `docs.python.org/3/` is the current documentation
+    beside `/3.12/`, and belongs with the unversioned pages."""
+    assert df._release_segment("https://j.io/blog/2016/09/01/post/") is None
+    assert df._release_segment("https://d.dev/docs/1/intro/") is None
+    assert df._release_segment("https://docs.python.org/3/library/") is None
+    assert df._release_segment("https://j.io/docs/29.7/api/") == (1, "29.7")
+    assert df._release_segment("https://s.org/docs/v6/") == (1, "v6")
+    assert df._release_segment("https://j.io/docs/next/api/") == (1, "next")
+
+
+# ── a pinned release starts where the site files it ─────────────────────────
+
+def test_a_pinned_release_moves_the_start_url_when_the_site_answers_there():
+    """`pydantic` resolves to `/docs/validation/latest/llms.txt`; a request for
+    1.10 was answered with the 2.x dump under a 1.10 label (bench-2, V2). The
+    site publishes `/docs/validation/1.10/llms.txt`."""
+    site = _Site({"https://p.dev/docs/validation/1.10/llms.txt": "# Pydantic 1.10"})
+    stats = {}
+    url = df._url_for_release("https://p.dev/docs/validation/latest/llms.txt", "1.10",
+                              site, df.Options(verbose=False), stats)
+    assert url == "https://p.dev/docs/validation/1.10/llms.txt"
+    assert stats["release_confirmed"] is True and stats["release_url"] == url
+
+
+def test_a_pinned_release_keeps_the_sites_spelling():
+    site = _Site({"https://s.org/docs/v7/": "v7"})
+    assert df._url_for_release("https://s.org/docs/v6/", "7", site,
+                               df.Options(verbose=False)) == "https://s.org/docs/v7/"
+
+
+def test_a_pinned_release_the_site_does_not_have_leaves_the_url_alone():
+    """No such path, or a redirect back to the release it already had: the
+    harvest goes on from where it was, and the caveat says what that means."""
+    absent = _Site({})
+    assert df._url_for_release("https://p.dev/docs/latest/", "1.10", absent,
+                               df.Options(verbose=False)) == "https://p.dev/docs/latest/"
+    bounced = _Site({"https://p.dev/docs/1.10/": "x"},
+                    landing={"https://p.dev/docs/1.10/": "https://p.dev/docs/latest/"})
+    stats = {}
+    assert df._url_for_release("https://p.dev/docs/latest/", "1.10", bounced,
+                               df.Options(verbose=False), stats) == "https://p.dev/docs/latest/"
+    assert "release_confirmed" not in stats
+
+
+def test_a_url_that_names_no_release_or_the_right_one_is_not_touched():
+    site = _Site({})
+    for url in ("https://d.dev/", "https://d.dev/docs/1.10/x/"):
+        assert df._url_for_release(url, "1.10", site, df.Options(verbose=False)) == url
+    assert site.calls == []
+
+
+# ── the label follows the release the site filed the pages under ────────────
+
+def test_the_label_is_the_release_the_site_filed_the_pages_under():
+    """`sequelize.org/` names no version; forty pages of `/docs/v6/` were filed
+    under a date. The pages say v6, so the label does."""
+    docs = [df.Doc(f"https://s.org/docs/v6/{i}/", "t", "b") for i in range(3)]
+    assert ft._version_label("https://s.org/", docs, site="v6") == "v6"
+
+
+def test_a_registry_release_that_agrees_with_the_site_keeps_its_precision():
+    docs = [df.Doc(f"https://docs.d.dev/en/6.1/{i}/", "t", "b") for i in range(3)]
+    assert ft._version_label("https://docs.d.dev/", docs, declared="6.1.1", site="6.1") == "6.1.1"
+
+
+def test_a_registry_release_that_disagrees_with_the_site_loses():
+    """The registry says 7.0.0; the site filed the pages it handed over under
+    6.4. The pages are the finding."""
+    docs = [df.Doc(f"https://docs.d.dev/6.4/{i}/", "t", "b") for i in range(3)]
+    assert ft._version_label("https://docs.d.dev/", docs, declared="7.0.0", site="6.4") == "6.4"

@@ -65,7 +65,7 @@ project — because the model then stops checking.
 | N4 | **A harvest is polite**: per-host delay and concurrency cap, `Retry-After` honoured, stop after three refusals. | Held (`test_rate_limit.py`); measured live on Read the Docs. |
 | N5 | **Nothing destructive by default.** Deletion opt-in; benchmarks write only offline. | Held. |
 | N6 | **Zero-key path works**: `pipx install docsforge`, files as the store, no model key needed for the MCP server. | Held. |
-| N7 | **Every defect found live becomes a test that names the real case.** | 1,076 tests; the 2026-09 fixes each carry one. |
+| N7 | **Every defect found live becomes a test that names the real case.** | 1,165 tests; the 2026-09 fixes each carry one, the field-test ones in `tests/test_realworld.py`. |
 
 ## 4. What it must not do
 

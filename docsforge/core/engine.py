@@ -42,6 +42,7 @@ from contextlib import contextmanager
 
 from docsforge.core import llmsfinder
 from docsforge.core import reasoning
+from docsforge.core import topics
 from docsforge.core import versions
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
@@ -110,6 +111,26 @@ RETRIES_ON_429 = 2
 #: pages it did not fetch are reported as refused, not as missing.
 RATE_LIMIT_STOP = 3
 
+#: A connection reset mid-request is asked again this many times, after a
+#: pause that grows with each attempt (see `Fetcher._reset_tolerant`).
+RESET_RETRIES = 2
+RESET_PAUSE = 1.0
+
+#: What a reset looks like by the time `requests` has wrapped it.
+_RESET_MARKS = ("ConnectionResetError", "RemoteDisconnected", "Connection aborted",
+                "Connection reset", "forcibly closed", "EOF occurred in violation")
+
+
+def _was_reset(error: BaseException) -> bool:
+    """Was this connection cut, rather than never made?
+
+    A DNS failure and a refused connection are `ConnectionError`s too, and
+    they are answers; a reset is an interruption."""
+    text = repr(error)
+    if "NameResolutionError" in text or "getaddrinfo" in text or "Failed to resolve" in text:
+        return False
+    return any(mark in text for mark in _RESET_MARKS)
+
 
 def _retry_after(r) -> float | None:
     """Seconds the response asks the client to wait, or None if it does not say."""
@@ -151,6 +172,15 @@ class Options:
     #: Crawl boundary: "section" keeps to the docs root the start URL sits in,
     #: "host" is the whole domain, anything else is used as a literal prefix.
     scope: str = "section"
+    #: The section a "section" harvest keeps to, once `harvest()` has worked
+    #: it out from where the start page lands and what its own navigation
+    #: covers. Empty means "derive it from the URL" (`docs_scope`), which is
+    #: every caller that has not been through `harvest()`. Read it through
+    #: `_scope_for`, never directly.
+    section: str = ""
+    #: What the harvest is for, in the caller's words -- "web development",
+    #: "authentication". Empty means the whole section. See `topics`.
+    topic: str = ""
     #: Which release the caller asked for, when they named one. This decides
     #: which of the two acquisition pathways a harvest takes, so it has to
     #: reach discovery rather than only the label at the end: a site
@@ -158,6 +188,11 @@ class Options:
     #: 1.10" with it stores the wrong documentation under the right name.
     #: Empty means "whatever is current", which is what that file is for.
     version: str = ""
+    #: What the registry says is current, when the caller named nothing. Not
+    #: a request -- the label still comes from what the pages show -- but
+    #: the first thing consulted when a sitemap files several releases side
+    #: by side and one of them has to be the current one (Issues.md V1).
+    release_hint: str = ""
     # Fetching a user-supplied URL server-side is an SSRF vector, so private /
     # loopback targets are refused unless explicitly allowed.
     allow_private: bool = field(
@@ -281,6 +316,73 @@ class _Pace:
             time.sleep(gap)
 
 
+#: Rendering budget: how long a page may take to arrive, and how long it may
+#: keep changing after that before it is taken as it is.
+RENDER_TIMEOUT_MS = 30_000
+RENDER_SETTLE_MS = 6_000
+#: Subresources a rendered page is not allowed to load.
+RENDER_SKIPS = frozenset(("image", "media", "font"))
+#: Rendered pages per harvest whose collapsed navigation is opened up first.
+RENDER_EXPANSIONS = 2
+
+
+def _settle(page) -> None:
+    """Wait, within `RENDER_SETTLE_MS`, for a rendered page to stop changing."""
+    for state, ms in (("load", RENDER_SETTLE_MS), ("networkidle", 2_500)):
+        try:
+            page.wait_for_load_state(state, timeout=ms)
+        except Exception:                           # noqa: BLE001 -- bounded, not required
+            pass
+    last, steady = -1, 0
+    for _ in range(12):
+        try:
+            size = page.evaluate("() => document.body ? document.body.innerText.length : 0")
+        except Exception:                           # noqa: BLE001 -- a page mid-navigation
+            return
+        steady = steady + 1 if size == last else 0
+        if steady >= 2 and size > 0:
+            return
+        last = size
+        page.wait_for_timeout(250)
+
+
+#: Opens what a documentation sidebar keeps collapsed. Many list a section's
+#: pages only once it is expanded -- the links are not in the page until then
+#: -- so a crawl that reads the sidebar as loaded never learns they exist.
+#: Only toggles: a link with somewhere to go is never clicked.
+_EXPAND_JS = """
+async (max) => {
+  const roots = 'aside, nav, [role=navigation], [class*="sidebar"], [class*="Sidebar"], ' +
+                '[class*="sidenav"], [class*="side-nav"], [class*="toctree"]';
+  let clicked = 0;
+  for (let round = 0; round < 4; round++) {
+    let changed = 0;
+    for (const root of document.querySelectorAll(roots)) {
+      for (const d of root.querySelectorAll('details:not([open])')) { d.open = true; changed++; }
+      for (const el of root.querySelectorAll('[aria-expanded="false"]')) {
+        if (clicked >= max) break;
+        const href = el.tagName === 'A' ? (el.getAttribute('href') || '') : '';
+        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) continue;
+        try { el.click(); clicked++; changed++; } catch (e) {}
+      }
+    }
+    if (!changed || clicked >= max) break;
+    await new Promise(r => setTimeout(r, 350));
+  }
+  return clicked;
+}
+"""
+
+
+def _expand_navigation(page, most: int = 150) -> None:
+    try:
+        opened = page.evaluate(_EXPAND_JS, most)
+        if opened:
+            page.wait_for_timeout(400)
+    except Exception:                               # noqa: BLE001 -- a page that refuses is as it was
+        pass
+
+
 class Fetcher:
     """Owns the HTTP session and (at most one) Playwright browser.
 
@@ -294,6 +396,9 @@ class Fetcher:
         self.session.headers.update(HEADERS)
         self._pw = None
         self._browser = None
+        self._context = None
+        #: Rendered pages whose navigation has been expanded (`_expand_navigation`).
+        self._expansions = 0
         #: How many times a site asked this fetcher to wait (HTTP 429) and
         #: it did. Read by a harvest that wants to say so.
         self.throttled = 0
@@ -305,6 +410,12 @@ class Fetcher:
         self.close()
 
     def close(self) -> None:
+        if self._context is not None:
+            try:
+                self._context.close()
+            except Exception:
+                pass
+            self._context = None
         if self._browser is not None:
             try:
                 self._browser.close()
@@ -390,7 +501,7 @@ class Fetcher:
         only make a harvest slower at reporting that it is down.
         """
         for attempt in range(RETRIES_ON_429 + 1):
-            r = self.session.get(url, allow_redirects=False, **kw)
+            r = self._reset_tolerant(url, **kw)
             if r.status_code != 429 or attempt == RETRIES_ON_429:
                 return r
             pause = min(_retry_after(r) or 5.0, RETRY_AFTER_CAP)
@@ -398,6 +509,28 @@ class Fetcher:
             r.close()
             time.sleep(pause)
         return r                                # unreachable; keeps the type-checker honest
+
+    def _reset_tolerant(self, url: str, **kw) -> requests.Response:
+        """One GET, asked again when the connection was cut under it.
+
+        A reset says nothing about the page: the server, or something between
+        it and us, dropped the socket mid-handshake. Measured 2026-09-24 on
+        this network, `doc.rust-lang.org` reset one request in three, and
+        `raw.githubusercontent.com` did the same to bench-1 (Issues.md N1) --
+        each costing a page that was there all along. Only resets are asked
+        again: a name that does not resolve, a refused connection or a
+        timeout already said what they had to say, and the resolver probes
+        guessed domains that mostly do not exist, where a retry would only
+        double the wait.
+        """
+        for attempt in range(RESET_RETRIES + 1):
+            try:
+                return self.session.get(url, allow_redirects=False, **kw)
+            except requests.ConnectionError as e:
+                if attempt == RESET_RETRIES or not _was_reset(e):
+                    raise
+                time.sleep(RESET_PAUSE * (attempt + 1))
+        raise AssertionError("unreachable")     # the loop returns or raises
 
     def text(self, url: str, **kw) -> str:
         r = self.get(url, **kw)
@@ -464,14 +597,36 @@ class Fetcher:
                     refused.append(str(e))
                 route.abort("blockedbyclient")
                 return
+            # Pixels, video and fonts put no words on a page, and they are
+            # most of what a page downloads.
+            if getattr(request, "resource_type", "") in RENDER_SKIPS:
+                route.abort()
+                return
             route.continue_()
 
         try:
             page.route("**/*", gate)
-            page.goto(url, wait_until="networkidle", timeout=30000)
+            # Not `networkidle`. A page that keeps an analytics beacon or a
+            # websocket open is never idle, and `docs.langchain.com` failed
+            # every render at the 30-second mark waiting for it (2026-09-24).
+            # The document first, then a bounded wait for the content to stop
+            # changing -- which is what "rendered" actually means here.
+            page.goto(url, wait_until="domcontentloaded", timeout=RENDER_TIMEOUT_MS)
             if refused:
                 raise ForgeError(refused[0])
-            return page.content(), (getattr(page, "url", "") or url)
+            _settle(page)
+            landed = getattr(page, "url", "") or url
+            if self._expansions < RENDER_EXPANSIONS:
+                self._expansions += 1
+                _expand_navigation(page)
+                if (getattr(page, "url", "") or url) != landed:
+                    # A toggle navigated. Take the page as it was loaded.
+                    page.goto(landed, wait_until="domcontentloaded",
+                              timeout=RENDER_TIMEOUT_MS)
+                    _settle(page)
+            if refused:
+                raise ForgeError(refused[0])
+            return page.content(), landed
         except ForgeError:
             raise
         except Exception as e:
@@ -491,7 +646,11 @@ class Fetcher:
                 ) from e
             self._pw = sync_playwright().start()
             self._browser = self._pw.chromium.launch()
-        return self._browser.new_page()
+        if self._context is None:
+            # One context for the whole harvest: a context per page paid for
+            # a fresh browser profile on every page.
+            self._context = self._browser.new_context()
+        return self._context.new_page()
 
 
 def _decode(r: requests.Response) -> str:
@@ -633,7 +792,7 @@ def _private_address_of(host: str) -> str:
 # ─────────────────────────────────────────────────────────────
 # Source detection
 # ─────────────────────────────────────────────────────────────
-def detect_source(url: str, fetcher: Fetcher) -> Detection:
+def detect_source(url: str, fetcher: Fetcher, scope: str | None = None) -> Detection:
     """Pick an extraction strategy from the URL plus one cheap probe.
 
     Any body downloaded while probing is carried on the Detection so the
@@ -670,20 +829,47 @@ def detect_source(url: str, fetcher: Fetcher) -> Detection:
     if u.endswith((".md", ".markdown", ".txt", ".rst")):
         return Detection("raw_text", url)
 
-    # Probe the origin for an LLM-native dump, whatever depth the URL is at.
-    # A single docs page is rarely what someone wants when the whole site is
-    # published as one file two directories up.
-    for candidate in ("llms-full.txt", "llms.txt"):
-        probe = urljoin(url, "/" + candidate)
+    # Probe for an LLM-native dump, whatever depth the URL is at. A single
+    # docs page is rarely what someone wants when the whole site is published
+    # as one file two directories up.
+    #
+    # Nearest first. The origin's file used to be the only one asked for, and
+    # an origin often publishes one about the *company*: `resend.com/llms-full.txt`
+    # is 8 KB of product overview, `resend.com/docs/llms-full.txt` is 2.2 MB
+    # of documentation, and a harvest from `/docs/introduction` stored the
+    # overview as the whole of Resend's docs. Prisma, Next.js and AWS the same
+    # (field test, 2026-09-24).
+    for probe in _llms_probes(url, scope):
         try:
             r = fetcher.get(probe, timeout=10, allow_redirects=True)
         except ForgeError:
             continue
         ctype = r.headers.get("content-type", "").lower()
         if r.status_code == 200 and "html" not in ctype:
-            return Detection("llms_txt", probe, _decode(r))
+            body = _decode(r)
+            # An HTML fallback served without saying so -- judged as a whole
+            # document, not by a leading `<`: Svelte's dumps open with
+            # `<SYSTEM>` and are exactly what this is looking for.
+            if _is_html_document(body):
+                continue
+            return Detection("llms_txt", probe, body)
 
     return Detection("html", url)
+
+
+def _llms_dirs(url: str, scope: str | None = None) -> list[str]:
+    """Where an llms file describing `url` could sit, nearest first: its docs
+    section, each directory above that, and the origin."""
+    scope = scope or docs_scope(url)
+    parts = [p for p in scope.split("/") if p]
+    dirs = ["/" + "/".join(parts[:i]) + "/" for i in range(len(parts), 0, -1)]
+    return list(dict.fromkeys(dirs + ["/"]))
+
+
+def _llms_probes(url: str, scope: str | None = None) -> list[str]:
+    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    return [origin + d + name for d in _llms_dirs(url, scope)
+            for name in ("llms-full.txt", "llms.txt")]
 
 
 SITEMAP_CANDIDATES = ("/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml",
@@ -781,21 +967,40 @@ def discover(url: str, fetcher: Fetcher, opts: Options | None = None) -> DocMap:
 
     # The sitemap is the site's own statement of what exists, and reaches
     # pages nothing links to.
-    prefix = docs_scope(url)
+    prefix = _scope_for(url, opts)
     host = (urlparse(url).hostname or "").lower()
-    sitemap = find_sitemap(url, fetcher, opts)
-    if sitemap:
-        try:
-            listed = _sitemap_links(fetcher.text(sitemap), fetcher, opts)
-        except ForgeError:
-            listed = []
-        scoped = [l for l in listed if _crawlable(l, host, prefix)]
-        if scoped:
-            found.sources.append("sitemap.xml")
-            links += scoped
+    listed = _sitemap_urls(url, fetcher, opts,
+                           keep=lambda l: _crawlable(l, host, prefix))
+    scoped = [l for l in listed if _crawlable(l, host, prefix)]
+    if scoped:
+        found.sources.append("sitemap.xml")
+        links += scoped
 
     found.urls = list(dict.fromkeys(_normalize(l) for l in links))
     return found
+
+
+_SPA_ROOT = re.compile(
+    r"""<(div|main|body)[^>]+id\s*=\s*["'](app|root|__next|__nuxt|svelte|___gatsby|"""
+    r"""docs-root|main-app|application)["']""", re.I)
+
+
+def _wants_render(html: str) -> bool:
+    """Worth one rendered retry, now that static extraction found nothing.
+
+    Wider than `_looks_like_shell`, which asks for almost no visible text: a
+    client-rendered page often carries a `<noscript>` notice, a cookie banner
+    and a footer, which is enough text to fail that test and none of it the
+    documentation. `developer.apple.com/documentation/swiftui` is one --
+    refused as unextractable, never rendered (field test, 2026-09-24). Only
+    consulted after extraction has already failed, so a server-rendered page
+    is never rendered for nothing.
+    """
+    if _looks_like_shell(html):
+        return True
+    low = (html or "").lower()
+    scripted = bool(re.search(r"<script[^>]+src=", low))
+    return scripted and bool(_SPA_ROOT.search(html or "") or "<noscript" in low)
 
 
 def _looks_like_shell(html: str) -> bool:
@@ -832,6 +1037,58 @@ REDIRECT_STUB_CHARS = 4_000
 
 #: How many signposts to follow before deciding it is a loop.
 REDIRECT_HOPS = 3
+
+
+#: A start URL that names a file is detected by its name, and landing it would
+#: download the file to learn nothing.
+_FILE_URL = re.compile(r"\.(txt|xml|json|ya?ml|md|markdown|rst|gz)$", re.I)
+
+
+#: The start page is read whole when it is HTML -- its navigation is evidence
+#: of where the manual's edges are (`_nav_scope`) -- up to this size.
+LAND_MAX_BYTES = 4_000_000
+
+
+def _land(url: str, fetcher) -> tuple[str, str]:
+    """Where a start URL actually is, and its HTML when it is a page.
+
+    Past HTTP redirects and a client-side redirect stub. Everything a harvest
+    derives -- the docs section, which llms files are probed for, which
+    sitemap entries are in scope -- was derived from the URL as given.
+    `laravel.com/docs` is a 301 to `/framework/docs`, so the section was
+    `/docs/`, nothing the site links to is under it, and the harvest stored
+    one page (field test, 2026-09-24). The page itself comes back too, because
+    its sidebar says where the manual's edges are (`_resolve_section`).
+    """
+    if _FILE_URL.search(urlparse(url).path) or \
+            (urlparse(url).hostname or "").lower() in ("github.com", "www.github.com"):
+        return url, ""
+    landed, html = url, ""
+    for _ in range(REDIRECT_HOPS):
+        try:
+            r = fetcher.get(landed, timeout=MAP_TIMEOUT, allow_redirects=True, stream=True)
+        except (ForgeError, TypeError):
+            return landed, html
+        try:
+            status = getattr(r, "status_code", 0) or 0
+            if not 200 <= status < 400:
+                return landed, html
+            where = getattr(r, "url", "") or landed
+            headers = getattr(r, "headers", None) or {}
+            ctype = (headers.get("content-type") or "").lower()
+            size = headers.get("content-length") or ""
+            html = ""
+            if "html" in ctype and (not size.isdigit() or int(size) <= LAND_MAX_BYTES):
+                html = _decode(r)
+        finally:
+            closer = getattr(r, "close", None)
+            if callable(closer):
+                closer()
+        target = _redirect_target(html, where) if html else ""
+        if not target or _normalize(target) == _normalize(where):
+            return where, html
+        landed = target
+    return landed, html
 
 
 def _redirect_target(html: str, url: str) -> str:
@@ -944,7 +1201,7 @@ def site_manifest(url: str, fetcher: Fetcher, opts: Options) -> tuple[list[str],
     """
     parsed = urlparse(url)
     origin = f"{parsed.scheme}://{parsed.netloc}"
-    roots = list(dict.fromkeys([origin + docs_scope(url), origin + "/"]))
+    roots = list(dict.fromkeys([origin + _scope_for(url, opts), origin + "/"]))
 
     for root in roots:
         for kind, path in MANIFEST_PATHS:
@@ -1028,7 +1285,7 @@ def probe(url: str, fetcher: Fetcher | None = None,
             return Probe(failed=str(e))
 
         soup = _soup(html)
-        scope = docs_scope(url)
+        scope = _scope_for(url, opts)
         origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
         anchors, seen = 0, set()
         for a in soup.find_all("a", href=True):
@@ -1055,9 +1312,36 @@ def probe(url: str, fetcher: Fetcher | None = None,
 
 
 def find_sitemap(url: str, fetcher: Fetcher, opts: Options) -> str | None:
-    """Look for a sitemap: robots.txt first (it is the declared location),
-    then the conventional paths. Returns a URL or None."""
+    """The first sitemap `find_sitemaps` knows of, or None."""
+    found = find_sitemaps(url, fetcher, opts)
+    return found[0] if found else None
+
+
+def _is_sitemap_body(text: str, ctype: str = "") -> bool:
+    """An XML sitemap or index, or a plain-text list of URLs -- not an HTML
+    page a server answers every path with."""
+    head = (text or "").lstrip()[:400].lower()
+    if head.startswith(("<?xml", "<urlset", "<sitemapindex")):
+        return True
+    if head.startswith("<"):
+        return False
+    first = head.split("\n", 1)[0].strip()
+    return first.startswith(("http://", "https://")) and "html" not in ctype
+
+
+def find_sitemaps(url: str, fetcher: Fetcher, opts: Options) -> list[str]:
+    """Every sitemap that could list this documentation, declared ones first.
+
+    robots.txt is the declared location, and it may declare several: one per
+    product, one per language, one for the docs. The first was the only one
+    ever read, so a site that lists its documentation in the second was
+    harvested by crawl or not at all. A sitemap beside the docs section itself
+    (`/lambda/latest/dg/sitemap.xml`) is asked for as well, because the
+    site-wide one often leaves the docs to a sitemap of their own. The
+    conventional root paths are the fallback when nothing else answered.
+    """
     origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    found: list[str] = []
 
     try:
         robots = fetcher.text(origin + "/robots.txt", timeout=10)
@@ -1065,22 +1349,112 @@ def find_sitemap(url: str, fetcher: Fetcher, opts: Options) -> str | None:
         robots = ""
     for line in robots.splitlines():
         if line.lower().startswith("sitemap:"):
-            found = line.split(":", 1)[1].strip()
-            if found:
-                _log(opts, f"  sitemap from robots.txt: {found}")
-                return found
+            declared = line.split(":", 1)[1].strip()
+            if declared and declared not in found:
+                _log(opts, f"  sitemap from robots.txt: {declared}")
+                found.append(declared)
 
-    for candidate in SITEMAP_CANDIDATES:
-        probe = origin + candidate
+    def answers(probe: str) -> bool:
         try:
             r = fetcher.get(probe, timeout=10, allow_redirects=True)
         except ForgeError:
-            continue
-        ctype = r.headers.get("content-type", "").lower()
-        if r.status_code == 200 and ("xml" in ctype or r.text.lstrip().startswith("<?xml")):
-            _log(opts, f"  sitemap found at {probe}")
-            return probe
-    return None
+            return False
+        ctype = (r.headers.get("content-type", "") or "").lower()
+        return r.status_code == 200 and ("xml" in ctype or _is_sitemap_body(r.text, ctype))
+
+    # The section's own sitemap, when it is not the root's.
+    for where in [d for d in _llms_dirs(url, _scope_for(url, opts)) if d != "/"][:2]:
+        probe = origin + where + "sitemap.xml"
+        if probe not in found and answers(probe):
+            _log(opts, f"  sitemap found beside the docs at {probe}")
+            found.append(probe)
+
+    if not found:
+        for candidate in SITEMAP_CANDIDATES:
+            probe = origin + candidate
+            if answers(probe):
+                _log(opts, f"  sitemap found at {probe}")
+                found.append(probe)
+                break
+    return found
+
+
+def _sitemap_body(url: str, fetcher) -> str:
+    """A sitemap's text, gunzipped when it is served compressed.
+
+    `sitemap.xml.gz` is as valid as `sitemap.xml`, and a server that sends it
+    as `application/gzip` gets no help from `requests`, which only inflates
+    a `Content-Encoding`. Read as text, it was bytes of noise with no `<loc>`.
+    """
+    if not urlparse(url).path.lower().endswith(".gz") or not hasattr(fetcher, "get"):
+        return fetcher.text(url)
+    r = fetcher.get(url, timeout=TIMEOUT)
+    if r.status_code >= 400:
+        raise HTTPStatusError(r.status_code, f"HTTP {r.status_code} for {url}")
+    raw = r.content or b""
+    if raw[:2] == b"\x1f\x8b":
+        import gzip
+        try:
+            raw = gzip.decompress(raw)
+        except OSError as e:
+            raise ForgeError(f"Could not inflate {url}: {e}") from e
+    return raw.decode("utf-8", "replace")
+
+
+#: How much sitemap a harvest reads before it stops opening more. A site-wide
+#: index can name thousands of files -- every AWS service, every Go module,
+#: every Microsoft Learn locale -- and reading them all to find one guide's
+#: pages timed three harvests out at seven minutes without a page stored
+#: (field test, 2026-09-24). Children most likely to hold the section are
+#: opened first (`_sitemap_links`), so a budget costs the least likely ones.
+SITEMAP_FILES = 40
+SITEMAP_SECONDS = 90.0
+
+
+class _SitemapAllowance:
+    def __init__(self) -> None:
+        self.files = 0
+        self.deadline = time.monotonic() + SITEMAP_SECONDS
+        self.cut = False
+
+    def spend(self) -> bool:
+        """Take one more file, or say the budget is gone."""
+        if self.files >= SITEMAP_FILES or time.monotonic() > self.deadline:
+            self.cut = True
+            return False
+        self.files += 1
+        return True
+
+
+def _sitemap_urls(url: str, fetcher, opts: Options, keep=None) -> list[str]:
+    """Every URL the site's sitemaps list, in their order, each once.
+
+    A sitemap beside the section is read first, and when it lists the section
+    the site-wide ones are not opened at all: `/lambda/latest/dg/sitemap.xml`
+    is the Lambda guide, and `sitemap_index.xml` is all of AWS.
+    """
+    listed: list[str] = []
+    budget = _SitemapAllowance()
+    here = _scope_for(url, opts)
+    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    found = find_sitemaps(url, fetcher, opts)
+    local = [s for s in found if s.startswith(origin) and here != "/" and
+             urlparse(s).path.startswith(here)]
+    for group in ([local, [s for s in found if s not in local]] if local else [found]):
+        for sitemap in group:
+            if not budget.spend():
+                break
+            try:
+                listed += _sitemap_links(_sitemap_body(sitemap, fetcher), fetcher, opts,
+                                         keep=keep, hint=here, budget=budget)
+            except ForgeError as e:
+                _log(opts, f"  skip sitemap {sitemap}: {e}")
+        if group is local and len([u for u in listed if keep is None or keep(u)]) >= 3:
+            break
+    if budget.cut:
+        _log(opts, f"  stopped reading sitemaps after {budget.files} file(s): the site "
+                   f"publishes more than one harvest should open to find a section")
+    return list(dict.fromkeys(listed))
 
 
 def _looks_like_openapi(text: str) -> bool:
@@ -1161,9 +1535,11 @@ def _split_dump(text: str, above: int = SPLIT_ABOVE) -> list[tuple[str, str]]:
     if len(text) < above:
         return []
 
+    fences = _fence_spans(text)
     levels: list[tuple[str, list]] = []
     for prefix in ("#", "##", "###"):
-        hits = list(re.finditer(rf"^{prefix}[ \t]+(\S[^\n]*)$", text, re.M))
+        hits = [h for h in re.finditer(rf"^{prefix}[ \t]+(\S[^\n]*)$", text, re.M)
+                if not _inside(h.start(), fences)]
         if SPLIT_MIN_PARTS <= len(hits) <= SPLIT_MAX_PARTS:
             levels.append((prefix, hits))
     if not levels:
@@ -1333,7 +1709,8 @@ def _acquire_manifest_links(links: list[tuple[str, str]], fetcher: Fetcher,
         try:
             if llmsfinder.is_markdown_link(link_url):
                 text = fetcher.text(link_url, timeout=MAP_TIMEOUT)
-                docs.append(Doc(link_url, title, _meta_header(link_url, "llms_txt") + text))
+                docs.append(Doc(link_url, title, _meta_header(link_url, "llms_txt")
+                                 + _tidy_markdown(text, link_url)))
                 if callable(note_page):
                     # Only here: the branch below goes through `html()`,
                     # which such a fetcher already counts for itself.
@@ -1386,6 +1763,7 @@ def handle_llms_txt(det: Detection, fetcher: Fetcher, opts: Options,
         links, excluded = _classify_manifest_links(raw_links, det.url)
         if excluded:
             _log(opts, f"  excluded {excluded} off-site manifest link(s) from the expected count")
+        links = _topic_prefilter(links, opts, stats, titled=True)
 
         # `max_pages` means "deliberately cut this harvest short", and the
         # manifest path used to be the one strategy that ignored it: asking
@@ -1419,7 +1797,8 @@ def handle_llms_txt(det: Detection, fetcher: Fetcher, opts: Options,
             # from `restrict_links is not None` conflated the two and threw
             # away 1.1 MB of real documentation on mojolang.org.
             keep_root = not drop_root
-            root_doc = Doc(det.url, "llms.txt Overview", _meta_header(det.url, "llms.txt") + body)
+            root_doc = Doc(det.url, "llms.txt Overview",
+                           _meta_header(det.url, "llms.txt") + _tidy_markdown(body, det.url))
             if not keep_root:
                 _log(opts, "  dropping the root document: the manifest was narrowed, "
                            "and its own prose is not what was asked for")
@@ -1503,14 +1882,24 @@ def handle_llms_txt(det: Detection, fetcher: Fetcher, opts: Options,
     # page is unsearchable: every query matches page 1, and ranking has
     # nothing to choose between." Storing `docs.langchain.com/llms-full.txt`
     # whole is 6.7 MB behind a single title.
-    parts = _split_dump(body)
-    docs = [Doc(f"{det.url}#{_anchor(title)}", title,
-                _meta_header(det.url, "llms.txt") + chunk)
-            for title, chunk in parts]
-    if not docs:
-        docs = [Doc(det.url, "llms.txt", _meta_header(det.url, "llms.txt") + body)]
-    if parts:
-        _log(opts, f"  split the dump into {len(docs)} pages on its own headings")
+    pages = _dump_pages(body)
+    if pages:
+        # Cut where the dump says its pages are, each under its own address.
+        docs = [Doc(where or det.url, title,
+                    _meta_header(where or det.url, "llms.txt")
+                    + _tidy_markdown(chunk, where or det.url))
+                for where, title, chunk in pages]
+        _log(opts, f"  cut the dump into the {len(docs)} pages it says it holds")
+    else:
+        parts = _split_dump(body)
+        docs = [Doc(f"{det.url}#{_anchor(title)}", title,
+                    _meta_header(det.url, "llms.txt") + _tidy_markdown(chunk, det.url))
+                for title, chunk in parts]
+        if not docs:
+            docs = [Doc(det.url, "llms.txt",
+                        _meta_header(det.url, "llms.txt") + _tidy_markdown(body, det.url))]
+        if parts:
+            _log(opts, f"  split the dump into {len(docs)} pages on its own headings")
 
     if stats is not None:
         # One request, and it returned everything the file contains — so the
@@ -1587,6 +1976,207 @@ def _urls_for_release(urls: list[str], asked: str, opts: Options,
     return kept
 
 
+#: Path segments a site uses for a release line rather than a number. The
+#: first group names the current release; the second names one nobody should
+#: be handed when they asked for nothing in particular.
+_CURRENT_LINES = ("stable", "latest", "current")
+_DEV_LINES = frozenset(("dev", "next", "main", "master", "canary", "nightly",
+                        "unstable", "edge", "alpha", "beta", "rc"))
+#: A numbered release line as a path segment: `v6`, `4.2`, `1.10.4`. Stricter
+#: than `_VERSION`, which a caller's own request is matched against: a bare
+#: integer here is a chapter, a page of a blog archive or a year, and
+#: `docs.python.org/3/` is the current documentation, filed beside `/3.12/`.
+_RELEASE_LINE = re.compile(
+    r"^(v\d+(\.(\d+|x))*|\d+\.(\d+|x)(\.(\d+|x))*)([-.]?(snapshot|m\d+|rc\.?\d*|"
+    r"beta\.?\d*|alpha\.?\d*|pre\.?\d*|preview\.?\d*|dev\d*|next))?$", re.I)
+#: (`28.x` is Docusaurus's name for a release line: jestjs.io files
+#: `/docs/28.x/` beside its current `/docs/`.)
+#: A release line that is not a release: `4.2-SNAPSHOT`, `3.0.0-rc.1`. Spring
+#: Boot files `/spring-boot/4.2-SNAPSHOT/` beside its current pages, and a
+#: pattern that did not know the suffix took the snapshot for current pages
+#: filed under no release at all (field test, 2026-09-24). Found like a
+#: release, chosen like `dev` -- only when the site points at it.
+_PRERELEASE = re.compile(r"[-.]?(snapshot|m\d+|rc\.?\d*|beta\.?\d*|alpha\.?\d*|"
+                         r"pre\.?\d*|preview\.?\d*|dev\d*|next)$", re.I)
+
+
+def _release_segment(url: str) -> tuple[int, str] | None:
+    """`(depth, segment)` of the first path part that names a release line,
+    or None."""
+    for depth, part in enumerate(p for p in urlparse(url).path.split("/") if p):
+        low = part.lower()
+        if low in _CURRENT_LINES or low in _DEV_LINES or _RELEASE_LINE.match(part):
+            return depth, low
+    return None
+
+
+def _release_groups(urls: list[str]) -> dict[str, list[str]]:
+    """The URLs by the release line each is filed under, `""` for none.
+
+    Judged at the shallowest depth any URL names a release, so
+    `/en/dev/releases/5.2/` is filed under `dev`, and `/en/5.2/releases/4.2/`
+    under `5.2` -- a release that scopes a path comes early in it.
+    """
+    found = [(_release_segment(u), u) for u in urls]
+    depths = [seg[0] for seg, _ in found if seg is not None]
+    if not depths:
+        return {"": list(urls)}
+    shallowest = min(depths)
+    groups: dict[str, list[str]] = {}
+    for seg, url in found:
+        key = seg[1] if seg is not None and seg[0] == shallowest else ""
+        groups.setdefault(key, []).append(url)
+    return groups
+
+
+def _entry_page(url: str, fetcher: Fetcher) -> tuple[str, list[str]]:
+    """Where the start URL lands, and the same-host links on that page.
+
+    One request, made only when a sitemap lists several releases and nothing
+    cheaper says which is current: the page a site sends its readers to is
+    the site's own answer.
+    """
+    try:
+        r = fetcher.get(url, timeout=10, allow_redirects=True)
+    except ForgeError:
+        return "", []
+    landed = getattr(r, "url", "") or ""
+    host = (urlparse(url).hostname or "").lower()
+    links: list[str] = []
+    if "html" in (r.headers.get("content-type") or "").lower():
+        try:
+            soup = _soup(_decode(r), "html.parser")
+        except Exception:  # noqa: BLE001 -- a page that will not parse is no evidence
+            return landed, []
+        for a in soup.find_all("a", href=True):
+            link = urljoin(landed or url, a["href"])
+            if (urlparse(link).hostname or "").lower() == host:
+                links.append(link)
+    return landed, links
+
+
+def _prefer_current_release(urls: list[str], opts: Options, hint: str = "",
+                            entry=None) -> tuple[list[str], str]:
+    """One release, not all of them, when the caller asked for nothing else.
+
+    A sitemap that files every release side by side -- `docs.djangoproject.com`
+    lists `/en/4.2/` beside `/en/6.1/` and `/en/dev/`; `python-poetry.org`
+    lists `/docs/1.8/` and `/docs/main/` beside `/docs/` -- is sorted however
+    the site sorts it, so a capped harvest of Django returned forty pages of
+    `/en/dev/` labelled with PyPI's 6.1.1, Poetry's current release came back
+    three releases mixed, and an uncapped harvest would have stored every
+    release under one label. Measured 2026-09-21, `benchmarks/bench-2`
+    (Issues.md V1); the named-release path had been fixed for this two days
+    earlier and this is its twin.
+
+    The current release is, in order: the one the registry says is current
+    (`hint`); the pages filed under no release at all, when there are enough
+    of them to be the documentation rather than a stray index; the release
+    the entry page redirects to, then the one it links to most (one request,
+    paid only when the cheaper signals are silent); the line the site calls
+    `stable`, `latest` or `current`; the highest-numbered release. A
+    development line is never chosen by number, only by the site pointing
+    at it. Returns the URLs kept and the release they were kept for, `""`
+    when the list was left alone.
+    """
+    groups = _release_groups(urls)
+    if len(groups) < 2:
+        return urls, ""
+    named = [k for k in groups if k]
+
+    def choose(key: str, why: str) -> tuple[list[str], str]:
+        _log(opts, f"  the sitemap files {len(named)} releases side by side "
+                   f"({', '.join(sorted(named))}); taking {key or 'the unversioned pages'} "
+                   f"as current: {why}")
+        return groups[key], key
+
+    if hint:
+        agreeing = [k for k in named
+                    if versions.same_release(k, hint) or versions.same_release(hint, k)]
+        if agreeing:
+            return choose(max(agreeing, key=versions.sort_key), f"the registry's release is {hint}")
+    if len(groups.get("", [])) >= 3:
+        return choose("", "the current documentation is filed under no release")
+    landed, links = entry() if entry is not None else ("", [])
+    seg = _release_segment(landed) if landed else None
+    if seg is not None and seg[1] in groups:
+        return choose(seg[1], f"the site redirects its front page there")
+    tally: dict[str, int] = {}
+    for link in links:
+        s = _release_segment(link)
+        key = s[1] if s is not None else ""
+        if key in groups:
+            tally[key] = tally.get(key, 0) + 1
+    if tally:
+        most = max(tally, key=lambda k: (tally[k], k != ""))
+        if most:
+            return choose(most, f"the front page links there {tally[most]} times")
+    for line in _CURRENT_LINES:
+        if line in groups:
+            return choose(line, f"the site calls it {line}")
+    numbered = [k for k in named if k not in _DEV_LINES and not _PRERELEASE.search(k)
+                and versions.release_parts(k)]
+    if numbered:
+        return choose(max(numbered, key=versions.sort_key), "the highest-numbered release")
+    return urls, ""
+
+
+def _url_for_release(url: str, asked: str, fetcher: Fetcher, opts: Options,
+                     stats: dict | None = None) -> str:
+    """The start URL with the release asked for in place of the one it names.
+
+    `pydantic` resolves to `/docs/validation/latest/llms.txt`, and a request
+    for 1.10 was answered with that file: a manifest scoped below the site
+    root skips the site-wide release check, so the 2.x dump was stored under
+    **1.10** with a caveat appended (bench-2, Issues.md V2). The site
+    publishes `/docs/validation/1.10/llms-full.txt`, one path segment away.
+
+    So when the URL names a release line -- `latest`, `v6`, `2.9` -- that is
+    not the one asked for, ask the site for the same path under the release
+    asked for. One request; the harvest starts there if the site answers
+    under that release, and where it started is left alone otherwise: a URL
+    that names no release, one that already names the right one, and a site
+    that has no such path all go on as before.
+    """
+    seg = _release_segment(url)
+    if seg is None:
+        return url
+    depth, current = seg
+    if versions.same_release(asked, current):
+        return url
+    wanted = asked.strip()
+    if current.startswith("v") and versions.release_parts(current) and \
+            versions.release_parts(wanted) and not wanted.lower().startswith("v"):
+        wanted = "v" + wanted           # the site's spelling: /docs/v6/ asks for /docs/v7/
+    parsed = urlparse(url)
+    parts = parsed.path.split("/")
+    seen = -1
+    for i, part in enumerate(parts):
+        if part:
+            seen += 1
+            if seen == depth:
+                parts[i] = wanted
+                break
+    candidate = parsed._replace(path="/".join(parts)).geturl()
+    try:
+        r = fetcher.get(candidate, timeout=10, allow_redirects=True)
+    except ForgeError:
+        return url
+    if getattr(r, "status_code", 0) != 200:
+        return url
+    landed = _release_segment(getattr(r, "url", "") or candidate)
+    if landed is None or not versions.same_release(asked, landed[1]):
+        return url                      # sent back to the release it already had
+    _log(opts, f"  {url} is the {current} documentation; {asked} was asked for, "
+               f"and the site answers for it at {candidate}")
+    if stats is not None:
+        stats["release_url"] = candidate
+        # The site filing the pages under the release asked for is what
+        # makes the label a finding rather than the request repeated back.
+        stats["release_confirmed"] = True
+    return candidate
+
+
 def _links_for_release(links: list[tuple[str, str]], asked: str) -> list[tuple[str, str]]:
     """Those links whose own path names the release asked for.
 
@@ -1629,30 +2219,140 @@ def _requested_release(url: str, opts: Options) -> str:
 #: 1,175 of them in `docs.langchain.com/llms-full.txt`. That is the file
 #: saying, per page, what it covers — which is exactly the checkable claim a
 #: dump was assumed not to make.
-_DUMP_SOURCE = re.compile(r"^Source:[ \t]*(\S+)[ \t]*$", re.M)
+_DUMP_SOURCE = re.compile(r"^(Source|URL):[ \t]*<?(https?://[^\s>]+)>?[ \t]*$", re.M)
+
+
+def _fence_spans(text: str) -> list[tuple[int, int]]:
+    """Where the fenced code blocks are, as `[(start, end)]`.
+
+    A `#` at the start of a line inside one is a shell comment, not a
+    heading: `docs.deno.com/llms-full.txt` split on them made pages called
+    "For entire app" and "Variables" out of Terraform snippets -- 254 of its
+    837 pages under 400 characters (field test, 2026-09-24).
+    """
+    # Any indentation: a fence inside a list item is indented with it, and
+    # reading only the CommonMark three spaces left react-native's dump with
+    # 1,165 fence marks -- an odd number -- so everything after the stray one
+    # counted as code, and none of it was tidied (uncapped field test,
+    # 2026-09-24). A fence left open at the end is a malformed document, not
+    # a code block running to the end of it, and is ignored.
+    #
+    # And as CommonMark reads them: an opener carries at most an info string
+    # (`jsx title="App.js"`), a closer is the bare fence alone on its line.
+    # The same dump puts code in table cells -- `| ```jsx` opens mid-line and
+    # `` ``` | ![image](…) `` closes a line that goes on being a table -- and
+    # counting every line that merely starts with a fence paired the rest of
+    # the file wrongly.
+    spans, open_at, fence = [], None, ""
+    for m in re.finditer(r"^[ \t]*(`{3,}|~{3,})([^\n]*)$", text, re.M):
+        mark, rest = m.group(1), m.group(2).strip()
+        if open_at is None:
+            if rest.startswith("|") or ("`" in rest and mark[0] == "`") or len(rest) > 80:
+                continue                    # not a fence: a table cell, inline code
+            open_at, fence = m.start(), mark
+        elif not rest and mark[0] == fence[0] and len(mark) >= len(fence):
+            spans.append((open_at, m.end()))
+            open_at = None
+    return spans
+
+
+def _inside(pos: int, spans: list[tuple[int, int]]) -> bool:
+    import bisect
+    i = bisect.bisect_right(spans, (pos, float("inf"))) - 1
+    return i >= 0 and spans[i][0] <= pos < spans[i][1]
 
 
 def _dump_sections(text: str) -> list[tuple[str, int, int]]:
-    """`[(source_url, start, end)]` for a dump that states each page's origin."""
-    marks = list(_DUMP_SOURCE.finditer(text))
-    if not marks:
-        return []
+    """`[(source_url, start, end)]` for a dump that states each page's origin.
 
+    Two spellings are in use: `Source: <url>` under the page's heading
+    (Mintlify, `docs.langchain.com`) and `URL: <url>` a line or two below it
+    (`docs.deno.com`). A bare `URL:` line with no heading above it is prose
+    about some URL, not a page boundary, and neither counts inside a code
+    block.
+    """
+    fences = _fence_spans(text)
     starts: list[tuple[int, str]] = []
-    for mark in marks:
+    for mark in _DUMP_SOURCE.finditer(text):
+        if _inside(mark.start(), fences):
+            continue
         line_start = text.rfind("\n", 0, mark.start()) + 1
-        # The heading above it introduces the page, so the section starts there.
-        previous_end = line_start - 1
-        previous_start = text.rfind("\n", 0, previous_end) + 1 if previous_end > 0 else 0
-        previous = text[previous_start:previous_end]
-        starts.append((previous_start if previous.lstrip().startswith("#")
-                       else line_start, mark.group(1)))
+        # The heading above it introduces the page, so the section starts
+        # there -- looking past blank lines and the one-line summary some
+        # dumps put between the two (`docs.deno.com`: "# Config files",
+        # "> How Deno projects are configured...", "URL: ..."), a few lines
+        # at most.
+        heading, cursor = None, line_start
+        for _ in range(8):
+            if cursor <= 0:
+                break
+            prev_start = text.rfind("\n", 0, cursor - 1) + 1
+            line = text[prev_start:cursor - 1]
+            if not line.strip() or line.lstrip().startswith(">"):
+                cursor = prev_start
+                continue
+            if line.lstrip().startswith("#"):
+                heading = prev_start
+            break
+        if mark.group(1) != "Source" and heading is None:
+            continue
+        starts.append((heading if heading is not None else line_start, mark.group(2)))
+
+    # A third spelling: a page's heading *is* a link to the page --
+    # `# [Aliases](https://pydantic.dev/docs/validation/latest/api/pydantic/aliases/)`
+    # opens each of the 396 pages in Pydantic's dump, which states no
+    # `Source:` at all and was cut on its headings into 214 fragments under
+    # 400 characters (field test, 2026-09-24). Taken when it outnumbers the
+    # other spellings.
+    linked = [(m.start(), m.group(1)) for m in _DUMP_HEADING_LINK.finditer(text)
+              if not _inside(m.start(), fences)]
+    if len(linked) > len(starts):
+        starts = linked
 
     out = []
     for i, (start, source) in enumerate(starts):
         end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
         out.append((source, start, end))
     return out
+
+
+_DUMP_HEADING_LINK = re.compile(r"^#{1,2}[ \t]*\[[^\]\n]+\]\((https?://[^)\s]+)\)[ \t]*$", re.M)
+
+
+def _dump_pages(text: str) -> list[tuple[str, str, str]]:
+    """A dump cut into the pages it says it holds: `[(url, title, chunk)]`.
+
+    Where the dump states each page's origin, that is where its pages begin
+    and end -- a better cut than any heading level, and each page keeps the
+    address it was published at instead of `llms-full.txt#some-anchor`, so a
+    citation points somewhere a reader can go. Text above the first page is
+    the dump's own preamble and is kept as a page of its own. `[]` when the
+    dump states too few origins to be cut this way.
+    """
+    sections = _dump_sections(text)
+    if len(sections) < SPLIT_MIN_PARTS:
+        return []
+    pages: list[tuple[str, str, str]] = []
+    head = text[:sections[0][1]].strip()
+    if len(head) >= MIN_MAIN_CHARS:
+        first = re.sub(r"<[^>]*>", " ", head.split("\n", 1)[0]).lstrip("# ").strip()
+        pages.append(("", first[:90].rstrip() or "Overview", head))
+    seen: dict[str, int] = {}
+    for source, start, end in sections:
+        chunk = text[start:end].strip()
+        if not chunk:
+            continue
+        line = chunk.split("\n", 1)[0]
+        title = line.lstrip("# ").strip() if line.lstrip().startswith("#") else ""
+        linked_title = re.match(r"^\[(.+?)\]\([^)]*\)$", title)
+        if linked_title:
+            title = linked_title.group(1).strip()
+        title = title or urlparse(source).path.rstrip("/").rsplit("/", 1)[-1] or source
+        # The same page twice -- split across two entries -- stays two pages.
+        seen[source] = seen.get(source, 0) + 1
+        url = source if seen[source] == 1 else f"{source}#part-{seen[source]}"
+        pages.append((url, title[:200], chunk))
+    return pages
 
 
 def _dump_under(text: str, prefix: str) -> str | None:
@@ -1727,8 +2427,8 @@ def _scope_site_wide_llms(url: str, det: "Detection", fetcher: Fetcher,
     came back as API-key and billing documentation — no release involved,
     just a file about a different product on the same host.
     """
-    if not _at_the_site_root(det):
-        return Pathway(False, None, False)   # already scoped below the root
+    if not _broader_than_request(det, url, opts):
+        return Pathway(False, None, False)   # already scoped to what was asked for
 
     asked = _requested_release(url, opts)
 
@@ -1742,7 +2442,7 @@ def _scope_site_wide_llms(url: str, det: "Detection", fetcher: Fetcher,
     # the file as published, whatever its links turn out to say. Reading the
     # body to discover that costs a second fetch of a file already in hand,
     # which is precisely the redundant discovery the ladder forbids.
-    if not asked and docs_scope(url) == "/":
+    if not asked and _scope_for(url, opts) == "/":
         return Pathway(False, None, False)
 
     try:
@@ -1793,7 +2493,7 @@ def _pathway_for_latest(url: str, links: list[tuple[str, str]] | None,
     """No release named: the current documentation is the thing wanted, and
     the published file is it — subject only to actually covering the section
     that was asked for."""
-    prefix = docs_scope(url)
+    prefix = _scope_for(url, opts)
     if prefix == "/":
         return Pathway(False, None, False)   # the whole site, in one request
     if links is None:
@@ -2153,6 +2853,17 @@ def _by_density(soup, plan=None) -> tuple[object | None, str]:
     return (best, "density") if best_score >= floor else (None, "")
 
 
+def _one_real_sentence(el) -> bool:
+    """Does this container say something -- a paragraph of prose, not a
+    heading, a spinner or a line of links?"""
+    for p in el.find_all("p"):
+        text = p.get_text(" ", strip=True)
+        linked = sum(len(a.get_text(" ", strip=True)) for a in p.find_all("a"))
+        if len(text) >= 30 and linked < len(text) / 2 and " " in text:
+            return True
+    return False
+
+
 def pick_main(soup, plan=None) -> tuple[object | None, str]:
     """The element holding the documentation, and how it was found.
 
@@ -2168,11 +2879,14 @@ def pick_main(soup, plan=None) -> tuple[object | None, str]:
     where it is the loudest available signal that the resolution was wrong.
     """
     chosen, selector = None, ""
+    short, short_selector = None, ""
     for sel in CONTENT:
         found = soup.select_one(sel)
         if found and len(found.get_text(strip=True)) > MIN_MAIN_CHARS:
             chosen, selector = found, sel
             break
+        if found is not None and short is None and _one_real_sentence(found):
+            short, short_selector = found, sel
 
     # What the crawl has learned about pages built like this one. This is the
     # "re-extracts" half of Invariant 7: the same page, read differently,
@@ -2195,6 +2909,13 @@ def pick_main(soup, plan=None) -> tuple[object | None, str]:
     scored, how = _by_density(soup, plan)
     if scored is not None:
         return scored, how
+    if short is not None:
+        # A page with one thing to say. Flask's `deploying/eventlet` is
+        # "Eventlet is no longer maintained. Use gevent instead." inside
+        # Sphinx's `role=main`, and the 200-character floor refused it as a
+        # stub (uncapped field test, 2026-09-24). A shell's container holds no
+        # paragraph once `<noscript>` is stripped, so it still fails.
+        return short, short_selector
     # Decision point 1. Nine selectors and a density score have all declined,
     # and the fallback from here is to refuse the page. Refusing is right far
     # more often than not — it is what stops navigation being stored as
@@ -2325,17 +3046,283 @@ def _measure(el, selector: str, url: str, title: str) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────
+# Tidying what was chosen, before it becomes Markdown
+# ─────────────────────────────────────────────────────────────
+# Measured across 53 real sites on 2026-09-24 (`scripts/fieldtest.py`): every
+# heading on Docusaurus sites carried `[​](#x "Direct link to X")`, Sphinx and
+# pkg.go.dev a `¶`; Tailwind's code came out one line per block because each
+# line is a `<span class="line">` with no newline between them; relative links
+# pointed nowhere once the page was stored; and "Copy", "Edit this page" and
+# "Last updated" were filed as documentation. None of it changes what the
+# publisher wrote -- it is the page's furniture, not its words.
+
+def _unhide(el) -> None:
+    for attr in ("hidden", "aria-hidden"):
+        if el.has_attr(attr):
+            del el[attr]
+    style = el.get("style") or ""
+    if "display" in style and "none" in style:
+        del el["style"]
+
+
+def _label_before(soup, panel, label: str) -> None:
+    if not label:
+        return
+    p = soup.new_tag("p")
+    strong = soup.new_tag("strong")
+    strong.string = label
+    p.append(strong)
+    panel.insert(0, p)
+
+
+def _flatten_tabs(soup) -> None:
+    """Every tab's content, each under its own label, none of it hidden.
+
+    A tab set shows one panel and hides the rest -- `hidden`, `aria-hidden`
+    -- and `strip_chrome` removes whatever is `aria-hidden`, so the Python
+    tab of a Python/JavaScript example was stored and the JavaScript one
+    silently was not. Run before any stripping.
+    """
+    for tablist in soup.select("[role=tablist]"):
+        tabs = tablist.select("[role=tab]")
+        if not tabs:
+            continue
+        panels = []
+        for tab in tabs:
+            target = tab.get("aria-controls")
+            panels.append(soup.find(id=target) if target else None)
+        if not all(panels):
+            container = tablist.parent
+            around = container.select("[role=tabpanel]") if container is not None else []
+            if len(around) == len(tabs):
+                panels = around
+        for tab, panel in zip(tabs, panels):
+            if panel is None:
+                continue
+            _unhide(panel)
+            _label_before(soup, panel, tab.get_text(" ", strip=True))
+        if all(panels):
+            tablist.decompose()
+    # Generators that build tabs from radio buttons and labels, pairing the
+    # n-th label with the n-th block: MkDocs Material, VitePress code groups.
+    for group, labels_sel, blocks_sel in ((".tabbed-set", ".tabbed-labels > label, :scope > label",
+                                           ".tabbed-content > .tabbed-block"),
+                                          (".vp-code-group", ".tabs label", ".blocks > *"),
+                                          (".code-group", ".tabs label", ".blocks > *")):
+        for box in soup.select(group):
+            try:
+                labels = box.select(labels_sel)
+                blocks = box.select(blocks_sel)
+            except Exception:                   # noqa: BLE001 -- a selector bs4 rejects
+                continue
+            if not labels or len(labels) != len(blocks):
+                continue
+            for label, block in zip(labels, blocks):
+                _unhide(block)
+                _label_before(soup, block, label.get_text(" ", strip=True))
+            for label in labels:
+                label.decompose()
+            for radio in box.select("input"):
+                radio.decompose()
+    for panel in soup.select("[role=tabpanel]"):
+        _unhide(panel)
+
+
+_PERMALINK_WORDS = {"", "#", "¶", "§", "🔗", "link", "permalink", "anchor", "#️⃣"}
+_PERMALINK_CLASSES = ("headerlink", "hash-link", "anchor", "anchorjs", "header-anchor",
+                      "permalink", "heading-link", "idlink", "autolink", "deep-link")
+
+
+def _drop_permalinks(main) -> None:
+    """A heading's link to itself is not part of the heading."""
+    for a in main.select("h1 a, h2 a, h3 a, h4 a, h5 a, h6 a, dt a, a.headerlink"):
+        if getattr(a, "decomposed", False) or a.parent is None:
+            continue
+        href = (a.get("href") or "").strip()
+        if href and not href.startswith("#"):
+            continue
+        words = a.get_text("", strip=True).replace("​", "").strip().lower()
+        label = " ".join([a.get("aria-label") or "", a.get("title") or ""]).lower()
+        classes = " ".join(a.get("class") or []).lower()
+        if (words in _PERMALINK_WORDS
+                or any(k in label for k in ("direct link", "permalink", "link to", "go to "))
+                or any(k in classes for k in _PERMALINK_CLASSES)):
+            if a.find_parent(["h1", "h2", "h3", "h4", "h5", "h6", "dt"]) is not None or \
+                    words in _PERMALINK_WORDS:
+                a.decompose()
+                continue
+        if a.find_parent(["h1", "h2", "h3", "h4", "h5", "h6"]) is not None:
+            a.unwrap()          # a heading whose words are its own anchor keeps its words
+    # And anywhere else: Playwright marks every API parameter `[#](#option-x)`
+    # and pkg.go.dev every example `Example [¶](#example-Handle)`. A link to
+    # this page whose whole text is a symbol is a permalink, wherever it sits.
+    for a in main.find_all("a", href=True):
+        if getattr(a, "decomposed", False) or a.parent is None:
+            continue
+        if a["href"].strip().startswith("#") and \
+                a.get_text("", strip=True).replace("​", "").strip().lower() in _PERMALINK_WORDS:
+            a.decompose()
+
+
+_UI_CHROME = re.compile(
+    r"^(copy|clipboard)|copy-?(button|btn|code|icon)|edit-?(this-)?page|theme-edit|"
+    r"last-?updated|feedback|was-?this|helpful|page-?rating|pagination|prev-?next|"
+    r"breadcrumbs?$|table-of-contents|on-this-page|^sr-only$|visually-?hidden|"
+    r"skip-?(to|link)|theme-doc-footer|doc-?footer|docs-footer|article-footer|"
+    r"^toc$|^toc-|-toc$", re.I)
+#: A button that says one of these is furniture; any other button keeps its words.
+_BUTTON_WORDS = re.compile(
+    r"^(copy|copied!?|copy code|copy to clipboard|copy page|copy as markdown|"
+    r"view as markdown|open in \w+|ask ai|expand|collapse|show more|show less|"
+    r"toggle.*|close|menu|share|feedback|yes|no|edit|)$", re.I)
+
+
+def _drop_ui_chrome(main) -> None:
+    for el in list(main.find_all(True)):
+        if getattr(el, "decomposed", False) or el.parent is None:
+            continue
+        marks = list(el.get("class") or []) + ([el.get("id")] if el.get("id") else [])
+        if any(_UI_CHROME.search(m) for m in marks if m):
+            el.decompose()
+            continue
+        if el.name == "button":
+            if _BUTTON_WORDS.match(el.get_text(" ", strip=True)):
+                el.decompose()
+            else:
+                el.unwrap()
+
+
+#: Elements that hold one line of a highlighted code block each.
+_CODE_LINES = (".line", ".token-line", ".code-line", ".cm-line", ".ec-line",
+               "[data-line]", ".highlight-line", ".react-syntax-highlighter-line")
+_CODE_GUTTER = (".linenos", ".lineno", ".line-number", ".line-numbers",
+                ".line-numbers-rows", ".react-syntax-highlighter-line-number",
+                ".gutter", "button", ".copy", "[class*=copy]")
+_LANG_CLASS = re.compile(r"^(?:language|lang|highlight|hljs|brush)-([\w+#.-]+)$", re.I)
+
+
+def _code_language(pre) -> str:
+    for node in [pre, pre.find("code")] + list(pre.parents)[:3]:
+        if node is None or not hasattr(node, "get"):
+            continue
+        for attr in ("data-language", "data-lang", "data-code-lang"):
+            if node.get(attr):
+                return str(node.get(attr)).strip().lower()
+        for cls in node.get("class") or []:
+            m = _LANG_CLASS.match(cls)
+            if m and m.group(1).lower() not in ("none", "default", "plaintext"):
+                return m.group(1).lower()
+    return ""
+
+
+def _clean_code_blocks(main) -> None:
+    """One newline per line of code, whatever markup the highlighter used."""
+    for pre in main.find_all("pre"):
+        if getattr(pre, "decomposed", False) or pre.parent is None:
+            continue
+        for junk in pre.select(", ".join(_CODE_GUTTER)):
+            junk.decompose()
+        lang = _code_language(pre)
+        lines = pre.select(", ".join(_CODE_LINES))
+        # Only the outermost line elements: a highlighter may nest them.
+        ids = {id(l) for l in lines}
+        lines = [l for l in lines if not any(id(p) in ids for p in l.parents)]
+        if len(lines) >= 2:
+            text = "\n".join(l.get_text().rstrip("\n") for l in lines)
+        else:
+            for br in pre.find_all("br"):
+                br.replace_with("\n")
+            text = pre.get_text()
+        pre.clear()
+        code = _soup_of(pre).new_tag("code")
+        code.string = text.strip("\n")
+        pre.append(code)
+        if lang:
+            pre["data-df-lang"] = lang
+
+
+def _soup_of(el):
+    """The document an element belongs to -- the only thing that makes tags."""
+    root = el
+    while getattr(root, "parent", None) is not None:
+        root = root.parent
+    if hasattr(root, "new_tag"):
+        return root
+    from bs4 import BeautifulSoup
+    return BeautifulSoup("", "html.parser")
+
+
+def _absolutize(main, base: str) -> None:
+    """Links and images that still point somewhere once the page is stored."""
+    for a in main.find_all("a", href=True):
+        href = a["href"].strip()
+        if href.lower().startswith("javascript:"):
+            a.unwrap()
+        elif href and not href.startswith(("#", "mailto:", "tel:", "data:")):
+            a["href"] = urljoin(base, href)
+    for img in main.find_all("img"):
+        src = (img.get("src") or "").strip()
+        lazy = (img.get("data-src") or img.get("data-lazy-src") or "").strip()
+        if (not src or src.startswith("data:")) and lazy:
+            src = lazy
+        if src.startswith("data:"):
+            img.decompose()             # inline pixels, kilobytes of base64, no words
+        elif src:
+            img["src"] = urljoin(base, src)
+
+
+_CHROME_LINE = re.compile(
+    r"^\s*(copy|copied!?|copy code|copy page|copy to clipboard|copy as markdown|"
+    r"view as markdown|open in (chatgpt|claude|cursor)|ask ai|edit this page|edit on github|"
+    r"edit page|on this page|in this article|table of contents|skip to (main )?content|"
+    r"was this (page|article)? ?helpful\??|thank you for your feedback[.!]?|"
+    r"previous|next|previous page|next page)\s*$", re.I)
+_LAST_UPDATED = re.compile(r"^\s*last (updated|modified)\b.{0,80}$", re.I)
+
+
+def _drop_chrome_lines(body: str) -> str:
+    out, fence = [], False
+    for line in body.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        if not fence and (_CHROME_LINE.match(line) or _LAST_UPDATED.match(line)):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _markdown(main) -> str:
+    """The chosen element as Markdown, fences sized to the code inside them."""
+    from markdownify import MarkdownConverter
+
+    class _Converter(MarkdownConverter):
+        def convert_pre(self, el, text, parent_tags):
+            if not text:
+                return ""
+            lang = el.get("data-df-lang") or ""
+            fence = "```"
+            while fence in text:
+                fence += "`"
+            return f"\n\n{fence}{lang}\n{text.strip(chr(10))}\n{fence}\n\n"
+
+    return _Converter(heading_style="ATX", bullets="-",
+                      table_infer_header=True).convert_soup(main)
+
+
 def _html_to_md(html: str, url: str, soup=None, plan=None,
                 report: dict | None = None) -> tuple[str, str]:
     try:
-        from markdownify import markdownify as md
+        import markdownify  # noqa: F401 -- the converter is built in `_markdown`
     except ImportError as e:
         raise ForgeError("HTML extraction needs: pip install markdownify") from e
 
     soup = soup if soup is not None else _soup(html)
     title = soup.title.get_text(strip=True) if soup.title else ""
     title = title or "Untitled"
+    base = _document_base(soup, url)
 
+    _flatten_tabs(soup)
     strip_chrome(soup)
     main, selector = pick_main(soup, plan=plan)
     if report is not None:
@@ -2352,7 +3339,11 @@ def _html_to_md(html: str, url: str, soup=None, plan=None,
             f"nothing on {url} reads like documentation: no recognised content "
             f"container and nothing dense enough to be prose")
 
-    body = md(str(main), heading_style="ATX", bullets="-")
+    _drop_permalinks(main)
+    _drop_ui_chrome(main)
+    _clean_code_blocks(main)
+    _absolutize(main, base)
+    body = _drop_chrome_lines(_markdown(main))
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
     return title, _meta_header(url, "html") + body
 
@@ -2400,9 +3391,206 @@ def docs_scope(url: str) -> str:
                     break
             return "/" + "/".join(keep) + "/"
 
-    # No recognisable docs root: stay in the start page's own folder.
-    folder = parts[:-1] if "." in parts[-1] or len(parts) > 1 else parts
+    # No recognisable docs root: stay in the start page's own folder. A path
+    # that ends in a slash *is* a folder -- `/en/stable/` is the stable
+    # manual, and taking its last segment for a page widened the scope to
+    # `/en/`, every release the site keeps side by side.
+    if urlparse(url).path.endswith("/"):
+        folder = parts
+    else:
+        folder = parts[:-1] if "." in parts[-1] or len(parts) > 1 else parts
     return "/" + "/".join(folder) + "/" if folder else "/"
+
+
+def _scope_for(url: str, opts: "Options | None" = None) -> str:
+    """The path prefix a harvest of `url` keeps to.
+
+    What the caller typed wins (`scope="host"`, or a literal prefix); then the
+    section `harvest()` resolved from the site itself (`Options.section`);
+    then the URL's shape (`docs_scope`). One function, because the llms
+    probe, the manifest lookup, the sitemap filter, the llms narrowing and the
+    crawl each used to derive it from the URL on their own, and a boundary
+    four stages agree on and one does not is not a boundary.
+    """
+    scope = getattr(opts, "scope", "section") if opts is not None else "section"
+    if scope == "host":
+        return "/"
+    if scope not in ("", "section", None):
+        return scope if scope.endswith("/") else scope + "/"
+    section = getattr(opts, "section", "") if opts is not None else ""
+    return section or docs_scope(url)
+
+
+#: Where a documentation site keeps its own table of contents. Order does not
+#: matter: every match is measured and the one holding the most links wins.
+_SIDEBARS = ("aside", "nav", "[role=navigation]", "[class*=sidebar]",
+             "[class*=Sidebar]", "[class*=side-bar]", "[class*=sidenav]",
+             "[class*=SideNav]", "[class*=side-nav]", "[id*=sidebar]",
+             "[class*=docs-nav]", "[class*=book-nav]", "[class*=menu]")
+#: ...and what looks like one but is the site's, not the manual's: the top bar
+#: links to other products, a footer to the company, an in-page contents list
+#: to anchors, a pager to two neighbours, and the mobile drawer that repeats
+#: the top bar (`go.dev`'s is an `<aside>` outside its `<header>`).
+_NOT_SIDEBAR = re.compile(
+    r"navbar|topnav|top-nav|topbar|masthead|header|footer|breadcrumb|pagination|"
+    r"pager|page-nav|toc|table-of-contents|on-this-page|tabs?-nav|language|locale|"
+    r"version|drawer|mobile|hamburger|offcanvas|off-canvas|global-?nav|site-?nav|"
+    r"primary-?nav|main-?nav|mega", re.I)
+#: What a manual calls its own table of contents. Outweighs every mark above:
+#: HashiCorp's sidebar sits in a `mobile-menu-container ... sidebarContainer`.
+_IS_SIDEBAR = re.compile(
+    r"sidebar|side-bar|sidenav|side-nav|docs-?nav|doc-nav|book-nav|toctree|"
+    r"nav-?tree|menu__list|docs-navigation", re.I)
+
+
+def _marks(el) -> str:
+    return " ".join([el.get("id") or ""] + list(el.get("class") or []))
+
+
+def _sidebar_standing(el) -> int:
+    """1 for a manual's own sidebar, -1 for the site's navigation, 0 for
+    neither -- judged on the element and the few containers around it."""
+    node, depth = el, 0
+    negative = False
+    while node is not None and depth < 8 and getattr(node, "name", None):
+        marks = _marks(node) if hasattr(node, "get") else ""
+        if marks.strip():
+            if _IS_SIDEBAR.search(marks):
+                return 1
+            if _NOT_SIDEBAR.search(marks):
+                negative = True
+        node, depth = node.parent, depth + 1
+    return -1 if negative else 0
+#: A sidebar with fewer links than this is a pager or a stub, and says nothing
+#: about where the manual's edges are.
+NAV_MIN_LINKS = 8
+#: The share of sidebar links a section has to hold to be the manual's.
+NAV_COVERAGE = 0.8
+
+
+def _sidebar_links(soup, base: str) -> list[str]:
+    """The same-host page links of the page's table of contents.
+
+    The one that lists the page itself, when one does -- a manual's sidebar
+    marks where the reader is, a site's menu does not -- and the largest
+    among those; the largest of all otherwise (Next.js's sidebar links
+    `/docs/app/...` from `/docs` and never `/docs` itself).
+    """
+    host = (urlparse(base).hostname or "").lower()
+    here = _normalize(base)
+    ranked: list[tuple[tuple, list[str]]] = []
+    try:
+        candidates = soup.select(", ".join(_SIDEBARS))
+    except Exception:                               # noqa: BLE001 -- a selector bs4 rejects
+        return []
+    for el in candidates:
+        standing = _sidebar_standing(el)
+        if standing < 0:
+            continue
+        if standing == 0 and (el.find_parent(["header", "footer"]) is not None
+                              or el.name in ("header", "footer")):
+            continue
+        links = []
+        for a in el.find_all("a", href=True):
+            href = a["href"].strip()
+            if not href or href.startswith(("#", "javascript:", "mailto:")):
+                continue
+            full = urldefrag(urljoin(base, href))[0]
+            parsed = urlparse(full)
+            if (parsed.hostname or "").lower() != host or parsed.path.lower().endswith(SKIP_EXT):
+                continue
+            links.append(full)
+        links = list(dict.fromkeys(links))
+        if len(links) < NAV_MIN_LINKS:
+            continue
+        lists_here = any(_normalize(l) == here for l in links)
+        ranked.append(((lists_here, standing, len(links)), links))
+    if not ranked:
+        return []
+    return max(ranked, key=lambda row: row[0])[1]
+
+
+def _nav_scope(soup, base: str) -> str:
+    """The section the page's own navigation covers, or "" when it does not say.
+
+    A URL's shape is a guess at where a manual's edges are; its sidebar is
+    the manual stating them. `angular.dev/overview` looks like a folder called
+    `/overview/`, and the harvest kept to it stored one page, while the
+    sidebar on that page covers all of `angular.dev`. `firebase.google.com/
+    docs/firestore` looks like part of `/docs/`, and a harvest of Firestore
+    was headed for 13,704 pages of every Firebase product, while the sidebar
+    covers `/docs/firestore/`. Terraform's covers `/terraform/`, not the
+    `/terraform/docs/` its URL suggests (field test, 2026-09-24).
+
+    The answer is the deepest directory holding `NAV_COVERAGE` of the
+    sidebar's links, widened if need be to include the page itself.
+    """
+    return _covering_section(_sidebar_links(soup, base), base)
+
+
+def _under(links: list[str], prefix: str) -> list[str]:
+    """Those links at or below `prefix` (`/docs` counts as inside `/docs/`)."""
+    return [l for l in links
+            if ((urlparse(l).path or "/").rstrip("/") + "/").startswith(prefix)]
+
+
+def _covering_section(links: list[str], base: str) -> str:
+    """The deepest directory holding `NAV_COVERAGE` of `links` and `base`."""
+    if len(links) < NAV_MIN_LINKS:
+        return ""
+    counts: dict[str, int] = {}
+    for link in links:
+        path = urlparse(link).path or "/"
+        parts = [p for p in path.split("/") if p]
+        dirs = {"/"} | {"/" + "/".join(parts[:i]) + "/" for i in range(1, len(parts))}
+        if path.endswith("/") and parts:
+            dirs.add("/" + "/".join(parts) + "/")
+        for d in dirs:
+            counts[d] = counts.get(d, 0) + 1
+    need = NAV_COVERAGE * len(links)
+    covering = [d for d, n in counts.items() if n >= need]
+    best = max(covering, key=lambda d: d.count("/")) if covering else "/"
+    # The page has to be inside what it is harvested as. A section's own root
+    # page -- `/docs` for `/docs/` -- is inside it: measuring the page by its
+    # parent directory widened Next.js and Prisma to their whole sites.
+    here = (urlparse(base).path or "/").rstrip("/") + "/"
+    while not here.startswith(best) and best != "/":
+        best = best[: best[:-1].rfind("/") + 1] or "/"
+    return best
+
+
+def _resolve_section(url: str, html: str) -> str:
+    """The section a harvest starting at `url` should keep to.
+
+    The sidebar's answer (`_nav_scope`) where it gives one, the URL's shape
+    otherwise -- with one exception: a URL that names a release keeps it. A
+    sidebar spanning `/docs/` does not license mixing `/docs/v3/` with every
+    other release the site files beside it.
+    """
+    shaped = docs_scope(url)
+    if not html:
+        return shaped
+    try:
+        soup = _soup(html)
+    except Exception:                               # noqa: BLE001 -- no evidence, keep the guess
+        return shaped
+    base = _document_base(soup, url)
+    links = _sidebar_links(soup, base)
+    nav = _covering_section(links, base)
+    if not nav or nav == shaped:
+        return shaped
+    if shaped.startswith(nav):
+        # Wider than the URL suggests. Right when the URL's shape misled --
+        # `/overview` is a page, not a folder, and nothing lives under it --
+        # and wrong when the URL named a real section: `docs.stripe.com/
+        # payments` has its own subtree in the sidebar, and widening it to
+        # the whole of Stripe answered a question nobody asked. Nor across a
+        # release the URL names.
+        if len(_under(links, shaped)) >= NAV_MIN_LINKS:
+            return shaped
+        if _release_segment(url) is not None:
+            return shaped
+    return nav
 
 
 def _at_the_site_root(det: Detection) -> bool:
@@ -2422,6 +3610,29 @@ def _at_the_site_root(det: Detection) -> bool:
     would narrow, or refuse, a file that is the right one.
     """
     return urlparse(det.url).path.count("/") == 1
+
+
+def _dir_of(url: str) -> str:
+    """The directory a URL's file sits in: `/docs/llms.txt` -> `/docs/`."""
+    path = urlparse(url).path or "/"
+    return path[: path.rfind("/") + 1] or "/"
+
+
+def _broader_than_request(det: Detection, url: str, opts: "Options | None" = None) -> bool:
+    """Does this published file describe more than the section asked for?
+
+    The site root always does -- see `_at_the_site_root`, which this extends.
+    Since detection probes nearest first (`_llms_probes`), a file can also be
+    found part-way up: asked for `/docs/orm/`, it may be `/docs/llms.txt`,
+    which describes all of `/docs/` and has to be narrowed exactly as a root
+    file would be. A file in the section's own directory, or below it, is
+    the one that was asked for and is taken as published.
+    """
+    if _at_the_site_root(det):
+        return True
+    where = _dir_of(det.url)
+    prefix = _scope_for(url, opts)
+    return prefix != where and prefix.startswith(where)
 
 
 def _fetch_at(fetcher, url: str, render: bool = False) -> tuple[str, str]:
@@ -2453,13 +3664,38 @@ def _document_base(soup, landed: str) -> str:
 
 def _normalize(url: str) -> str:
     """Drop the fragment and a trailing slash so `/intro` and `/intro/` are
-    one page, not two fetches of the same content."""
+    one page, not two fetches of the same content.
+
+    A key, never an address: see `_fetchable`."""
     url = urldefrag(url)[0]
     parsed = urlparse(url)
     path = parsed.path
     if len(path) > 1 and path.endswith("/"):
         url = url.replace(path, path[:-1], 1)
     return url
+
+
+def _fetchable(url: str) -> str:
+    """The URL to ask for: as the site wrote it, minus the fragment.
+
+    The crawl used to fetch `_normalize`'s spelling, trailing slash removed,
+    and a server is under no obligation to answer `/book` the way it answers
+    `/book/`. `doc.rust-lang.org` answers `/book/` with the Rust book and
+    `/book` with a 302 to `/stable/book/` -- outside the scope the crawl was
+    keeping to -- so every chapter link fell out of scope and a harvest of the
+    book stored its title page (field test, 2026-09-24). Where a server does
+    redirect `/x` to `/x/`, asking for the slashed spelling saves that hop on
+    every page. Pages are still *keyed* by `_normalize`, so the two spellings
+    remain one page.
+    """
+    return urldefrag(url)[0]
+
+
+#: A site's machine-readable files: read by the ladder when it wants them,
+#: never harvested as pages. Angular's sitemap lists its own `llms.txt`, and an
+#: uncapped harvest counted it as a page it could not read (2026-09-24).
+_MACHINE_FILES = ("llms.txt", "llms-full.txt", "llms-medium.txt", "llms-small.txt",
+                  "robots.txt", "sitemap.xml", "sitemap.txt", "sitemap_index.xml")
 
 
 def _crawlable(link: str, host: str, prefix: str = "/") -> bool:
@@ -2469,6 +3705,8 @@ def _crawlable(link: str, host: str, prefix: str = "/") -> bool:
     if (p.hostname or "").lower() != host:
         return False
     if p.path.lower().endswith(SKIP_EXT):
+        return False
+    if p.path.lower().rsplit("/", 1)[-1] in _MACHINE_FILES:
         return False
     # Compare with a trailing slash on both sides so /docs/v3 matches /docs/v3/.
     path = p.path if p.path.endswith("/") else p.path + "/"
@@ -2671,13 +3909,27 @@ class _Frontier:
     always did — just in a better order (Invariant 7).
     """
 
-    def __init__(self, start: str) -> None:
+    def __init__(self, start: str | None, seeds: list[str] | None = None) -> None:
         self._heap: list[tuple[tuple, str]] = []
+        #: Keyed by `_page_key` -- `/x`, `/x/` and `/x.md` are one page; what is queued is the URL as the site wrote
+        #: it, because that is what gets fetched (see `_fetchable`).
         self._seen: set[str] = set()
         self._yield: dict[str, float] = {}
-        self.append(start)
+        #: URLs the site itself listed -- a sitemap, a manifest -- in the
+        #: order it listed them. They go first, in that order: they are the
+        #: statement of what exists, and what a link merely points at is
+        #: found by fetching them.
+        self._order: dict[str, int] = {}
+        for i, url in enumerate(seeds or []):
+            self._order.setdefault(_page_key(url), i)
+            self.append(url)
+        if start:
+            self.append(start)
 
     def _rank(self, url: str) -> tuple:
+        seeded = self._order.get(_page_key(url))
+        if seeded is not None:
+            return (-1, seeded, 0, 0, url)
         path = urlparse(url).path or "/"
         # Demoted, never removed: a changelog is documentation-adjacent, and a
         # truncated harvest should spend its budget on the manual first.
@@ -2704,16 +3956,17 @@ class _Frontier:
             heapq.heappush(self._heap, (self._rank(url), url))
 
     def append(self, url: str) -> None:
-        if url in self._seen:
+        key = _page_key(url)
+        if key in self._seen:
             return
-        self._seen.add(url)
+        self._seen.add(key)
         heapq.heappush(self._heap, (self._rank(url), url))
 
     def popleft(self) -> str:
         return heapq.heappop(self._heap)[1]
 
     def __contains__(self, url: str) -> bool:
-        return url in self._seen
+        return _page_key(url) in self._seen
 
     def __len__(self) -> int:
         return len(self._heap)
@@ -2737,8 +3990,136 @@ def _drain(docs: list[Doc], sink) -> list[Doc]:
     return kept
 
 
+#: A refused page whose text is at least this much link text is a table of
+#: contents (`_crawl_html`), not documentation that could not be read.
+INDEX_LINK_SHARE = 0.5
+
+#: A Markdown link's target: `[text](target)`, `[text](<target>)`, with or
+#: without a title after it.
+_MD_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+[\"'][^)]*[\"'])?\s*\)")
+_FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
+
+
+#: A link to this page whose text is only a permalink mark, as it survives in
+#: Markdown a generator exported: `[​](#highlights "Direct link to Highlights")`
+#: -- 2,665 of them in react-native's `llms-full.txt` (field test, 2026-09-24).
+_MD_PERMALINK = re.compile(r"\[(?:​|¶|§|#|🔗|\s)*\]\(#[^)\s]*(?:\s+\"[^\n]*?\")?\)")
+
+
+def _tidy_markdown(text: str, base: str) -> str:
+    """Published Markdown, with links that still point somewhere once stored.
+
+    A dump or a page's Markdown twin is kept as the publisher wrote it, save
+    two things that only work on the site it came from: permalink marks, and
+    relative links -- `[Routing](/docs/app/routing)` in Next.js's dump, 4,224
+    of them, which lead nowhere from a knowledge base. Code blocks are left
+    exactly as they are.
+    """
+    if not text:
+        return text
+    # A permalink mark is never code, so it goes wherever it is.
+    text = _MD_PERMALINK.sub("", text)
+    if not base:
+        return text
+    fences = _fence_spans(text)
+
+    def absolute(m: re.Match) -> str:
+        target = m.group(2)
+        if _inside(m.start(), fences) or target.startswith(
+                ("#", "http://", "https://", "mailto:", "tel:", "data:", "//")):
+            return m.group(0)
+        return f"{m.group(1)}({urljoin(base, target)}{m.group(3) or ''})"
+
+    return _MD_TARGET.sub(absolute, text)
+
+
+#: `](target)` or `](target "title")` -- where a Markdown link points.
+_MD_TARGET = re.compile(r"(\]\s*)\(\s*<?([^)\s>]+)>?(\s+\"[^\"]*\")?\s*\)")
+
+
+def _is_html_document(text: str) -> bool:
+    head = (text or "").lstrip()[:600].lower()
+    return head.startswith(("<!doctype html", "<html")) or "<html" in head[:200]
+
+
+def _markdown_page(text: str, url: str, fallback_title: str = "") -> tuple[str, str]:
+    """A Markdown twin as a stored page: its title, and its text.
+
+    Front matter is the page's metadata, not its prose; its `title` is kept
+    as the page's title and the block itself is dropped."""
+    body = text.lstrip("﻿")
+    title = ""
+    front = _FRONTMATTER.match(body)
+    if front:
+        m = re.search(r"^title:\s*[\"']?(.+?)[\"']?\s*$", front.group(1), re.M)
+        title = m.group(1).strip() if m else ""
+        body = body[front.end():]
+    if not title:
+        m = re.search(r"^#\s+(.+?)\s*#*\s*$", body, re.M)
+        title = m.group(1).strip() if m else ""
+    title = title or fallback_title or \
+        urlparse(url).path.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0] or url
+    return title[:200], _meta_header(url, "markdown") + _tidy_markdown(body.strip(), url)
+
+
+def _lives_at(soup, url: str, landed: str, base: str) -> bool:
+    """Is `base` where this page's documentation actually is?
+
+    Yes when the page was redirected there. When only a `<base href>` says
+    so, yes if the page's links agree -- Click's `/en/stable/` declares
+    `/en/8.5.x/` and its relative links all resolve there. Apple's app shell
+    declares `/tutorials/` on every documentation page and links nowhere
+    under it, and taking its word moved a harvest of SwiftUI into the
+    tutorials (field test, 2026-09-24).
+    """
+    if _page_key(landed) != _page_key(url):
+        return True
+    host = (urlparse(base).hostname or "").lower()
+    there = docs_scope(base)
+    links = [urljoin(base, a["href"]) for a in soup.find_all("a", href=True)
+             if not a["href"].startswith(("#", "mailto:", "javascript:"))]
+    links = [l for l in links if (urlparse(l).hostname or "").lower() == host]
+    if len(links) < 3:
+        return False
+    return sum(1 for l in links if _crawlable(l, host, there)) >= len(links) / 2
+
+
+def _markdown_alternate(soup, base: str) -> str:
+    """The Markdown copy a page says it has, or "".
+
+    `<link rel="alternate" type="text/markdown" href="…">` is how a growing
+    number of documentation platforms publish each page's source beside it
+    -- Apple's, Cloudflare's, Mintlify's and Fern's among them -- and it is
+    the page without the JavaScript that renders it or the chrome around it.
+    """
+    for link in soup.find_all("link", href=True):
+        rel = " ".join(link.get("rel") or []).lower() if isinstance(link.get("rel"), list) \
+            else str(link.get("rel") or "").lower()
+        kind = (link.get("type") or "").lower()
+        if "alternate" in rel and "markdown" in kind:
+            return urljoin(base, link["href"].strip())
+    return ""
+
+
 def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
-                stats: dict | None = None, sink=None) -> list[Doc]:
+                stats: dict | None = None, sink=None, *,
+                seeds: list[str] | None = None, admit=None,
+                statement: str = "", known: set[str] | None = None) -> list[Doc]:
+    """Fetch and extract every page of a documentation section.
+
+    With `seeds`, this is the acquisition loop for a site that stated what
+    exists -- its sitemap, its generator's manifest -- and `statement` names
+    that source. The seeds go first, in the site's order; links found on
+    them are followed too, because a sitemap is a hint and not always a
+    complete one; and coverage is measured against everything known to
+    exist, which a plain crawl cannot do. `start` is then fetched only if it
+    is itself a seed or linked from one.
+
+    `admit`, when given, is the caller's rule for which in-scope URLs belong
+    to this harvest at all -- one language, one release -- applied alike to
+    seeds and to every link found. `known` is pages this harvest already has
+    from elsewhere, as `_page_key`s; a link to one of them is not followed.
+    """
     seen: set[str] = set()
     out: list[Doc] = []
     #: Reached, fetched, and nothing on them read like documentation. Kept
@@ -2754,6 +4135,12 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
     refused: list[str] = []
     refused_in_a_row = 0
     rate_limited = False
+    #: Asked for and answered 404 or 410: listed or linked, and not there.
+    #: Reported, never counted as a page this copy lacks.
+    dead: list[str] = []
+    #: Reached, and nothing but a table of contents: followed, not stored,
+    #: not a gap.
+    index_pages: list[str] = []
     #: Out-of-scope link evidence, summed across the whole crawl. Costs no
     #: requests: it reads soup that link discovery has already parsed.
     sites = Federation()
@@ -2763,16 +4150,21 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
     ledger = Ledger()
     plan = Plan()
     last_revised = 0
-    queue = _Frontier(_normalize(start))
+    admit = admit or (lambda _url: True)
+    if known:
+        allowed = admit
+        admit = lambda link: _page_key(link) not in known and allowed(link)  # noqa: E731
+    seeded = [_fetchable(u) for u in (seeds or [])]
+    statement_keys = {_page_key(u) for u in seeded}
+    queue = _Frontier(None if seeded else _fetchable(start), seeds=seeded)
     host = (urlparse(start).hostname or "").lower()
+    #: Whether the boundary is still ours to move: a derived section, not a
+    #: prefix the caller typed, and not one a site's own list already fixed.
+    #: See the first-page check below.
+    derived_scope = opts.scope in ("", "section", None) and not seeded
 
     # "Same host" is not the right boundary for a docs site — see docs_scope.
-    if opts.scope == "host":
-        prefix = "/"
-    elif opts.scope in ("", "section", None):
-        prefix = docs_scope(start)
-    else:
-        prefix = opts.scope if opts.scope.endswith("/") else opts.scope + "/"
+    prefix = _scope_for(start, opts)
     # 0 = no limit: crawl until the section is exhausted.
     limit = opts.limit()
     _log(opts, f"  crawling within {prefix}"
@@ -2787,11 +4179,45 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
     pace = _Pace(opts.delay)
     pool = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
     window: deque = deque()
+    first_page = True
 
     def _fetch(link: str, render: bool) -> tuple[str, str]:
+        # A Markdown file is never rendered: a browser would wrap it in a
+        # `<pre>` and hand back a page about a text file.
+        render = render and not llmsfinder.is_markdown_link(link)
         pace.wait(link)
         with pace.host(link):
-            return _fetch_at(fetcher, link, render)
+            html, landed = _fetch_at(fetcher, link, render)
+        # A client-side redirect stub is followed here, as `_extract_page`
+        # follows it for a single page: `docs.pytorch.org/docs/stable/…` is a
+        # 1,400-byte `location.replace` to the release it aliases, on every
+        # page, and extraction finds nothing in the stub itself.
+        hops = {_page_key(link), _page_key(landed)}
+        for _ in range(REDIRECT_HOPS):
+            target = _redirect_target(html, landed)
+            if not target or _page_key(target) in hops:
+                break
+            hops.add(_page_key(target))
+            pace.wait(target)
+            with pace.host(target):
+                html, landed = _fetch_at(fetcher, target, render)
+        return html, landed
+
+    def _fetch_twin(soup, base: str) -> tuple[str, str] | None:
+        """The page's declared Markdown copy, fetched, or None."""
+        alt = _markdown_alternate(soup, base)
+        if not alt or (urlparse(alt).hostname or "").lower() != (urlparse(base).hostname or "").lower():
+            return None
+        try:
+            pace.wait(alt)
+            with pace.host(alt):
+                text = fetcher.text(alt)
+        except Exception:                           # noqa: BLE001 -- no copy is no copy
+            return None
+        if _is_html_document(text) or len(text.strip()) < 40:
+            return None
+        seen.add(_page_key(alt))
+        return alt, text
 
     def _fill() -> None:
         """Top the window up, in queue order.
@@ -2803,12 +4229,16 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
         window has already been taken off the queue, so a revision reaches the
         crawl up to `workers` pages later than it otherwise would.
         """
-        while (pool is not None and len(window) < workers and queue
-               and (limit is None or len(out) + len(window) < limit)):
+        while (pool is not None and not plan.render and len(window) < workers
+               and queue and (limit is None or len(out) + len(window) < limit)):
+            # Not once the plan renders: Playwright's sync API belongs to the
+            # thread that started it, and a rendered page fetched from a
+            # worker thread fails every time. Rendered pages are fetched one
+            # at a time on this thread, below.
             nxt = queue.popleft()
-            if nxt in seen:
+            if _page_key(nxt) in seen:
                 continue
-            seen.add(nxt)
+            seen.add(_page_key(nxt))
             window.append((nxt, pool.submit(_fetch, nxt, plan.render)))
 
     try:
@@ -2830,23 +4260,59 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 url, pending = window.popleft()
             elif queue:
                 url, pending = queue.popleft(), None     # workers == 1
-                if url in seen:
+                if _page_key(url) in seen:
                     continue
-                seen.add(url)
+                seen.add(_page_key(url))
             else:
                 break
 
             report: dict = {}
             html = ""
+            needed_help = False
+            # Links this page leads to, queued once the page has been judged:
+            # a harvest kept to a topic follows only the pages it kept.
+            found: list[str] = []
+
+            def release() -> None:
+                for link in found:
+                    if _page_key(link) not in seen and link not in queue:
+                        queue.append(link)
+                found.clear()
+
             try:
                 if pending is not None:
                     html, landed = pending.result()
                 else:
-                    pace.wait(url)
-                    html, landed = _fetch_at(fetcher, url, plan.render)
+                    html, landed = _fetch(url, plan.render)
                 # Where the page was served from is a page too: a redirect
                 # that lands here again from another link is not a new page.
-                seen.add(_normalize(landed))
+                seen.add(_page_key(landed))
+
+                if llmsfinder.is_markdown_link(landed) and not _is_html_document(html):
+                    # A page's Markdown twin, reached by a link or listed by the
+                    # site. Its words are the page; its links are Markdown.
+                    title, doc = _markdown_page(html, url)
+                    first_page = False
+                    fences = _fence_spans(html)
+                    for m in _MD_LINK.finditer(html):
+                        if _inside(m.start(), fences):
+                            continue        # an example in a code block, not a link
+                        link = _fetchable(urljoin(landed, m.group(1)))
+                        if (_page_key(link) not in seen and link not in queue
+                                and _crawlable(link, host, prefix) and admit(link)):
+                            found.append(link)
+                    refused_in_a_row = 0
+                    if sink is not None:
+                        if not sink.add(title, url, doc):
+                            if not getattr(sink, "off_topic", False):
+                                release()
+                            continue
+                        out.append(Doc(url, title, ""))
+                    else:
+                        out.append(Doc(url, title, doc))
+                    release()
+                    _log(opts, f"  [{len(out)}] {url}")
+                    continue
 
                 # Parse once: link discovery needs the nav _html_to_md strips out.
                 soup = _soup(html)
@@ -2859,20 +4325,65 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 # served from, never against the normalised spelling this crawl
                 # keys pages by. Under `/en/stable`, `quickstart` is `/en/quickstart`.
                 base = _document_base(soup, landed)
+
+                if first_page and derived_scope and not _crawlable(base, host, prefix) \
+                        and _lives_at(soup, url, landed, base):
+                    # The start page lives somewhere other than the URL it was
+                    # asked for at -- a redirect, or a declared base -- and the
+                    # section derived from the request is not where its
+                    # documentation is. `laravel.com/docs` answers with a 301
+                    # to `/framework/docs`; a crawl kept to `/docs/` stored the
+                    # landing page and found every link on it out of scope
+                    # (field test, 2026-09-24).
+                    host = (urlparse(base).hostname or host).lower()
+                    prefix = docs_scope(base)
+                    _log(opts, f"  {url} lives at {base}; crawling within {prefix} there")
+                first_page = False
                 for a in soup.find_all("a", href=True):
-                    link = _normalize(urljoin(base, a["href"]))
-                    if link not in seen and link not in queue and _crawlable(link, host, prefix):
-                        queue.append(link)
+                    link = _fetchable(urljoin(base, a["href"]))
+                    if (_page_key(link) not in seen and link not in queue
+                            and _crawlable(link, host, prefix) and admit(link)):
+                        found.append(link)
 
                 try:
                     title, doc = _html_to_md(html, url, soup=soup, plan=plan,
                                              report=report)
                 except ForgeError:
-                    if opts.js or plan.render or not _looks_like_shell(html):
+                    # Nothing readable in the HTML as served. The page's own
+                    # Markdown copy first -- no browser, no chrome -- then one
+                    # rendered retry if the page ships the scripts that would
+                    # draw it.
+                    twin = _fetch_twin(soup, base)
+                    if twin is not None:
+                        title, doc = _markdown_page(twin[1], url,
+                                                    soup.title.get_text(strip=True)
+                                                    if soup.title else "")
+                        _log(opts, f"  {url} has no readable HTML; took its Markdown "
+                                   f"copy at {twin[0]}")
+                        # The copy links where the page does, and it is the
+                        # only place those links are readable.
+                        fences = _fence_spans(twin[1])
+                        for m in _MD_LINK.finditer(twin[1]):
+                            if _inside(m.start(), fences):
+                                continue
+                            link = _fetchable(urljoin(twin[0], m.group(1)))
+                            if (_page_key(link) not in seen and link not in queue
+                                    and _crawlable(link, host, prefix) and admit(link)):
+                                found.append(link)
+                    elif opts.js or plan.render or not _wants_render(html):
                         raise
-                    _log(opts, f"  {url} is a JS shell; retrying rendered")
-                    title, doc = _html_to_md(fetcher.render(url), url, plan=plan,
-                                             report=report)
+                    else:
+                        _log(opts, f"  {url} renders client-side; retrying rendered")
+                        rendered = fetcher.render(url)
+                        needed_help = True
+                        rsoup = _soup(rendered)
+                        for a in rsoup.find_all("a", href=True):
+                            link = _fetchable(urljoin(base, a["href"]))
+                            if (_page_key(link) not in seen and link not in queue
+                                    and _crawlable(link, host, prefix) and admit(link)):
+                                found.append(link)
+                        title, doc = _html_to_md(rendered, url, soup=rsoup, plan=plan,
+                                                 report=report)
             except ForgeError as e:
                 if getattr(e, "status", None) == 429:
                     refused.append(url)
@@ -2885,20 +4396,44 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                                    f"keep asking")
                         break
                     continue
+                if getattr(e, "status", None) in (404, 410):
+                    # Not there. A dead entry in the site's own list or a dead
+                    # link, and not a page this copy is missing: FastAPI's
+                    # sitemap names twelve pages it has since removed, and
+                    # counting them made a harvest of every page that exists
+                    # INCOMPLETE (uncapped field test, 2026-09-24).
+                    dead.append(url)
+                    _log(opts, f"  not on the site {url}: {e}")
+                    continue
                 if report:
                     # A refused page is still evidence — it is what tells the plan
                     # that a template is not being read well.
                     report["shell"] = _looks_like_shell(html)
                     ledger.record(Observation(**report))
-                unreadable.append(url)
-                _log(opts, f"  unextractable {url}: {e}")
+                if report.get("link_text_ratio", 0) >= INDEX_LINK_SHARE:
+                    # A table of contents -- Sphinx's module index, a category
+                    # page of cards -- refused because it is links, which is
+                    # what it is for. Not documentation, so not a gap.
+                    index_pages.append(url)
+                    _log(opts, f"  index page {url}: its links are followed, it is not stored")
+                else:
+                    unreadable.append(url)
+                    _log(opts, f"  unextractable {url}: {e}")
+                # A page of nothing but links is still a way to the pages it
+                # lists: an index that reads as navigation is exactly that.
+                release()
                 continue
             except Exception as e:  # one broken page must not end the crawl
+                # Counted, not only logged: a page that broke the parser is a
+                # page this harvest does not have.
+                unreadable.append(url)
                 _log(opts, f"  skip {url}: {type(e).__name__}: {e}")
                 continue
 
             refused_in_a_row = 0
-            report["shell"] = _looks_like_shell(html)
+            # A page that had to be rendered to be read counts as a shell for
+            # the plan (R4), whatever the static test said of it.
+            report["shell"] = _looks_like_shell(html) or needed_help
             ledger.record(Observation(**report))
 
             # Decision point 4. A page that answers 200 while rendering "Page
@@ -2909,6 +4444,7 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
             if _error_shaped(title, doc) and _is_error_page(title, doc, url):
                 unreadable.append(url)
                 _log(opts, f"  {url} answers 200 but renders an error")
+                release()
                 continue
 
             if sink is not None:
@@ -2919,10 +4455,16 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 # released rather than carried to the end of the harvest, and a
                 # page the store refuses costs that page and nothing else.
                 if not sink.add(title, url, doc):
+                    # Off the topic this harvest keeps to: not stored, and not
+                    # a way in either. Refused by the store for another reason
+                    # (too large): its links still lead to real pages.
+                    if not getattr(sink, "off_topic", False):
+                        release()
                     continue
                 out.append(Doc(url, title, ""))
             else:
                 out.append(Doc(url, title, doc))
+            release()
             _log(opts, f"  [{len(out)}] {url}")
 
     finally:
@@ -2970,16 +4512,40 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 f"than keep asking; {left + len(refused)} discovered page(s) were "
                 f"not fetched. This is the site's pace, not its size: harvest "
                 f"again later")
-        elif not left:
+        elif not left and not seeded:
             stats.setdefault("reason", (
                 f"a crawl reached every page linked under {prefix} and stopped. "
                 f"Nothing stated how many pages exist, so a page nothing links "
                 f"to would not have been seen"))
+        if seeded:
+            # The site said what exists, so coverage is a measurement: every
+            # page it listed, and every page those pages link to inside the
+            # section, either stored or accounted for.
+            known = len(out) + len(unreadable) + len(refused) + left
+            found_by_links = max(0, known - len(statement_keys))
+            stats["discovered"] = known
+            stats["index"] = statement or "sitemap"
+            stats["listed"] = len(statement_keys)
+            stats["found_by_links"] = found_by_links
+            if not left and not rate_limited:
+                stats["whole"] = not unreadable and not refused
+            if stats["whole"] is False and not rate_limited:
+                stats["reason"] = (
+                    f"stored {len(out)} of the {known} pages the "
+                    f"{statement or 'sitemap'} lists"
+                    + (f" or links to ({found_by_links} found only by following links)"
+                       if found_by_links else "")
+                    + (f", {len(unreadable)} of them unextractable" if unreadable else "")
+                    + (f", {len(refused)} of them refused with HTTP 429" if refused else ""))
         stats.setdefault("discovered", len(out) + len(queue) + len(refused))
         if unreadable:
             stats["unextractable"] = unreadable
         if refused:
             stats["refused"] = refused
+        if dead:
+            stats["dead"] = list(stats.get("dead") or []) + dead
+        if index_pages:
+            stats["index_pages"] = list(stats.get("index_pages") or []) + index_pages
         if getattr(fetcher, "throttled", 0):
             stats["throttled"] = fetcher.throttled
         # Invariant 11: every revision surfaced next to the coverage note
@@ -3132,6 +4698,62 @@ def _prefer_default_locale(urls: list[str]) -> list[str]:
     return keep or urls
 
 
+def _admission(url: str, prefix: str, seeds: list[str] | None = None):
+    """Which in-scope links belong to this harvest, as a predicate.
+
+    The sitemap path filters what the site lists -- one language
+    (`_prefer_default_locale`), one release (`_prefer_current_release`), no
+    blog posts on a marketing host (`_focus_on_docs`). A crawl that follows
+    links needs the same rule for what it *finds*, or the language switcher
+    and the version picker on every page walk it straight back into the
+    translations and releases the list was narrowed away from.
+
+    The harvest's own language and release are read off what it starts from:
+    the seeds when the site listed them, the start URL otherwise.
+    """
+    pool = list(seeds or []) or [url]
+    locales = {_locale_of(u) for u in pool}
+    if locales <= {"", "en"}:
+        locales = {"", "en"}
+
+    # The release the harvest is filed under, if most of its pages name one;
+    # if most name none, the current documentation is the unversioned pages.
+    # By majority, not unanimity: docusaurus.io lists a handful of pages whose
+    # paths merely contain a release-like word (a migration guide filed under
+    # `v3`), that switched the unversioned rule off, and an uncapped harvest
+    # followed the version picker into 311 pages of `/docs/3.3.2/` and
+    # `/docs/next/` (field test, 2026-09-24).
+    found = [s for s in (_release_segment(u) for u in pool) if s is not None]
+    release = None
+    unversioned_below = None
+    if found and len(found) >= len(pool) / 2:
+        depth = min(d for d, _ in found)
+        at_depth = {k for d, k in found if d == depth}
+        if len(at_depth) == 1:
+            release = (depth, at_depth.pop())
+    elif seeds:
+        unversioned_below = len([p for p in prefix.split("/") if p]) + 1
+
+    articles_out = prefix in ("", "/") and not is_documentation_host(url)
+
+    def admit(link: str) -> bool:
+        if _locale_of(link) not in locales:
+            return False
+        seg = _release_segment(link)
+        if seg is not None:
+            if release is not None and seg[0] == release[0] and seg[1] != release[1]:
+                return False
+            if unversioned_below is not None and seg[0] < unversioned_below:
+                # The current docs are filed under no release, and this link
+                # is a release's copy of them (`/docs/1.8/` beside `/docs/`).
+                return False
+        if articles_out and looks_like_article(link):
+            return False
+        return True
+
+    return admit
+
+
 def _xml_soup(text: str):
     """Prefer a real XML parser, but degrade instead of exploding when lxml
     is not installed — the README used to call it optional."""
@@ -3143,7 +4765,23 @@ def _xml_soup(text: str):
     raise ForgeError("Could not parse sitemap XML")
 
 
-def _sitemap_links(text: str, fetcher: Fetcher, opts: Options, depth: int = 0) -> list[str]:
+def _sitemap_links(text: str, fetcher: Fetcher, opts: Options, depth: int = 0,
+                   keep=None, hint: str = "", budget=None) -> list[str]:
+    """Every page URL a sitemap lists, following an index down.
+
+    `keep`, when given, says which URLs the caller will actually use; a page
+    cap is then counted in those, not in whatever the first children listed.
+    `hint` is the path the caller is interested in, used only to decide which
+    children of an index to open first.
+    """
+    stripped = (text or "").lstrip()
+    if stripped and not stripped.startswith("<"):
+        # The sitemaps protocol allows a plain list, one URL per line, and
+        # `doc.rust-lang.org/robots.txt` points at exactly that. Parsed as XML
+        # it had no `<loc>` in it, and the Rust book fell back to a crawl.
+        return [line.strip() for line in stripped.splitlines()
+                if line.strip().startswith(("http://", "https://"))]
+
     soup = _xml_soup(text)
     locs = [el.get_text(strip=True) for el in soup.find_all("loc")]
     locs = [l for l in locs if l]
@@ -3159,11 +4797,21 @@ def _sitemap_links(text: str, fetcher: Fetcher, opts: Options, depth: int = 0) -
         # language and had nothing to choose between — which is why this has to
         # happen here, where the choice still exists.
         locs = _prefer_default_locale(locs)
+        # Children that name the section being harvested go first. Order
+        # only: every child is still read unless a page cap is already met.
+        words = [w.lower() for w in hint.split("/") if w and len(w) > 2]
+        if words:
+            locs.sort(key=lambda sm: not any(w in sm.lower() for w in words))
         for sm in locs:
-            if cap is not None and len(nested) >= cap:
+            if cap is not None:
+                wanted = [u for u in nested if keep is None or keep(u)]
+                if len(wanted) >= cap:
+                    break
+            if budget is not None and not budget.spend():
                 break
             try:
-                nested += _sitemap_links(fetcher.text(sm), fetcher, opts, depth + 1)
+                nested += _sitemap_links(_sitemap_body(sm, fetcher), fetcher, opts,
+                                         depth + 1, keep=keep, hint=hint, budget=budget)
             except ForgeError as e:
                 _log(opts, f"  skip sitemap {sm}: {e}")
         return nested
@@ -3314,6 +4962,38 @@ def _note_coverage(stats: dict | None, det: "Detection", docs: list,
     stats.setdefault("fetched", len(docs))
 
 
+class _TopicSink:
+    """Stores only what belongs to the harvest's topic, and keeps the count.
+
+    Wraps the real sink, or collects the documents itself when there is none
+    (a library caller), so a topic filters every acquisition path alike -- a
+    published file, a listed page, a crawled one -- at the one place every page
+    passes through. `off_topic` says why the last page was not stored, which
+    the crawl reads to decide whether to follow its links.
+    """
+
+    def __init__(self, inner, selector) -> None:
+        self.inner = inner
+        self.selector = selector
+        self.off_topic = False
+        self.stored = 0
+        self.docs: list[Doc] = []
+
+    def add(self, title: str, url: str, body: str) -> bool:
+        self.off_topic = False
+        if not self.selector.wants(title, url, body):
+            self.off_topic = True
+            return False
+        if self.inner is None:
+            self.docs.append(Doc(url, title, body))
+            self.stored += 1
+            return True
+        kept = self.inner.add(title, url, body)
+        if kept:
+            self.stored += 1
+        return kept
+
+
 def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = None,
             stats: dict | None = None, sink=None) -> tuple[list[Doc], str]:
     """Get a WHOLE documentation set from one starting URL.
@@ -3327,13 +5007,82 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
          finds pages no nav links to.
       3. A scoped crawl — works anywhere, but only reaches what is linked.
 
+    With `opts.topic`, the whole of the part of it that is about the topic
+    (`topics.Selector`): every page judged, the ones that belong stored, and
+    what was left out accounted for in `stats["topic"]`.
+
     Returns the documents and the name of the strategy that produced them.
     """
     opts = opts or Options()
+    selector = topics.Selector(opts.topic) if (opts.topic or "").strip() else None
+    if selector is None or not selector.active:
+        return _harvest(url, opts, fetcher, stats, sink)
+    topical = _TopicSink(sink, selector)
+    _log(opts, f"  keeping to the topic {opts.topic!r}: "
+               f"{', '.join(selector.vocabulary[:14])}"
+               + (" ..." if len(selector.vocabulary) > 14 else ""))
+    docs, strategy = _harvest(url, opts, fetcher, stats, topical)
+    for skipped in (stats or {}).pop("topic_skipped", []) if stats is not None else []:
+        selector.left.append((skipped, ""))
+    if stats is not None:
+        # Measured against what the topic selected: a page judged not to be
+        # about it was never expected, and one that failed to arrive was.
+        failures = (len(stats.get("unextractable") or []) + len(stats.get("refused") or [])
+                    + len(stats.get("failed_urls") or []))
+        stats["acquired"] = stats["fetched"] = topical.stored
+        stats["expected"] = stats["discovered"] = (topical.stored + failures
+                                                   + (stats.get("remaining") or 0))
+        stats["topic"] = {"topic": opts.topic, "terms": selector.vocabulary,
+                          "kept": topical.stored, "left": len(selector.left),
+                          "left_by_section": selector.left_by_section()}
+    if sink is None:
+        docs = topical.docs
+    return docs, strategy
+
+
+def _harvest(url: str, opts: Options, fetcher: Fetcher | None,
+             stats: dict | None, sink) -> tuple[list[Doc], str]:
+    """`harvest`, for one topic or none -- see there."""
     own = fetcher is None
     fetcher = fetcher or Fetcher(opts)
     try:
-        det = detect_source(url, fetcher)
+        if opts.scope in ("", "section", None) and not opts.section:
+            # Everything below is derived from this URL -- the section, the
+            # llms files probed for, the sitemap filter -- so it has to be the
+            # URL the documentation is actually at, not the one that redirects
+            # there, and the section has to be the one the site's own
+            # navigation draws rather than the one the URL's shape suggests.
+            landed, page = _land(url, fetcher)
+            if landed != url:
+                _log(opts, f"  {url} redirects to {landed}; harvesting from there")
+                url = landed
+            if (opts.version or "").strip():
+                # A release was asked for and the URL may name another: start
+                # where the site files the one asked for, if it does, and draw
+                # the section there.
+                moved = _url_for_release(url, opts.version.strip(), fetcher, opts, stats)
+                if moved != url:
+                    url, page = moved, ""
+            if page and _DOCSIFY.search(page):
+                files = _docsify_pages(url, page, fetcher)
+                if len(files) >= 2:
+                    where = _dir_of(files[0])
+                    _log(opts, f"  a docsify site: its sidebar lists {len(files)} Markdown "
+                               f"page(s) under {where}; reading them directly")
+                    md_opts = replace(opts, crawl=True, section=where)
+                    return (_crawl_html(files[0], fetcher, md_opts, stats, sink=sink,
+                                        seeds=files, statement="docsify sidebar",
+                                        admit=llmsfinder.is_markdown_link), "docsify")
+            section = _resolve_section(url, page)
+            if section != docs_scope(url):
+                _log(opts, f"  the site's own navigation puts this page in {section} "
+                           f"(its URL alone suggests {docs_scope(url)})")
+            opts = replace(opts, section=section)
+        elif (opts.version or "").strip():
+            # A release was asked for and the URL may name another: start
+            # where the site files the one asked for, if it does.
+            url = _url_for_release(url, opts.version.strip(), fetcher, opts, stats)
+        det = detect_source(url, fetcher, scope=_scope_for(url, opts))
         if det.kind in ("llms_txt", "openapi", "github", "raw_text"):
             # A site publishes one llms.txt for its current release. When the
             # caller asked for a specific version, handing them that file would
@@ -3349,7 +5098,7 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                            "the section this URL asks for")
             else:
                 if restrict_links is not None:
-                    _log(opts, f"  scoping the site-wide llms.txt to {docs_scope(url)} "
+                    _log(opts, f"  scoping the site-wide llms.txt to {_scope_for(url, opts)} "
                                f"({len(restrict_links)} manifest page(s))")
                 if pathway.restrict_body is not None:
                     # A dump narrowed to the section that was asked for. The
@@ -3378,8 +5127,15 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
 
                     strategy_used = det.kind
                     if det.kind == "llms_txt":
+                        whole_text = det.body is not None and llmsfinder.classify_llms_shape(
+                            det.body.strip(), det.url) not in ("index", "hybrid")
                         if det.url.lower().endswith(("llms-full.txt", "llms-medium.txt")):
                             strategy_used = "llms-full.txt"
+                        elif whole_text:
+                            # An `llms.txt` that is the documentation itself --
+                            # svelte.dev's per-section files are -- cut into
+                            # pages, not a list of links fetched one by one.
+                            strategy_used = "llms.txt (full text)"
                         elif docs:
                             sample = docs[0].markdown if len(docs) == 1 else ""
                             shape = llmsfinder.classify_llms_shape(sample)
@@ -3389,128 +5145,329 @@ def harvest(url: str, opts: Options | None = None, fetcher: Fetcher | None = Non
                             else:
                                 strategy_used = "llms_txt"
 
-                    return _drain(docs, sink), strategy_used
+                    kept = _drain(docs, sink)
+                    if det.kind == "llms_txt":
+                        covered = _published_pages(docs, stats)
+                        if covered is None:
+                            _log(opts, "  the published file names no pages, so it cannot "
+                                       "be checked against the sitemap")
+                        else:
+                            extra, suffix = _complete_from_listing(
+                                url, fetcher, opts, stats, sink, covered,
+                                det.url.rsplit("/", 1)[-1], already=len(kept),
+                                docs=docs)
+                            kept += extra
+                            strategy_used += suffix
+                    return kept, strategy_used
 
-        prefix = docs_scope(url) if opts.scope in ("", "section", None) else (
-            "/" if opts.scope == "host" else opts.scope)
-        host = (urlparse(url).hostname or "").lower()
+        prefix = _scope_for(url, opts)
 
-        # The site's own index first, sitemap second.
-        links, index_kind = site_manifest(url, fetcher, opts)
-        if len(links) < 3:
-            index_kind = "sitemap"
-            sitemap = find_sitemap(url, fetcher, opts)
-            links = []
-            if sitemap:
-                try:
-                    links = _sitemap_links(fetcher.text(sitemap), fetcher, opts)
-                except ForgeError:
-                    links = []
-        if links:
-            scoped = [l for l in dict.fromkeys(_normalize(l) for l in links)
-                      if _crawlable(l, host, prefix)]
-            before = len(scoped)
-            scoped = _prefer_default_locale(_focus_on_docs(scoped, prefix))
-            if len(scoped) != before:
-                _log(opts, f"  narrowed {before} {index_kind} URLs to {len(scoped)} "
-                           f"(documentation, default language)")
-            scoped = _urls_for_release(scoped, _requested_release(url, opts),
-                                       opts, stats)
+        scoped, index_kind = _listed_pages(url, fetcher, opts, stats)
+        scoped = _topic_prefilter(scoped, opts, stats)
+        if scoped:
             # One or two hits usually means the index does not really cover
             # the docs; a crawl will do better than a near-empty list.
             if len(scoped) >= 3:
-                _log(opts, f"  harvesting {len(scoped)} pages from the {index_kind}")
-                cap = opts.limit()
+                _log(opts, f"  harvesting {len(scoped)} pages from the {index_kind}, "
+                           f"and whatever they link to in scope")
                 if stats is not None:
-                    over = 0 if cap is None else max(0, len(scoped) - cap)
+                    # The denominator before the first page, for progress.
                     stats["discovered"] = len(scoped)
-                    stats["truncated"] = over > 0
-                    stats["remaining"] = over
                     stats["index"] = index_kind
-                out: list[Doc] = []
-                unreadable: list[str] = []
-                refused: list[str] = []
-                refused_in_a_row = 0
-                rate_limited = False
-                listed = scoped if cap is None else scoped[:cap]
-                for link in listed:
-                    try:
-                        title, body = _extract_page(link, fetcher, opts)
-                    except ForgeError as e:
-                        if getattr(e, "status", None) == 429:
-                            # See _crawl_html: asked for and refused is not
-                            # the same as reached and unreadable, and a site
-                            # that keeps saying so is not to be kept asking.
-                            refused.append(link)
-                            refused_in_a_row += 1
-                            _log(opts, f"  refused {link}: {e}")
-                            if refused_in_a_row >= RATE_LIMIT_STOP:
-                                rate_limited = True
-                                _log(opts, f"  {RATE_LIMIT_STOP} refusals in a row: "
-                                           f"stopping rather than keep asking")
-                                break
-                            continue
-                        # Reached, but nothing on it reads like documentation.
-                        # Disclosed rather than quietly missing: a page that
-                        # could not be extracted still counts against coverage,
-                        # and pretending it was never there is the exact
-                        # dishonesty the coverage figure exists to prevent.
-                        unreadable.append(link)
-                        _log(opts, f"  unextractable {link}: {e}")
-                        continue
-                    except Exception as e:
-                        _log(opts, f"  skip {link}: {e}")
-                        continue
-                    refused_in_a_row = 0
-                    if sink is not None:
-                        if not sink.add(title, link, body):
-                            continue
-                        out.append(Doc(link, title, ""))
-                    else:
-                        out.append(Doc(link, title, body))
-                    _log(opts, f"  [{len(out)}] {link}")
-                    time.sleep(opts.delay)
-                if stats is not None:
-                    if unreadable:
-                        stats["unextractable"] = unreadable
-                    if refused:
-                        stats["refused"] = refused
-                    if rate_limited:
-                        stats["rate_limited"] = True
-                    if getattr(fetcher, "throttled", 0):
-                        stats["throttled"] = fetcher.throttled
-                if out:
-                    # The index is the site's own list of what exists, so this
-                    # is the one strategy that can measure completeness against
-                    # something other than its own effort.
-                    if stats is not None:
-                        stats["whole"] = len(out) >= len(scoped)
-                        if not stats["whole"]:
-                            stats["reason"] = (
-                                f"stored {len(out)} of the {len(scoped)} pages "
-                                f"the {index_kind} lists"
-                                + (f", {len(unreadable)} of them unextractable"
-                                   if unreadable else "")
-                                + (f"; the site answered HTTP 429 (rate limited) "
-                                   f"and the harvest stopped asking after "
-                                   f"{len(refused)} refusal(s). This is the site's "
-                                   f"pace, not its size: harvest again later"
-                                   if rate_limited else
-                                   (f", {len(refused)} of them refused with HTTP 429"
-                                    if refused else "")))
+                crawl_opts = replace(opts, crawl=True)
+                try:
+                    out = _crawl_html(url, fetcher, crawl_opts, stats, sink=sink,
+                                      seeds=scoped, statement=index_kind,
+                                      admit=_admission(url, prefix, seeds=scoped))
                     return out, index_kind
-                if rate_limited:
-                    raise ForgeError(
-                        f"The site answered HTTP 429 (rate limited) to every request "
-                        f"and nothing was fetched from {url}. Its pace, not its "
-                        f"size: harvest again later.")
+                except ForgeError:
+                    if stats is not None and stats.get("rate_limited"):
+                        raise
+                    # Every listed page failed to read. The list was the
+                    # site's word; the crawl below is a second opinion.
+                    _log(opts, f"  nothing the {index_kind} lists could be read; "
+                               f"falling back to a crawl")
+                    if stats is not None:
+                        for key in ("index", "listed", "found_by_links", "whole",
+                                    "reason", "unextractable", "discovered"):
+                            stats.pop(key, None)
 
         _log(opts, "  harvesting by crawl")
         crawl_opts = replace(opts, crawl=True)
-        return _crawl_html(url, fetcher, crawl_opts, stats, sink=sink), "crawl"
+        return (_crawl_html(url, fetcher, crawl_opts, stats, sink=sink,
+                            admit=_admission(url, prefix)), "crawl")
     finally:
         if own:
             fetcher.close()
+
+
+_DOCSIFY = re.compile(r"window\.\$docsify\s*=")
+
+
+def _docsify_pages(landed: str, html: str, fetcher) -> list[str]:
+    """The Markdown files a docsify site is made of, from its own sidebar.
+
+    Docsify ships one HTML page and fetches each route's Markdown in the
+    browser: `#/quickstart` is `quickstart.md` beside `index.html`. A crawl
+    sees one page whose every link is a fragment, and stored one page of
+    docsify's own documentation (field test, 2026-09-24). The sidebar the
+    site configures -- `_sidebar.md` -- lists the pages, and each is a file
+    that can be read directly, with no browser at all.
+    """
+    base = landed.split("#", 1)[0]
+    base = base if base.endswith("/") else base[: base.rfind("/") + 1]
+    configured = re.search(r"basePath\s*:\s*['\"]([^'\"]+)['\"]", html)
+    if configured and not configured.group(1).startswith(("http://", "https://")):
+        base = urljoin(base, configured.group(1).rstrip("/") + "/")
+    host = (urlparse(base).hostname or "").lower()
+    # `alias: {'.*?/changelog': 'https://raw.githubusercontent.com/…/CHANGELOG.md'}`
+    # -- a route the site serves from somewhere else, so the file is there.
+    aliases = [(k, v) for k, v in re.findall(
+        r"""['"]([^'"]+)['"]\s*:\s*['"]([^'"]+\.md)['"]""",
+        (re.search(r"alias\s*:\s*\{(.*?)\}", html, re.S) or re.match("", "")).group(1) or "")]
+
+    def as_file(target: str) -> str:
+        target = target.strip()
+        if target.startswith(("http://", "https://")):
+            return target if (urlparse(target).hostname or "").lower() == host else ""
+        target = target.lstrip("#").split("?", 1)[0].lstrip("/")
+        if not target or target.endswith("/"):
+            target += "README.md"
+        route = "/" + target[:-3] if target.lower().endswith(".md") else "/" + target
+        for pattern, source in aliases:
+            try:
+                if re.fullmatch(pattern, route):
+                    moved = re.sub(pattern, source.replace("$", "\\"), route)
+                    return urljoin(base, moved)
+            except re.error:
+                continue
+        if not target.lower().endswith(".md"):
+            target += ".md"
+        return urljoin(base, target)
+
+    pages = [urljoin(base, "README.md")]
+    try:
+        sidebar = fetcher.text(urljoin(base, "_sidebar.md"))
+    except Exception:                               # noqa: BLE001 -- no sidebar, the home page alone
+        sidebar = ""
+    if sidebar and not _is_html_document(sidebar):
+        for m in _MD_LINK.finditer(sidebar):
+            page = as_file(m.group(1))
+            if page:
+                pages.append(page)
+    return list(dict.fromkeys(pages))
+
+
+#: A listing longer than this is narrowed to a topic before its pages are
+#: fetched, by title and address; a shorter one is fetched whole and judged
+#: page by page, which is slower and misses nothing.
+TOPIC_PREFILTER_ABOVE = 40
+
+
+def _topic_prefilter(entries: list, opts: Options, stats: dict | None,
+                     titled: bool = False) -> list:
+    """Drop the entries a topic plainly does not want, before fetching them.
+
+    `entries` are URLs, or `(title, url)` pairs when `titled`. What is dropped
+    is recorded in `stats["topic_skipped"]`, so the account of what the topic
+    left out includes the pages it never had to fetch to know it.
+    """
+    if not (opts.topic or "").strip() or len(entries) <= TOPIC_PREFILTER_ABOVE:
+        return entries
+    sel = topics.Selector(opts.topic)
+    if not sel.active:
+        return entries
+    kept, dropped = [], []
+    for entry in entries:
+        title, link = entry if titled else ("", entry)
+        (kept if sel.may_want(title, link) else dropped).append(entry)
+    if dropped:
+        _log(opts, f"  the topic {opts.topic!r} rules out {len(dropped)} of "
+                   f"{len(entries)} listed pages by title and address")
+        if stats is not None:
+            stats.setdefault("topic_skipped", []).extend(
+                e[1] if titled else e for e in dropped)
+    return kept
+
+
+def _listed_pages(url: str, fetcher, opts: Options,
+                  stats: dict | None = None) -> tuple[list[str], str]:
+    """The pages the site says exist in this harvest's section, and who said so.
+
+    Its generator's own manifest and its sitemaps, together. Either alone was
+    taken as the whole truth, and neither is: FastAPI publishes an
+    `objects.inv` -- mkdocstrings writes one -- that lists its 22 API
+    reference pages and none of its ~150 guide pages, and it was taken as the
+    site's own count (field test, 2026-09-24). The manifest still names the
+    source when it has something to say; the sitemap fills in what it left
+    out. Then the same narrowing every listed page goes through: the section,
+    one language, one release.
+    """
+    prefix = _scope_for(url, opts)
+    host = (urlparse(url).hostname or "").lower()
+    manifest, index_kind = site_manifest(url, fetcher, opts)
+    if len(manifest) < 3:
+        manifest, index_kind = [], "sitemap"
+    mapped = _sitemap_urls(url, fetcher, opts,
+                           keep=lambda l: _crawlable(l, host, prefix))
+    links = manifest + mapped
+    if manifest and mapped:
+        listed = {_normalize(l) for l in manifest}
+        extra = {_normalize(l) for l in mapped if _crawlable(l, host, prefix)} - listed
+        if extra:
+            _log(opts, f"  the {index_kind} manifest lists {len(listed)} pages; the "
+                       f"sitemap names {len(extra)} more in scope, taken too")
+    if not links:
+        return [], index_kind
+
+    # One entry per page, fetched as the index spells it: the listed URL is
+    # the canonical one, and stripping its slash costs a redirect per page
+    # where it does not cost the page (`_fetchable`).
+    keys: set[str] = set()
+    scoped = []
+    for link in links:
+        key = _normalize(link)
+        if key not in keys:
+            keys.add(key)
+            if _crawlable(link, host, prefix):
+                scoped.append(_fetchable(link))
+    before = len(scoped)
+    scoped = _prefer_default_locale(_focus_on_docs(scoped, prefix))
+    if len(scoped) != before:
+        _log(opts, f"  narrowed {before} {index_kind} URLs to {len(scoped)} "
+                   f"(documentation, default language)")
+    asked = _requested_release(url, opts)
+    if not asked:
+        # Nothing asked for means the current release, not every release the
+        # site has ever published under one label.
+        scoped, current = _prefer_current_release(
+            scoped, opts, hint=opts.release_hint,
+            entry=lambda: _entry_page(url, fetcher))
+        if current and stats is not None:
+            stats["current_release"] = current
+    scoped = _urls_for_release(scoped, asked, opts, stats)
+    return scoped, index_kind
+
+
+#: Endings a page's address takes in one listing and not in another: an
+#: `llms.txt` links `/guides/auth.md` where the sitemap lists `/guides/auth`.
+_PAGE_SUFFIXES = ("/index.html.md", "/index.md", "/index.mdx", ".html.md", ".md",
+                  ".mdx", "/index.html", ".html", "/index")
+
+
+def _page_key(url: str) -> str:
+    """One page, however a listing spells it -- for comparing listings only."""
+    parsed = urlparse(_normalize(url))
+    path = parsed.path or "/"
+    for suffix in _PAGE_SUFFIXES:
+        if path.lower().endswith(suffix):
+            path = path[: -len(suffix)] or "/"
+            break
+    return (parsed.hostname or "").lower() + path.rstrip("/").lower()
+
+
+def _published_pages(docs: list[Doc], stats: dict | None) -> set[str] | None:
+    """The pages a published file accounted for, as page keys; None when the
+    file names none (a dump with no per-page markers cannot be checked)."""
+    named = [d.url for d in docs if "#" not in d.url and not
+             d.url.lower().endswith(("llms.txt", "llms-full.txt", "llms-medium.txt"))]
+    failed = [f.get("url", "") for f in ((stats or {}).get("failed_urls") or [])]
+    if not named and not failed:
+        return None
+    return {_page_key(u) for u in named + failed if u}
+
+
+def _linked_from(docs: list[Doc], url: str, opts: Options) -> list[str]:
+    """In-section pages the given documents link to, in the order met.
+
+    What a published file's own pages point at is the site's word too: a
+    curated `llms.txt` lists seven pages of GitHub's Actions docs, and those
+    seven link to the other three hundred (field test, 2026-09-24).
+    """
+    host = (urlparse(url).hostname or "").lower()
+    prefix = _scope_for(url, opts)
+    found: list[str] = []
+    for doc in docs:
+        text = doc.markdown or ""
+        fences = _fence_spans(text)
+        where = doc.url.split("#", 1)[0]
+        for m in _MD_LINK.finditer(text):
+            if _inside(m.start(), fences):
+                continue
+            link = _fetchable(urljoin(where, m.group(1)))
+            if _crawlable(link, host, prefix) and not looks_like_article(link):
+                found.append(link)
+    return list(dict.fromkeys(found))
+
+
+def _complete_from_listing(url: str, fetcher, opts: Options, stats: dict | None,
+                           sink, covered: set[str], source: str,
+                           already: int, docs: list[Doc] | None = None
+                           ) -> tuple[list[Doc], str]:
+    """Fetch what the site lists in scope and a published file left out.
+
+    An `llms.txt` is the site's word to us and is read first -- its pages
+    are the cleanest copy there is -- but it is not always all of the
+    documentation. Angular's lists 85 curated pages; AWS's lists 2 of the
+    Lambda guide's hundreds; each was stored as complete (field test,
+    2026-09-24). The sitemap and the generator's manifest are the site's word
+    too, so what they list in the same section and the file does not is
+    fetched as well, and coverage is measured against both.
+
+    Returns the extra documents and a suffix for the strategy name.
+    """
+    listed, index_kind = _listed_pages(url, fetcher, opts, {})
+    prefix = _scope_for(url, opts)
+    admit = _admission(url, prefix, seeds=listed or None)
+    linked = [u for u in _linked_from(docs or [], url, opts) if admit(u)]
+    if linked and not listed:
+        index_kind = "pages it links to"
+    missing = [u for u in list(dict.fromkeys(listed + linked)) if _page_key(u) not in covered]
+    missing = _topic_prefilter(missing, opts, stats)
+    if not missing:
+        if listed:
+            _log(opts, f"  the {index_kind} agrees with {source}: nothing in scope is missing")
+        return [], ""
+    cap = opts.limit()
+    room = None if cap is None else max(0, cap - already)
+    _log(opts, f"  the {index_kind} lists {len(missing)} page(s) in scope that {source} "
+               f"does not; fetching them too")
+    if room == 0:
+        if stats is not None:
+            stats["truncated"] = True
+            stats["remaining"] = (stats.get("remaining") or 0) + len(missing)
+            stats["discovered"] = (stats.get("discovered") or 0) + len(missing)
+        return [], f" + {index_kind}"
+    sub: dict = {}
+    sub_opts = replace(opts, crawl=True, max_pages=room or 0)
+    try:
+        extra = _crawl_html(url, fetcher, sub_opts, sub, sink=sink, seeds=missing,
+                            statement=index_kind, known=covered, admit=admit)
+    except ForgeError as e:
+        _log(opts, f"  none of them could be read: {e}")
+        extra = []
+    if stats is not None:
+        known = sub.get("discovered", len(missing))
+        for key in ("expected", "discovered"):
+            stats[key] = (stats.get(key) or 0) + known
+        for key in ("acquired", "fetched"):
+            stats[key] = (stats.get(key) or 0) + len(extra)
+        for key in ("unextractable", "refused"):
+            if sub.get(key):
+                stats[key] = list(stats.get(key) or []) + list(sub[key])
+        if sub.get("truncated"):
+            stats["truncated"] = True
+            stats["remaining"] = (stats.get("remaining") or 0) + (sub.get("remaining") or 0)
+        if sub.get("rate_limited"):
+            stats["rate_limited"] = True
+        stats["supplemented"] = {"from": index_kind, "missing": len(missing),
+                                 "known": known, "stored": len(extra)}
+        if stats.get("whole") is not False and sub.get("whole") is not True:
+            stats["whole"] = False if sub.get("whole") is False else None
+        note = (f"{source} left out {known} page(s) the {index_kind} lists or links to "
+                f"in scope; {len(extra)} of them were fetched and stored")
+        stats["reason"] = (f"{stats['reason']}; {note}" if stats.get("reason") else note)
+    return extra, f" + {index_kind}"
 
 
 def combine(docs: list[Doc], url: str, strategy: str = "") -> str:
