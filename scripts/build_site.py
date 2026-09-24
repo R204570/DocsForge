@@ -7,7 +7,8 @@ behaviour script (site.js), and the client picker for /connect
 (picker.html). This assembles them into what the server serves: the shared
 nav and footer stamped into each page, the stylesheet and script inlined so
 every page is self-contained (fonts still come from Google Fonts, with a
-system fallback), and two placeholders left for the server to fill at
+system fallback, and the Google tag is the one outside script), and two
+placeholders left for the server to fill at
 request time — `{{VERSION}}` from the package and `{{BASE_URL}}` from the
 request.
 
@@ -66,12 +67,28 @@ FOOT = f'''<footer class="foot">
 </footer>'''
 
 
+#: The Google tag, stamped first in every <head>: the one script a page fetches
+#: from elsewhere.
+GTAG_ID = "G-KTBKMGZM75"
+GTAG_SRC = f"https://www.googletagmanager.com/gtag/js?id={GTAG_ID}"
+GTAG = f'''<!-- Google tag (gtag.js) -->
+  <script async src="{GTAG_SRC}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){{dataLayer.push(arguments);}}
+    gtag('js', new Date());
+
+    gtag('config', '{GTAG_ID}');
+  </script>'''
+
+
 def build(page: str, css: str, js: str, picker: str) -> str:
     html = (SRC / f"{page}.html").read_text(encoding="utf-8")
     for name, draw in DIAGRAMS.items():
         html = html.replace(f"<!--SVG:{name}-->", draw())
     assert "<!--SVG:" not in html, (page, "an unknown diagram marker")
-    for marker, value in (("<!--STYLE-->", f"<style>\n{css}\n  </style>"),
+    for marker, value in (("<!--GTAG-->", GTAG),
+                          ("<!--STYLE-->", f"<style>\n{css}\n  </style>"),
                           ("<!--NAV-->", nav(page)),
                           ("<!--FOOT-->", FOOT),
                           ("<!--PICKER-->", picker if page == "connect" else ""),
@@ -80,7 +97,8 @@ def build(page: str, css: str, js: str, picker: str) -> str:
             or marker == "<!--PICKER-->", (page, marker)
         html = html.replace(marker, value)
     # what must hold for every served page
-    assert "<script src=" not in html, (page, "an external script")
+    assert re.findall(r'<script\b[^>]*\bsrc="([^"]*)"', html) == [GTAG_SRC], \
+        (page, "an external script other than the Google tag")
     assert "{{VERSION}}" in html, (page, "version chip placeholder")
     assert ("{{BASE_URL}}" in html) == (page == "connect"), (page, "base url placeholder")
     assert 'href="#"' not in html, (page, "unresolved href")
