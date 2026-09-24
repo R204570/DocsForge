@@ -1,6 +1,8 @@
 # Issues
 
-The register. Rebuilt on **2026-09-21** from the live benchmark suite
+The register. Extended on **2026-09-24** with the real-world field test
+(`scripts/fieldtest.py`, 53 sites — the *Real-world acquisition* and *Scoped
+requests* sections). Rebuilt on **2026-09-21** from the live benchmark suite
 (`scripts/benchmark/`, published as `benchmarks/bench-1/` and, with the
 `versions` suite, `benchmarks/bench-2/`), the hosted
 read-only run of 2026-09-19 against build `5826f61`, and the independent
@@ -128,6 +130,220 @@ now, entities decoded, "looks like documentation" judged by the URL's own
 words with a never-documentation list (`checkout`, `login`, …).
 
 ---
+
+## Real-world acquisition (field test, 2026-09-24)
+
+`scripts/fieldtest.py` harvests 53 documentation sites chosen for the
+generator that built them — Docusaurus, MkDocs, Sphinx, VitePress, Starlight,
+Nextra, Mintlify, GitBook, ReadMe, mdBook, Hugo, Antora, docsify, rustdoc,
+godoc, and hand-built React, Next and SvelteKit sites — and measures every page
+it stores (`measurements/fieldtest/<run>/`). The baseline run found the entries
+below; each is fixed, with a test in `tests/test_realworld.py` or
+`tests/test_resolver_language.py` naming the site. Runs: `baseline`,
+`phaseA-1`, `phaseAC`, `phaseD`, `complete1` (uncapped).
+
+### A1 — the crawl fetched the slash-stripped URL · fixed
+
+`doc.rust-lang.org/book/` is the Rust book; `/book` is a 302 to
+`/stable/book/`, outside the scope. The crawl keyed *and fetched* pages by
+`_normalize`, so it asked for `/book`, and stored the title page alone.
+Pages are keyed by `_page_key` and fetched as the site spells them
+(`_fetchable`).
+
+### A2 — the section was derived from the URL as given, not where it landed · fixed
+
+`laravel.com/docs` is a 301 to `/framework/docs`; the scope stayed `/docs/`
+and one page was stored. `harvest()` lands the start URL first (`_land`,
+HTTP redirects and client-side stubs), and the crawl follows a declared
+`<base href>` only when the page's links agree with it (`_lives_at` —
+Apple's app shell declares `/tutorials/` on every documentation page).
+
+### A3 — the origin's llms file beat the section's · fixed
+
+`resend.com/llms-full.txt` is 8 KB about the company; `/docs/llms-full.txt`
+is 2.2 MB of documentation. Prisma, Next.js and AWS the same. Detection
+probes the section's directory and each one above it before the origin
+(`_llms_probes`), and a file found part-way up is narrowed like a root file
+(`_broader_than_request`). An HTML fallback is recognised as a whole
+document, not by a leading `<` (Svelte's dumps open `<SYSTEM>`).
+
+### A4 — a text sitemap, several declared sitemaps, gzip · fixed
+
+`doc.rust-lang.org/robots.txt` names `sitemap.txt`; only the first
+`Sitemap:` line was ever read; `.xml.gz` came back as bytes. All handled
+(`find_sitemaps`, `_sitemap_body`), and a sitemap beside the section is read
+first (`/lambda/latest/dg/sitemap.xml` before AWS's site-wide index).
+
+### A5 — giant sitemap indexes timed harvests out · fixed
+
+AWS, Microsoft Learn and pkg.go.dev publish indexes of thousands of files;
+three harvests spent seven minutes reading them and stored nothing. Reading is
+budgeted (`SITEMAP_FILES`, `SITEMAP_SECONDS`), children most likely to hold
+the section first, and the harvest says when it stopped short.
+
+### A6 — one list taken as the whole truth · fixed
+
+FastAPI's `objects.inv` (mkdocstrings) lists its 22 API pages and none of
+its ~150 guides; Angular's `llms.txt` is 85 curated pages; AWS's lists 2 of
+the Lambda guide's hundreds; GitHub's lists 7 pages of Actions. Each was
+stored as complete. The manifest and the sitemaps are read together
+(`_listed_pages`); an llms file is read first and then checked against
+them, with the pages it left out fetched too (`_complete_from_listing`);
+and the pages it delivered are followed for in-section links, which is how
+GitHub's seven lead to the rest. **DECISION, taken:** the earlier rule "no
+sitemap after a successful llms acquisition" is replaced by "no *fetching*
+after one the sitemap agrees with" — see `Design.md` §5.
+
+### A7 — the section came from the URL's shape · fixed
+
+`angular.dev/overview` looked like a folder `/overview/` (one page stored);
+`developer.hashicorp.com/terraform/docs` like `/terraform/docs/` (four
+pages); `docs.github.com/en/actions` like all of `/en/`. The section is read
+from the page's own sidebar (`_resolve_section`): the deepest directory
+holding 80% of its links, preferring the table of contents that lists the
+page itself, never a mobile drawer copy of the top bar (go.dev). It widens
+only when the URL's section holds no real subtree (`docs.stripe.com/payments`
+stays `/payments/`), and never across a release the URL names. Product
+families whose one sidebar spans every product (Firebase) stay at `/docs/`;
+`scope=` or `topic=` narrows them.
+
+### A8 — sitemap harvests were sequential and followed no links · fixed
+
+The sitemap path fetched one page at a time and never looked at what the
+pages linked to, so a stale sitemap was a silent ceiling. It is now the
+crawl, seeded with what the site lists (`_crawl_html(seeds=)`): concurrent,
+adaptive, rendering when it must, following in-section links, with the same
+language and release rules applied to what it finds (`_admission`), and
+coverage measured against everything known to exist.
+
+### A9 — JavaScript sites · fixed, with limits
+
+Rendering waited for `networkidle`, which analytics beacons never reach
+(every LangChain render timed out at 30 s); a page with a `<noscript>`
+notice failed the "shell" test and was never rendered (Apple); rendered
+pages ran on worker threads Playwright cannot use. Now: rendering waits for
+the document and a bounded settle, skips images, media and fonts, reuses one
+context, and expands collapsed sidebar sections on the first rendered pages;
+a failed extraction tries the page's declared Markdown copy
+(`<link rel="alternate" type="text/markdown">`), then one render when the
+page ships the scripts to draw itself (`_wants_render`). docsify sites are
+read from their `_sidebar.md` and each route's Markdown file, aliases
+honoured. **Limit:** an app with neither static HTML, a sitemap, a Markdown
+copy nor links in its rendered DOM is still found only by rendering, one page
+at a time.
+
+### A10 — extraction kept the page's furniture · fixed
+
+Heading permalinks on every Docusaurus and Sphinx heading (2,665 `[​](#…)`
+in react-native's dump alone), code blocks collapsed to one line where each
+line is a `<span class="line">` (Tailwind), inactive tabs deleted as
+`aria-hidden`, relative links that point nowhere once stored, and "Copy",
+"Edit this page", "Last updated" filed as documentation. `_flatten_tabs`,
+`_drop_permalinks`, `_clean_code_blocks` (language kept on the fence),
+`_absolutize`, `_drop_ui_chrome`, and `_tidy_markdown` for published
+Markdown, code blocks untouched.
+
+### A11 — dumps were cut on the wrong lines · fixed
+
+`# comments` inside shell snippets were taken for headings (Deno: 254 of 837
+pages under 400 characters), and the page markers dumps do state were not
+all read: `Source:` (Mintlify), `URL:` under a heading and a summary line
+(Deno), a heading that is itself a link to the page (Pydantic). Dumps are cut
+where they say their pages are, each page under its own URL
+(`_dump_pages`), which is also what lets a dump be checked against the
+sitemap (A6).
+
+### A12 — snapshots taken for the current release · fixed
+
+`docs.spring.io/spring-boot/4.2-SNAPSHOT/` did not match the release-line
+pattern and was filed with the unversioned current pages. Pre-release
+suffixes are release lines, chosen only when the site points at them.
+
+### A13 — dead listings and tables of contents counted as gaps · fixed
+
+The first uncapped runs: FastAPI stored 298 of 310, with 12 "unextractable"
+— every one an HTTP 404, pages its sitemap still lists after removing them;
+Flask's gap was Sphinx's module index, a page of links; and Flask's
+one-sentence `deploying/eventlet` page ("Eventlet is no longer maintained.
+Use gevent instead.") was refused as a stub by the 200-character floor. A
+page that answers 404 or 410 is now `dead` and an all-links page is an
+`index_page`: both reported in the answer, neither counted as missing. A
+content container holding one real sentence of prose is accepted as a page.
+Also: docusaurus.io's version picker led an uncapped crawl into 311 pages of
+`/docs/3.3.2/` and `/docs/next/`, because a few listed paths with release-like
+words had switched off the rule for unversioned documentation; that rule is
+now decided by majority, and `28.x` is a release line.
+
+Uncapped, after these fixes (`measurements/fieldtest/complete2`): FastAPI
+298, Flask 77, Jest 37, Laravel 104, Docusaurus 93 (the current release of
+twelve its sitemap files side by side), Playwright 147 and 90, React Native
+211 — each **complete**; the Rust book 113 and Electron 279 by crawl,
+coverage **unknown** because neither lists its pages anywhere; Angular 1,598
+of 1,600, its 85-page `llms.txt` completed from the sitemap, and the two
+"missing" were its own `llms.txt` and a `.mdc` rules file — neither is a page
+any more (`_MACHINE_FILES`, `.mdc` read as Markdown). The same run found the
+dump tidy defeated by code in table cells and list-indented fences, which
+paired every later fence wrongly; fences are read as CommonMark reads them
+now (`_fence_spans`), and react-native's dump went from 1,367 surviving
+permalink marks and 547 relative links to none.
+
+## Scoped requests
+
+### L1 — "langgraph for node" had no way to be asked · fixed
+
+`learn_technology(language=)` and `find_docs(language=)`. Resolution finds
+the project, then the asked language's edition beside it: a segment swapped
+(`/oss/python/` → `/oss/javascript/`), a prefix added
+(`playwright.dev/python/`), a host label swapped, or the sections a
+many-language front page links to — taken only when the page's own code
+shows the language or the site files it under that name
+(`languages.written_for`, judged on extracted content: on raw HTML both
+LangGraph editions measured "mostly PHP" from their script bundles). Failing
+that, the language's registry, followed through a winning repository to the
+site it declares, and switched again from where that lands (LangChain's
+repository homepage lands on the Python edition). An edition is filed as
+`<name>-<language>`, and resolutions are remembered per language.
+
+### L2 — `langgraph` on npm resolved to a Rust crate · fixed
+
+The search lap searched crates.io whatever registry the caller named, and
+`docs.rs/rust-langgraph` passed the gate. Search keeps to the named
+registry; a search hit is judged against its own registry entry only when
+the package *is* the name (`@langchain/langgraph` for "langgraph", never
+`langgraph-sdk`); `git+ssh://` remotes are cleaned. RULES 8.
+
+### L3 — a winning repository stored a README · fixed
+
+npm nominates `github.com/langchain-ai/langgraphjs#readme`; the repository
+declares its docs site as its homepage. A winning repository gives way to
+that site when the site passes the gate (`_prefer_docs_behind_repo`).
+
+### L4 — a language resolved to a package · fixed
+
+`go` → `docs.rs/go` (a Rust crate), `golang` → a stranger's repository:
+`go.dev` passed the gate on ownership alone, was held under R10, and the only
+registry that knows the word answered. A language or runtime resolves to its
+own manual first (`languages.OFFICIAL_DOCS`, verified like anything else),
+unless the caller named a registry.
+
+### L5 — the verifier read the first 40 KB of bytes · fixed
+
+LangGraph's JS overview is 880 KB and its body starts at byte 16,138; the
+first 40,000 bytes held one mention of the name, so LangGraph's own docs
+failed LangGraph's check. Mentions and install lines are counted in visible
+text over 600 KB; links stay judged over the first 40 KB, because counting a
+footer's GitHub link gave `pydantic.dev/` a `repo-identity` that outranked
+the documentation.
+
+### L6 — "go for web dev" had no way to be asked · fixed
+
+`learn_technology(topic=)` and `harvest_docs(topic=)`: every page about the
+subject, whole, plus the pages that introduce the technology, judged by
+title, address, headings and prose against a stated vocabulary (`topics`,
+core terms weighed above the words that merely travel with them — the first
+cut kept 26 Go release notes as web development). A topic crawl follows only
+the pages it kept. What was left out is listed by section in the answer, and
+the harvest is filed as `<name>-<topic>`, never mistaken for the whole.
 
 ## Detection
 
@@ -289,7 +505,10 @@ changed with this decision.
 `delete(tech)` returned the `technology` rowcount, where the file store
 returns the number of versions removed. The tool had the doomed versions
 listed and reported the store's number instead. Five bench-2 `cleanup`
-rows. **Fixed:** the store counts the versions before the cascade.
+rows. **Fixed:** the store counts the versions before the cascade — only
+`ready` ones since 2026-09-24, so an abandoned or in-flight harvest's row
+goes with the delete without being counted as a version beside the pages
+of the others.
 
 ---
 
@@ -319,15 +538,15 @@ The header now names the words none of the passages contain.
 
 ## Network
 
-### N1 — a connection reset ends the fetch; nothing retries · open
+### N1 — a connection reset ends the fetch; nothing retries · fixed (2026-09-24)
 
 `raw.githubusercontent.com` reset the connection on the fourth of
 twenty-five `docs/` files in three of four offline runs on this network
-(bench-1 issue 3), never from Vercel's egress. The benchmark judges it
-ERROR, correctly. One retry after a short pause, for `ConnectionResetError`
-and `RemoteDisconnected` only, would have finished the run and costs
-nothing when it does not happen. Not for timeouts, which already took the
-full wait.
+(bench-1 issue 3), never from Vercel's egress; `doc.rust-lang.org` reset one
+request in three during the field test. `Fetcher._reset_tolerant` asks again
+twice, after a growing pause, for a reset only (`_was_reset`) — never a name
+that does not resolve, a refused connection or a timeout, which the
+resolver's guessed domains produce constantly.
 
 ---
 
@@ -409,9 +628,11 @@ The guard reads the spellings itself.
 Carried. `DOCSFORGE_MAX_CHARS` is tunable per operator; the panel's
 smallest provider still overflows on a full `read_knowledge_base`.
 
-### T1 / T2 — the tracker reports `pages=0` for a one-page harvest; `starting` is published twice · open
+### T1 / T2 — the tracker reports `pages=0` for a one-page harvest; `starting` is published twice · T1 fixed (2026-09-24), T2 open
 
-Carried, not re-measured.
+T1: the counting fetcher counted `html()`, and the crawl has fetched through
+`html_at()` since C4, so every crawl reported 0 pages until it ended. Counted
+in `html_at` and `render_at` now, once per page. T2 carried, not re-measured.
 
 ### U1 — `<input>` is allowed by the sanitiser with no attributes · open, cosmetic (`Evaluation.md` §2.8)
 

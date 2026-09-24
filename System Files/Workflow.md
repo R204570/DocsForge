@@ -12,10 +12,10 @@ thing.
 
 ```mermaid
 flowchart TD
-  A["learn_technology(name)"] --> B["resolve: name -> URL<br/>(memory, own domain, registries, gate)"]
+  A["learn_technology(name, language?, topic?)"] --> B["resolve: name -> URL<br/>(memory, a language's own manual, own domain,<br/>registries, gate; then the language's edition)"]
   B -->|refused| R["answer: candidates and why each failed<br/>nothing stored, refusal cached 7 days unless unexamined"]
-  B -->|verified URL| C["harvest: the acquisition ladder<br/>llms-full → llms → manifest → sitemap → crawl"]
-  C --> D["per page: fetch (guarded, paced) → extract → sink.add"]
+  B -->|verified URL| C["harvest: land the URL, read the section from its sidebar;<br/>llms files (nearest first) checked against manifest + sitemaps;<br/>a crawl seeded with all of it"]
+  C --> D["per page: fetch (guarded, paced) → extract<br/>(or its Markdown copy, or rendered) → topic? → sink.add"]
   D --> E["store: page rows / .partial file, written as fetched"]
   E --> F["settle: coverage, version label, strategy"]
   F --> G["answer: pages, characters, strategy, coverage note,<br/>unreadable and refused URLs, version claim"]
@@ -33,7 +33,11 @@ confidence, signals and reason; `best` when one verified; `note` otherwise.
 
 1. **Memory.** `~/.docsforge/resolutions.json` (offline: `offline/resolutions.json`;
    hosted: `/tmp`, per instance). A hit costs zero requests. Entries carry
-   the `RULES` revision that decided them and are discarded if it changed.
+   the `RULES` revision that decided them and are discarded if it changed,
+   and each language asked for has its own entry (`langgraph@javascript`).
+1b. **A language's own manual.** When the name is a language or runtime (`go`,
+   `python`, `node`) and no registry was named: `languages.OFFICIAL_DOCS`,
+   through the gate like any candidate.
 2. **Own domain.** `name.dev/.io/.org/.com`, `namelang.org`, `name-lang.org`;
    each probed for `llms.txt`. Verified here, registries are not consulted:
    owning the name is the stronger claim.
@@ -49,7 +53,14 @@ confidence, signals and reason; `best` when one verified; `note` otherwise.
 5. **The tail** (only when nothing passed and nothing blocked): name shapes
    for multi-word names, evidence the failed pages gave away (a repository's
    declared homepage, outbound documentation-looking anchors, a canonical
-   URL), then registry search. All capped at 40 requests in total.
+   URL), then registry search — only the registry named, if one was. All
+   capped at 40 requests in total.
+6. **After the gate.** A winning GitHub repository gives way to the site it
+   declares as its homepage, if that passes. With `language=`, the answer is
+   switched to that language's edition when the site publishes one beside it
+   (segment, prefix, host label, or the front page's language section),
+   judged by the page's own code; failing that, the language's registry is
+   resolved and switched the same way; failing that, the note says so.
 
 What is written: the memory file (a success for 30 days, a real refusal for
 7), the `ResolveState` (in memory only), and a trace stage per lap.
@@ -59,17 +70,32 @@ What is written: the memory file (a success for 30 days, a real refusal for
 Input: a verified URL, an optional version, an intent, a page cap (0 =
 none). Output: a stored corpus and its coverage.
 
-1. **Detect** what the URL is: `llms-full.txt`, `llms.txt` (with a fuller
-   dump preferred), OpenAPI, sitemap, GitHub, raw text, HTML.
-2. **Enumerate** by the first rung that answers: the dump itself; the pages
-   an `llms.txt` links; a generator manifest (Sphinx `objects.inv`, MkDocs
-   `search_index.json`); a sitemap filtered to the docs section and default
-   locale; else a crawl scoped to the docs root the URL sits in.
+0. **Land and bound.** The start URL is followed past redirects and redirect
+   stubs, and the section is read from the landed page's own sidebar
+   (`_resolve_section`) — widened only where the URL named no real subtree,
+   never across a release. docsify sites turn off here: their `_sidebar.md`
+   lists the Markdown files, read directly.
+1. **Detect** what the URL is: `llms-full.txt`, `llms.txt` (the section's own
+   directory first, then each above it, then the origin; a fuller dump
+   preferred), OpenAPI, sitemap, GitHub, raw text, HTML.
+2. **Enumerate.** A dump is cut into the pages it names (`Source:`, `URL:`, a
+   heading that links to the page); an `llms.txt` index's pages are fetched;
+   then both are checked against the generator manifest and every sitemap
+   (the section's own first, reading budgeted) and against the links on the
+   pages delivered, and whatever those name in the section is fetched too.
+   With no published file: the manifest and sitemaps together, filtered to
+   the section, one language and one release, seed a crawl that also
+   follows every in-section link; with no list at all, a crawl from the
+   start page.
 3. **Fetch and extract**, page by page, within a per-host delay (0.4 s) and
    concurrency cap (4), overlapping HTTP where the plan allows. Each page's
-   relative links resolve against where it landed. Extraction picks the main
-   content container, strips chrome, converts to Markdown, and the crawl's
-   plan re-derives every twelfth page which selector is working.
+   relative links resolve against where it landed. Extraction flattens tabs,
+   picks the main content container, strips chrome and permalinks, keeps
+   code lines and fence languages, resolves links, converts to Markdown, and
+   the crawl's plan re-derives every twelfth page which selector is working.
+   A page with no readable HTML is taken from its declared Markdown copy, or
+   rendered once if it ships the scripts to draw itself. With a `topic`, each
+   page is judged at the sink, and only kept pages are followed.
 4. **Store as it goes.** `sink.add(title, url, body)` per page — a row in
    Postgres, a line in a `.partial` file — so an interruption keeps what it
    had.
@@ -77,7 +103,10 @@ none). Output: a stored corpus and its coverage.
    (the URL's, the manifest's declaration, or the registry's release — and a
    note when the label is the request repeated back), and the coverage note:
    the page cap, unreadable pages, refused pages, other corpora seen and not
-   taken.
+   taken; dead listings (404) and index pages, reported but not counted as
+   gaps; and for a topic, the terms used and what was left out, by section.
+   A language's edition is filed as `<name>-<language>` and a topic harvest
+   as `<name>-<topic>`.
 
 What is written: the store; a harvest record (`harvests/<id>.json`, and a
 row in Postgres) updated on every phase change and every 2 s while running;
@@ -86,7 +115,8 @@ one JSONL line per transition; the trace.
 ### 1.3 Reading
 
 `read_knowledge_base(name, version?, section?)` returns whole pages (or the
-pages whose titles or text match `section`), newest release by default,
+pages whose titles or text match `section`), the current release by default
+(the version found as current, over any pinned by name),
 capped at `DOCSFORGE_MAX_CHARS` with a header naming what was omitted.
 `search_knowledge_base(query, technology?, kind?)` searches every stored page
 — Postgres: full-text, every word then any word; files: substring then terms
