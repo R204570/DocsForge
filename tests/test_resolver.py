@@ -1371,6 +1371,27 @@ def test_a_domain_that_only_owns_the_name_stands_when_no_registry_knows_it(monke
     assert "owning the name alone" in got.note
 
 
+def test_a_held_domain_that_wins_is_among_the_candidates(monkeypatch):
+    """Cut to `limit` by confidence, the held page fell out of `candidates`
+    and still came back as `best`, so `find_docs` printed a "Best:" that was
+    none of the candidates listed above it."""
+    monkeypatch.setattr(resolver, "from_domains", lambda name, fetcher, state=None: [
+        Candidate("https://flask.io/", "domain:flask.io", 0.3, "own domain")])
+    fetcher = FakeFetcher({
+        "https://flask.io": FakeResponse(
+            "<h1>Flask</h1> the flask to-do app. " + "flask " * 40,
+            url="https://flask.io/"),
+        # All PyPI offers is the source tree, which cannot outrank a held page.
+        "https://pypi.org/pypi/flask/json": registry(
+            {"info": {"version": "3.1.2", "project_urls": {
+                "Source": "https://github.com/pallets/flask"}}}),
+    })
+    got = resolver.resolve("flask", ecosystem="pypi", fetcher=fetcher,
+                           use_memory=False, limit=1)
+    assert got.best is not None and got.best.url.rstrip("/") == "https://flask.io"
+    assert any(c is got.best for c in got.candidates)
+
+
 def test_a_held_domain_loses_only_to_evidence_about_the_project():
     """Measured offline 2026-09-22: `polars.dev`, a third-party guide that
     owns the word, outranked `docs.pola.rs` in the registry lap, because

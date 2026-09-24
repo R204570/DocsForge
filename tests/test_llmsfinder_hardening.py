@@ -326,13 +326,22 @@ def test_root_llms_txt_fetch_failure_falls_back():
     assert len(docs) == 3
 
 
-# ── No redundant discovery after a successful LLMS acquisition ───────
-def test_no_redundant_discovery_after_index_manifest_success():
+# ── A published index is checked against the site's other lists ───────
+# It used to be taken as the whole truth, and no sitemap was ever read after
+# it. Measured 2026-09-24: Angular's llms.txt is 85 curated pages, AWS's
+# lists 2 pages of the Lambda guide, and both were stored as complete. The
+# index is still read first -- its pages are the cleanest copy there is --
+# and the sitemap now only adds what it left out.
+def test_an_index_the_sitemap_agrees_with_fetches_nothing_more():
     index_body = "# Index\n\n" + "\n".join(
         f"- [Page {i}](https://x.dev/p{i}.md)" for i in range(3)
     )
+    sitemap = ("<urlset>"
+               + "".join(f"<url><loc>https://x.dev/p{i}</loc></url>" for i in range(3))
+               + "</urlset>")
     pages = {
         "https://x.dev/llms.txt": FakeResponse(index_body),
+        "https://x.dev/sitemap.xml": FakeResponse(sitemap, ctype="application/xml"),
         "https://x.dev/p0.md": FakeResponse("# P0"),
         "https://x.dev/p1.md": FakeResponse("# P1"),
         "https://x.dev/p2.md": FakeResponse("# P2"),
@@ -343,8 +352,37 @@ def test_no_redundant_discovery_after_index_manifest_success():
 
     assert len(docs) == 3
     assert stats["whole"] is True
-    assert not any("sitemap" in u for u in fetcher.asked)
-    assert not any("robots" in u for u in fetcher.asked)
+    # `/p0` in the sitemap is `/p0.md` in the index: one page, not two.
+    assert not [u for u in fetcher.asked if u.startswith("https://x.dev/p") and
+                not u.endswith(".md")], fetcher.asked
+    assert "+" not in strat
+
+
+def test_pages_the_sitemap_lists_and_the_index_left_out_are_fetched_too():
+    index_body = "# Index\n\n" + "\n".join(
+        f"- [Page {i}](https://x.dev/docs/p{i}.md)" for i in range(3)
+    )
+    sitemap = ("<urlset>"
+               + "".join(f"<url><loc>https://x.dev/docs/p{i}</loc></url>" for i in range(5))
+               + "</urlset>")
+    pages = {
+        "https://x.dev/llms.txt": FakeResponse(index_body),
+        "https://x.dev/sitemap.xml": FakeResponse(sitemap, ctype="application/xml"),
+        "https://x.dev/docs/p3": FakeResponse(_page("P3")),
+        "https://x.dev/docs/p4": FakeResponse(_page("P4")),
+        **{f"https://x.dev/docs/p{i}.md": FakeResponse(f"# P{i}") for i in range(3)},
+    }
+    fetcher = FakeFetcher(pages)
+    stats = {}
+    docs, strat = df.harvest("https://x.dev/llms.txt", fetcher=fetcher, stats=stats)
+
+    assert sorted(d.url for d in docs) == (
+        [f"https://x.dev/docs/p{i}.md" for i in range(3)]
+        + ["https://x.dev/docs/p3", "https://x.dev/docs/p4"])
+    assert stats["expected"] == 5 and stats["acquired"] == 5
+    assert stats["whole"] is True
+    assert stats["supplemented"]["missing"] == 2
+    assert strat.endswith("+ sitemap")
 
 
 # ── Declared version: the manifest states what the URL cannot ────────
@@ -555,7 +593,15 @@ def test_no_version_asked_takes_the_published_file_in_one_request():
 
     assert strategy == "llms-full.txt"
     assert len(docs) == 1
-    assert len(fetcher.asked) == 1, "the whole point: one request"
+    # The whole point: the file is fetched once and nothing is crawled. The
+    # other requests are cheap lookups made before it: where the start URL
+    # lands, and the section's own llms files, nearest first -- an origin
+    # file is often about the company, not the docs (resend.com, 2026-09-24).
+    assert fetcher.asked.count("https://d.dev/llms-full.txt") == 1
+    assert set(fetcher.asked) <= {"https://d.dev/docs/",
+                                  "https://d.dev/docs/llms-full.txt",
+                                  "https://d.dev/docs/llms.txt",
+                                  "https://d.dev/llms-full.txt"}, fetcher.asked
 
 
 def test_a_named_release_refuses_a_file_that_cannot_show_it_is_that_release():

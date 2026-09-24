@@ -62,6 +62,13 @@ DECIDERS = (
     "_scope_identity",      # whether a scoped name is claimed by its scope's domain
     "ownership_only",       # whether a domain answer is final or held for the registries
     "_settle_held",         # what a held domain answer loses to
+    "from_search",          # which registries the last lap may search
+    "_prefer_docs_behind_repo",  # when a winning repository gives way to its site
+    "_variant_urls",        # where one language's edition of a page is looked for
+    "_for_language",        # which edition answers a request for one language
+    "_switch_to_language",  # whether a page is, or leads to, that edition
+    "_language_links",      # which sections a many-language front page offers
+    "_official_answer",     # when a name is a language, not a package
 )
 
 
@@ -131,8 +138,8 @@ def fingerprint() -> str:
 #: ownership alone is held for the registry lap rather than returned (R10).
 #: An entry cached under 6 can be a refusal of a scoped package that now
 #: resolves, or a squatter chosen before any registry was asked.
-FINGERPRINT = "a51448b8ea5f9f59"
-EXPECTED_RULES = 7
+FINGERPRINT = "b011f3dbf086cc1f"
+EXPECTED_RULES = 8
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

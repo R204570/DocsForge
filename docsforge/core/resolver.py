@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
+from docsforge.core import languages
 from docsforge.core.engine import Fetcher, ForgeError, Options
 from docsforge.core.instrument import Budget, ResolveState
 
@@ -80,6 +81,10 @@ class Candidate:
     #: not completing. Such a candidate was not examined, and `unexamined_above`
     #: keeps a weaker one from being accepted in its place.
     unreachable: bool = False
+    #: What the registry entry this candidate was found in claims -- its
+    #: homepage and repository -- for a candidate that did not come from the
+    #: exact-name lap, which carries its facts another way (`_facts_for`).
+    facts: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
@@ -109,6 +114,13 @@ class Resolution:
     #: name nobody documents: not remembered, because it will resolve once
     #: the site answers again.
     unexamined: bool = False
+    #: The registry the *caller* named, as distinct from `ecosystem`, which is
+    #: also filled in with whichever registry answered first. Only a caller's
+    #: choice narrows the search lap.
+    asked_ecosystem: str = ""
+    #: The programming language the caller asked for ("javascript"), and what
+    #: resolution found about it -- see `resolve(language=)`.
+    language: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -116,7 +128,7 @@ class Resolution:
             "best": self.best.as_dict() if self.best else None,
             "candidates": [c.as_dict() for c in self.candidates],
             "note": self.note, "resolved_via": self.resolved_via,
-            "release": self.release,
+            "release": self.release, "language": self.language,
         }
 
 
@@ -1025,7 +1037,19 @@ def from_name_shapes(name: str, fetcher: Fetcher, state=None,
 # ─────────────────────────────────────────────────────────────
 #: How much of a page to read when checking it is the right library. The name
 #: should appear early — in the title, a heading, or the first code sample.
-VERIFY_WINDOW = 40_000
+#:
+#: Early in what a reader sees, that is, not in the bytes. A modern docs page
+#: spends its first tens of kilobytes on inline scripts and styles:
+#: `docs.langchain.com/oss/javascript/langgraph/overview` is 880 KB, its body
+#: starts at byte 16,138, and the first 40,000 bytes held one mention of
+#: "langgraph" -- so LangGraph's own documentation failed LangGraph's identity
+#: check with "nothing on the page identifies it" (2026-09-24). The window is
+#: raw bytes wide enough for such a page, and mentions are counted in its
+#: visible text only (`identity_signals`), so a larger window buys no credit
+#: from a script that happens to repeat a word.
+VERIFY_WINDOW = 600_000
+#: ...of which links are read only this far (`identity_signals`).
+LINK_WINDOW = 40_000
 
 #: How many times a page must name the package before it counts as documenting
 #: it. One mention is noise; a real docs page repeats it constantly.
@@ -1244,7 +1268,17 @@ def identity_signals(candidate: Candidate, name: str, body: str,
     """
     slug = normalise(name)
     facts = facts or {}
-    text = re.sub(r"<[^>]+>", " ", body)
+    # What a reader sees: scripts and styles hold the page's words too -- in
+    # route tables and JSON -- and counting them credited a page with
+    # mentions no reader would find.
+    text = _visible_text(body)
+    # Links are judged over the opening of the page only, as they always
+    # were. Every company site links its GitHub organisation from the footer,
+    # and reading the whole page gave `pydantic.dev/` -- the company's front
+    # page -- a `repo-identity` it never had, enough to outrank the
+    # documentation (2026-09-24). The wider window is for mentions and
+    # install lines, which live in the prose.
+    head = body[:LINK_WINDOW]
     found: list[str] = []
 
     # A project's domain may redirect off itself — terraform.io lands on
@@ -1277,14 +1311,14 @@ def identity_signals(candidate: Candidate, name: str, body: str,
     repo = (facts.get("repository") or "").rstrip("/")
     if repo:
         path = urlparse(repo).path.strip("/").lower()
-        if path and path in body.lower() and candidate.url.rstrip("/") != repo:
+        if path and path in head.lower() and candidate.url.rstrip("/") != repo:
             found.append("repo-backlink")
 
     home = facts.get("homepage") or ""
     if home and _host(home) and _host(home) == _host(candidate.url):
         found.append("registry-agreement")
 
-    if _repo_identity(body, slug):
+    if _repo_identity(head, slug):
         found.append("repo-identity")
 
     if _path_identity(candidate, slug):
@@ -1723,7 +1757,12 @@ REJECT_TTL = 7 * 86400
 #:      stands on owning the name alone no longer pre-empts the registries
 #:      (R10). Entries cached under 6 include refusals of every scoped
 #:      package and squatters resolved without a registry being asked.
-RULES = 7
+#:   8  the search lap keeps to the registry the caller named (`langgraph` on
+#:      npm had resolved to a Rust crate); a repository that wins is swapped
+#:      for the documentation site it declares, when that passes the gate;
+#:      and a resolution may be for one language's edition (`language=`),
+#:      filed under its own key.
+RULES = 8
 
 
 def _cache_file() -> Path:
@@ -1749,9 +1788,15 @@ def _save_cache(data: dict) -> None:
         pass
 
 
-def recall(name: str) -> Resolution | None:
+def _cache_key(name: str, language: str = "") -> str:
+    """One entry per name, and per language asked for: "langgraph" for Python
+    and for JavaScript are two different answers."""
+    return normalise(name) + (f"@{language}" if language else "")
+
+
+def recall(name: str, language: str = "") -> Resolution | None:
     """A remembered resolution for this name, or None. Costs no requests."""
-    entry = _load_cache().get(normalise(name))
+    entry = _load_cache().get(_cache_key(name, language))
     if not entry:
         return None
     if entry.get("rules") != RULES:
@@ -1760,7 +1805,8 @@ def recall(name: str) -> Resolution | None:
     if age > (CACHE_TTL if entry.get("url") else REJECT_TTL):
         return None
 
-    result = Resolution(name=name, ecosystem=entry.get("ecosystem", ""))
+    result = Resolution(name=name, ecosystem=entry.get("ecosystem", ""),
+                        language=entry.get("language", "") or "")
     result.resolved_via = entry.get("resolved_via", "") or "memory"
     if not entry.get("url"):
         result.note = entry.get("note") or f"Recently could not resolve {name!r}."
@@ -1806,13 +1852,14 @@ def learned_nothing(result: Resolution) -> bool:
     return all(_UNREACHABLE in (c.reason or "") for c in result.candidates)
 
 
-def remember(name: str, result: Resolution) -> None:
+def remember(name: str, result: Resolution, language: str = "") -> None:
     """File what this resolution found, successful or not."""
     if learned_nothing(result):
         return          # nothing was learned, so there is nothing to file
     data = _load_cache()
     best = result.best
-    data[normalise(name)] = {
+    data[_cache_key(name, language)] = {
+        "language": result.language,
         "at": time.time(),
         "rules": RULES,
         "url": best.url if best else "",
@@ -1838,8 +1885,12 @@ def forget_resolution(name: str = "") -> str:
         _save_cache({})
         return f"Forgot {len(data)} remembered resolution(s)."
     slug = normalise(name)
-    if data.pop(slug, None) is None:
+    # The name's own entry and every per-language one beside it.
+    doomed = [k for k in data if k == slug or k.startswith(slug + "@")]
+    if not doomed:
         return f"Nothing remembered for {name!r}."
+    for key in doomed:
+        data.pop(key, None)
     _save_cache(data)
     return f"Forgot the remembered resolution for {name!r}."
 
@@ -1847,12 +1898,19 @@ def forget_resolution(name: str = "") -> str:
 # ─────────────────────────────────────────────────────────────
 # L5 — fuzzy search
 # ─────────────────────────────────────────────────────────────
-def from_search(name: str, fetcher: Fetcher, budget=None) -> list[Candidate]:
+def from_search(name: str, fetcher: Fetcher, budget=None,
+                ecosystem: str = "") -> list[Candidate]:
     """Registry fuzzy search, then an optional configured hook.
 
     Never a search engine's HTML endpoint: brittle, against their terms, and a
     poor look for a resolver whose entire pitch is trustworthiness. These are
     documented JSON APIs that the exact-name laps simply do not use.
+
+    Only the registry the caller named, when they named one. Asked for
+    `langgraph` on npm -- where the package is `@langchain/langgraph` and the
+    exact lookup finds nothing -- this lap searched crates.io too, and
+    `docs.rs/rust-langgraph`, a Rust crate, passed the identity gate and was
+    the answer (2026-09-24). A caller who said npm did not mean Rust.
     """
     out: list[Candidate] = []
     query = quote(name.strip())
@@ -1861,25 +1919,44 @@ def from_search(name: str, fetcher: Fetcher, budget=None) -> list[Candidate]:
     if budget is not None and budget.exhausted:
         return out
 
-    npm = _json(fetcher, f"https://registry.npmjs.org/-/v1/search?text={query}&size=4")
-    for obj in (npm or {}).get("objects", [])[:4]:
-        pkg = obj.get("package") or {}
-        links = pkg.get("links") or {}
-        for field_name in ("homepage", "repository"):
-            url = links.get(field_name) or pkg.get(field_name)
-            if url:
-                out.append(Candidate(url, f"search:npm/{pkg.get('name','')}",
+    if ecosystem in ("", "npm"):
+        npm = _json(fetcher, f"https://registry.npmjs.org/-/v1/search?text={query}&size=4")
+        for obj in (npm or {}).get("objects", [])[:4]:
+            pkg = obj.get("package") or {}
+            links = pkg.get("links") or {}
+            # What this package's own entry claims, for judging what it names:
+            # a search hit is otherwise judged against nothing, and the
+            # `@langchain/langgraph` README failed for "langgraph" on four
+            # mentions alone while npm names it as that package's homepage.
+            home = (links.get("homepage") or "").strip()
+            repo = _clean_repo(links.get("repository") or "")
+            # Only a package that *is* the name vouches for what it names:
+            # `@langchain/langgraph` for "langgraph", never `langgraph-sdk`,
+            # whose homepage would otherwise earn `registry-agreement` for a
+            # project nobody asked about.
+            exact = normalise(pkg.get("name", "")) == normalise(name)
+            claims = ({"homepage": home, "repository": repo, "ecosystem": "npm"}
+                      if exact else {})
+            for field_name, url in (("homepage", home), ("repository", repo)):
+                if url.startswith("http"):
+                    cand = Candidate(url, f"search:npm/{pkg.get('name','')}",
                                      _score(url, field_name) * 0.8,
-                                     f"npm search matched {pkg.get('name','')!r}"))
+                                     f"npm search matched {pkg.get('name','')!r}")
+                    cand.registry = "npm" if ecosystem else ""
+                    cand.facts = {k: v for k, v in claims.items() if v}
+                    out.append(cand)
 
-    crates = _json(fetcher, f"https://crates.io/api/v1/crates?q={query}&per_page=4")
-    for crate in (crates or {}).get("crates", [])[:4]:
-        for field_name in ("documentation", "homepage", "repository"):
-            url = crate.get(field_name)
-            if url:
-                out.append(Candidate(url, f"search:crates/{crate.get('name','')}",
+    if ecosystem in ("", "crates"):
+        crates = _json(fetcher, f"https://crates.io/api/v1/crates?q={query}&per_page=4")
+        for crate in (crates or {}).get("crates", [])[:4]:
+            for field_name in ("documentation", "homepage", "repository"):
+                url = crate.get(field_name)
+                if url:
+                    cand = Candidate(url, f"search:crates/{crate.get('name','')}",
                                      _score(url, field_name) * 0.8,
-                                     f"crates search matched {crate.get('name','')!r}"))
+                                     f"crates search matched {crate.get('name','')!r}")
+                    cand.registry = "crates" if ecosystem else ""
+                    out.append(cand)
 
     hook = os.environ.get("DOCSFORGE_SEARCH", "").strip()
     if hook:
@@ -1964,11 +2041,13 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
 
     # ── L5: fuzzy search, the last and least certain lap ──
     if budget is None or not budget.exhausted:
-        searched = from_search(name, fetcher, budget=budget)
+        searched = from_search(name, fetcher, budget=budget,
+                               ecosystem=result.asked_ecosystem
+                               if result.asked_ecosystem in REGISTRIES else "")
         for cand in searched:
             if budget is not None:
                 budget.charge()
-            verify(cand, name, fetcher, {}, state=state)
+            verify(cand, name, fetcher, dict(cand.facts), state=state)
             if state is not None:
                 state.record(cand.url)
             if cand.verified:
@@ -1991,22 +2070,334 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
 
 def resolve(name: str, ecosystem: str = "", fetcher: Fetcher | None = None,
             verify_best: bool = True, limit: int = 6,
-            use_memory: bool = True) -> Resolution:
+            use_memory: bool = True, language: str = "") -> Resolution:
     """Find where `name` documents itself, consulting memory first.
 
     L0 is a wrapper rather than a lap inside the ladder so that a hit costs
     exactly zero HTTP requests — a cache that still opens a connection to check
     itself is not a cache. `forget_resolution()` clears it.
+
+    `language` asks for the documentation of one language's edition --
+    "langgraph" for JavaScript is `/oss/javascript/langgraph/`, not the
+    Python pages the name resolves to by default. See `_for_language`.
     """
+    lang = languages.canonical(language)
+    said = lang.name if lang else ""
     if use_memory and verify_best:
-        remembered = recall(name)
+        remembered = recall(name, said)
         if remembered is not None:
             return remembered
 
-    result = _resolve_uncached(name, ecosystem, fetcher, verify_best, limit)
+    own = fetcher is None
+    fetcher = fetcher or Fetcher(Options(delay=0.0))
+    try:
+        result = _official_answer(name, ecosystem, fetcher) if verify_best else None
+        if result is None:
+            result = _resolve_uncached(name, ecosystem, fetcher, verify_best, limit)
+        if verify_best and result.best is not None and is_forge(result.best.url):
+            _prefer_docs_behind_repo(result, name, fetcher)
+        if lang is not None and verify_best:
+            result = _for_language(result, name, lang, ecosystem, fetcher, limit)
+    finally:
+        if own:
+            fetcher.close()
 
     if use_memory and verify_best:
-        remember(name, result)
+        remember(name, result, said)
+    return result
+
+
+def _official_answer(name: str, ecosystem: str, fetcher: Fetcher) -> Resolution | None:
+    """A language's or runtime's own manual, when `name` is one -- see
+    `languages.OFFICIAL_DOCS` -- and it passes the same gate as anything else.
+    Not when the caller named a registry: then they meant a package."""
+    where = "" if ecosystem else languages.official_docs(name)
+    if not where:
+        return None
+    cand = Candidate(where, "official:language", 0.97,
+                     f"{name} is a language, and this is its own manual")
+    verify(cand, name, fetcher, {"via_domain": True})
+    if not cand.verified:
+        return None
+    return Resolution(name=name, candidates=[cand], best=cand, resolved_via="official",
+                      note=(f"{name!r} is a programming language or runtime, not a "
+                            f"package: resolved to its own manual rather than to a "
+                            f"registry entry that happens to share the word."))
+
+
+def _page_key(url: str) -> str:
+    parsed = urlparse(url)
+    return (parsed.hostname or "").lower() + (parsed.path or "/").rstrip("/").lower()
+
+
+def _prefer_docs_behind_repo(result: Resolution, name: str, fetcher: Fetcher) -> None:
+    """A repository that won, swapped for the documentation site it declares.
+
+    npm nominates `github.com/langchain-ai/langgraphjs#readme` for
+    `@langchain/langgraph`, the repository passes the gate -- it is that
+    project -- and a harvest of it is a README and whatever Markdown sits in
+    `docs/`, while the project's documentation is a site of its own. The
+    repository says where: its `homepage`, the owner's public statement. That
+    site goes through the same gate as everything else, and wins only if it
+    passes; otherwise the repository stands.
+    """
+    found = _GITHUB_REPO.match(result.best.url)
+    if not found:
+        return
+    owner, project = found.group(1), re.sub(r"\.git$", "", found.group(2))
+    data = _json(fetcher, f"https://api.github.com/repos/{owner}/{project}")
+    home = ((data or {}).get("homepage") or "").strip()
+    if not home.startswith(("http://", "https://")) or is_forge(home) or is_package_host(home):
+        return
+    cand = Candidate(home, "evidence:repo-homepage", 0.9,
+                     f"github.com/{owner}/{project} declares its homepage as {home}",
+                     release=result.best.release)
+    cand.registry = result.best.registry
+    probed = [cand] + ([] if _looks_like_docs(home) else probe_docs_root(home, fetcher))
+    facts = {"repository": result.best.url}
+    for option in probed:
+        verify(option, name, fetcher, facts)
+        if option.verified:
+            option.registry = option.registry or result.best.registry
+            option.release = option.release or result.best.release
+            result.candidates = dedupe([option] + result.candidates)
+            result.note = (f"{result.note} The repository {result.best.url} won the "
+                           f"registry lap; its declared homepage {option.url} is the "
+                           f"documentation, and it passed the same checks.").strip()
+            result.best = option
+            result.resolved_via = f"{result.resolved_via}+repo-homepage"
+            return
+
+
+#: How many alternative URLs a language variant may cost.
+VARIANT_TRIES = 8
+
+
+def _variant_urls(url: str, lang: "languages.Language") -> list[str]:
+    """Where the `lang` edition of the page at `url` would be, most likely first.
+
+    A language segment swapped (`/oss/python/langgraph/` -> `/oss/javascript/
+    langgraph/`), a host label swapped (`python.langchain.com` ->
+    `js.langchain.com`), or a language prefix put in front of a path that
+    names none (`playwright.dev/docs/intro` -> `playwright.dev/python/docs/intro`).
+    """
+    parsed = urlparse(url)
+    parts = [p for p in parsed.path.split("/") if p]
+    trailing = parsed.path.endswith("/")
+    out: list[str] = []
+
+    def path_of(segs: list[str]) -> str:
+        return "/" + "/".join(segs) + ("/" if trailing and segs else "")
+
+    swapped = False
+    for i, seg in enumerate(parts):
+        other = languages.segment_language(seg)
+        if other is not None and other.name != lang.name:
+            swapped = True
+            for token in lang.segments:
+                out.append(parsed._replace(path=path_of(parts[:i] + [token] + parts[i + 1:])).geturl())
+    labels = (parsed.hostname or "").split(".")
+    if labels and languages.segment_language(labels[0]) not in (None, lang):
+        swapped = True
+        for token in lang.segments:
+            host = ".".join([token] + labels[1:])
+            out.append(parsed._replace(netloc=host).geturl())
+    if not swapped:
+        for token in lang.segments[:2]:
+            out.append(parsed._replace(path=path_of([token] + parts)).geturl())
+            if parts:
+                out.append(parsed._replace(path=path_of(parts[:1] + [token] + parts[1:])).geturl())
+    return list(dict.fromkeys(out))
+
+
+def _content_of(body: str, url: str) -> str:
+    """A fetched page's documentation, not its scripts: what `languages`
+    measures has to be the words and code a reader sees (see
+    `languages.evidence`)."""
+    if not body:
+        return ""
+    head = body.lstrip()[:600].lower()
+    if not (head.startswith(("<!doctype", "<html")) or "<html" in head[:200]):
+        return body                                 # Markdown, text: already content
+    try:
+        from docsforge.core import engine
+        return engine._html_to_md(body, url)[1]
+    except Exception:                               # noqa: BLE001 -- unreadable is empty
+        return _visible_text(body)
+
+
+def _language_links(html: str, base: str, lang: "languages.Language", name: str,
+                    most: int = 3) -> list[str]:
+    """Where a page that serves several languages sends readers of one.
+
+    `docs.langchain.com/` is one front page for Python and JavaScript alike,
+    and links to `/oss/python/...` and `/oss/javascript/...`; there is no
+    segment in its own URL to swap. The links are grouped by the path up to
+    the segment after the language's name -- `/oss/javascript/langchain/` --
+    and the group that names the project comes first, then the largest.
+    """
+    if not html:
+        return []
+    host = (urlparse(base).hostname or "").lower()
+    slug = normalise(name)
+    groups: dict[str, list[str]] = {}
+    for href in re.findall(r"""href\s*=\s*["']([^"'#]+)""", html):
+        link = urljoin(base, href.strip())
+        parsed = urlparse(link)
+        if (parsed.hostname or "").lower() != host:
+            continue
+        parts = [p for p in parsed.path.split("/") if p]
+        for i, part in enumerate(parts):
+            if part.lower() in lang.segments:
+                key = "/" + "/".join(parts[:i + 2]) + "/"
+                groups.setdefault(key, []).append(link)
+                break
+    if not groups:
+        return []
+    ranked = sorted(groups.items(),
+                    key=lambda kv: (slug and slug in normalise(kv[0]), len(kv[1])),
+                    reverse=True)
+    return [links[0] for _key, links in ranked[:most]]
+
+
+def _same_site_root(a: str, b: str) -> bool:
+    """One page, or a site and a page at its root: `playwright.dev` and
+    `playwright.dev/`, or `x.dev` and `x.dev/docs/` when nothing narrower
+    separates them."""
+    if _page_key(a) == _page_key(b):
+        return True
+    pa, pb = urlparse(a), urlparse(b)
+    if (pa.hostname or "").lower().removeprefix("www.") != \
+            (pb.hostname or "").lower().removeprefix("www."):
+        return False
+    return (pa.path or "/").strip("/") == "" or (pb.path or "/").strip("/") == ""
+
+
+def _names_language(url: str, lang: "languages.Language") -> bool:
+    parsed = urlparse(url)
+    words = [p.lower() for p in parsed.path.split("/") if p]
+    words.append(((parsed.hostname or "").split(".") or [""])[0].lower())
+    return any(w in lang.segments for w in words)
+
+
+def _switch_to_language(result: Resolution, name: str, lang: "languages.Language",
+                        fetcher: Fetcher, limit: int) -> bool:
+    """Make `result.best` the `lang` edition, if the site publishes one.
+
+    True when it already is -- the path names the language, the page it lands
+    on does, or its content is written for it and nothing more specific
+    exists -- or when an edition beside it was found and put in its place.
+    Worked from where the page *lands*: LangChain's repository declares
+    `docs.langchain.com/langchain/`, which lands on the Python edition, and
+    the JavaScript one is a segment away from there, not from the address
+    that redirected.
+    """
+    best = result.best
+    if best is None:
+        return False
+    if _names_language(best.url, lang):
+        return True
+    try:
+        r = fetcher.get(best.url, timeout=PROBE_TIMEOUT, allow_redirects=True)
+        raw = r.text if getattr(r, "status_code", 0) == 200 else ""
+        here = (getattr(r, "url", "") or best.url) if raw else best.url
+    except ForgeError:
+        raw, here = "", best.url
+    if _names_language(here, lang):
+        best.url = here
+        return True
+    page = _content_of(raw, here)
+    shows = bool(page) and languages.written_for(page, lang) is True
+    if shows and languages.dominant(page) == lang.name:
+        result.note = (f"{result.note} The documentation found is written for "
+                       f"{lang.name}.").strip()
+        return True
+    options = (_variant_urls(here, lang)[:VARIANT_TRIES]
+               + _language_links(raw, here, lang, name))
+    for option in list(dict.fromkeys(options)):
+        try:
+            r = fetcher.get(option, timeout=PROBE_TIMEOUT, allow_redirects=True)
+        except ForgeError:
+            continue
+        if getattr(r, "status_code", 0) != 200:
+            continue
+        landed = getattr(r, "url", "") or option
+        if _page_key(landed) in (_page_key(best.url), _page_key(here)):
+            continue                                # sent back where it started
+        ctype = (r.headers.get("content-type") or "").lower()
+        if "html" not in ctype and "markdown" not in ctype and "text/plain" not in ctype:
+            continue
+        body = _content_of(r.text or "", landed)
+        fits = languages.written_for(body, lang)
+        if fits is False or (fits is None and not _names_language(landed, lang)):
+            continue
+        cand = Candidate(landed, f"variant:{lang.name}", best.confidence,
+                         f"the {lang.name} edition of {here}", True,
+                         f"the {lang.name} edition the site publishes beside the "
+                         f"verified page {here}",
+                         release="")
+        cand.signals = list(best.signals) + [f"language:{lang.name}"]
+        cand.authority = best.authority
+        result.candidates = dedupe([cand] + result.candidates)[:limit]
+        was = languages.dominant(page) or "another language"
+        result.note = (f"{result.note} {here} documents {name} for {was}; the site "
+                       f"publishes the {lang.name} edition at {landed}, and that is "
+                       f"what was asked for.").strip()
+        result.best = cand
+        result.resolved_via = f"{result.resolved_via or 'registry'}+{lang.name}"
+        # The registry release was the default edition's package, not
+        # necessarily this one's; the harvest reads the pages instead.
+        result.release = ""
+        return True
+    if shows:
+        # A page that shows this language among others, and no edition of
+        # its own to be found: a Stripe page with a tab per SDK.
+        result.note = (f"{result.note} The documentation found shows {lang.name} "
+                       f"among the languages it covers.").strip()
+        return True
+    return False
+
+
+def _for_language(result: Resolution, name: str, lang: "languages.Language",
+                  ecosystem: str, fetcher: Fetcher, limit: int) -> Resolution:
+    """The `lang` edition of what resolution found, or an honest note.
+
+    Three ways a project answers "which language": its pages already serve
+    it; it files one edition per language and the found page belongs to
+    another (LangGraph, Playwright) -- then the same path under the asked
+    language is tried, and taken only if the site answers there and the page
+    is written for that language or filed under its name; or it publishes
+    that language's package separately, to be found through that language's
+    registry and then, if need be, switched the same way.
+    """
+    result.language = lang.name
+    best = result.best
+    if best is not None and _switch_to_language(result, name, lang, fetcher, limit):
+        return result
+
+    # No edition beside it: the language's own registry.
+    if lang.ecosystem in REGISTRIES and lang.ecosystem != (ecosystem or ""):
+        other = _resolve_uncached(name, lang.ecosystem, fetcher, True, limit)
+        if other.best is not None and is_forge(other.best.url):
+            _prefer_docs_behind_repo(other, name, fetcher)
+        if other.best is not None:
+            other.language = lang.name
+            if _switch_to_language(other, name, lang, fetcher, limit):
+                other.note = (f"{other.note} Found through {lang.ecosystem}, the "
+                              f"{lang.name} registry.").strip()
+                return other
+            if best is not None and _same_site_root(other.best.url, best.url):
+                # The language's own registry nominates what was already
+                # found: `playwright` on npm points at playwright.dev, which
+                # is the Node edition, whatever its landing page shows of it.
+                result.note = (f"{result.note} {lang.ecosystem}, the {lang.name} "
+                               f"registry, points at this same documentation.").strip()
+                return result
+
+    if best is not None:
+        result.note = (f"{result.note} No {lang.name} edition of this documentation "
+                       f"was found; what was found may be written for another "
+                       f"language -- check before relying on its examples.").strip()
     return result
 
 
@@ -2017,7 +2408,8 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
     Returns every candidate with its evidence rather than silently picking one,
     so a caller that disagrees can see why and choose differently.
     """
-    result = Resolution(name=name, ecosystem=ecosystem or guess_ecosystem(name))
+    result = Resolution(name=name, ecosystem=ecosystem or guess_ecosystem(name),
+                        asked_ecosystem=ecosystem)
     own = fetcher is None
     fetcher = fetcher or Fetcher(Options(delay=0.0))
     # The hinge: every candidate, passed or failed, deposits what its fetch
@@ -2115,6 +2507,16 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
         ranked = dedupe(sorted(found + extra,
                                key=lambda c: c.confidence, reverse=True))
         result.candidates = ranked[:limit]
+        if provisional is not None:
+            # The held page competes, so it is never trimmed away. Cut by
+            # confidence, it could fall past `limit`, miss the re-verification
+            # below, and still come back from `_settle_held` as a `best` that
+            # `candidates` does not list — `find_docs` printed a "Best:" that
+            # was none of the candidates above it.
+            key = _same_page(provisional.url)
+            if all(_same_page(c.url) != key for c in result.candidates):
+                result.candidates.append(
+                    next(c for c in ranked if _same_page(c.url) == key))
 
         # What the registries claimed — per registry, not pooled. Pooled and
         # first-wins, the facts were always the first registry to answer:
@@ -2131,9 +2533,9 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                        dict(_facts_for(cand, found, facts),
                             via_domain=cand.source.startswith("domain:")),
                        state=state)
-            picked = best_verified(result.candidates)
-            if provisional is not None:
-                picked = _settle_held(provisional, result.candidates)
+            picked = (_settle_held(provisional, result.candidates)
+                      if provisional is not None
+                      else best_verified(result.candidates))
             blocker = unexamined_above(picked, result.candidates)
             if blocker is not None:
                 # Not the ladder tail either: its laps -- name shapes,

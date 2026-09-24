@@ -185,6 +185,8 @@ from docsforge.store.kb_store import (  # noqa: E402
     slugify as _kb_slug, split_pages, version_from_url as _version_from_url,
 )
 from docsforge.core.resolver import normalise as _normalise, resolve as _resolve  # noqa: E402
+from docsforge.core.resolver import _names_language  # noqa: E402
+from docsforge.core import languages  # noqa: E402
 
 _STORE = None
 _RETRY_AT = 0.0
@@ -816,9 +818,11 @@ class _CountingFetcher(Fetcher):
         self._stats = stats
         self._stage = stage
         self._last_tick = 0.0
+        self._counted = threading.local()
 
     def page_fetched(self) -> None:
         """One documentation page obtained by a route `html()` never sees."""
+        self._counted.n = getattr(self._counted, "n", 0) + 1
         self._progress.pages += 1
         if self._progress.expected is None:
             # harvest() records the site's own count before it starts fetching
@@ -842,9 +846,31 @@ class _CountingFetcher(Fetcher):
             except Exception:
                 pass  # a trace hiccup must never interrupt a harvest
 
-    def html(self, url: str) -> str:
-        out = super().html(url)
+    # Counted where every page arrives. `html()` alone used to be counted,
+    # and the crawl has fetched through `html_at()` -- which `html()` wraps --
+    # since relative links started resolving against where a page landed
+    # (2026-09-19), so a crawl reported "starting" with 0 pages to the end:
+    # `Issues.md` T1. `html()` goes through `html_at()`, so nothing is
+    # counted twice; a rendered retry of a page already counted goes through
+    # `render()`, which is not a new page and is not counted.
+    def html_at(self, url: str) -> tuple[str, str]:
+        out = super().html_at(url)
         self.page_fetched()
+        return out
+
+    def render_at(self, url: str) -> tuple[str, str]:
+        out = super().render_at(url)
+        self.page_fetched()
+        return out
+
+    def html(self, url: str) -> str:
+        # Counted here only when the page did not already arrive through
+        # `html_at` on this thread -- a fetcher whose `html` was replaced
+        # outright still counts, and nothing is counted twice.
+        before = getattr(self._counted, "n", 0)
+        out = super().html(url)
+        if getattr(self._counted, "n", 0) == before:
+            self.page_fetched()
         return out
 
 
@@ -854,7 +880,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
                  corpora: list | None = None, strict: bool = False,
                  progress=None,
                  trace: "tracing.TraceContext | None" = None,
-                 release_hint: str = "") -> str:
+                 release_hint: str = "", topic: str = "") -> str:
     """Harvest a WHOLE documentation set and store it in the knowledge base.
 
     The crawl itself, start to finish, on whatever thread calls it. The tool
@@ -878,6 +904,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
                     cap=HARVEST_PAGE_CAP, version=version)
     opts.scope = scope or "section"
     opts.release_hint = release_hint or ""
+    opts.topic = (topic or "").strip()
 
     started = time.time()
     stats: dict = {}
@@ -1076,6 +1103,19 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
             f"and are not counted as covered:\n{listed}"
             + (f"\n… and {len(unreadable) - 10} more" if len(unreadable) > 10 else "")
         )
+    # Listed or linked, and not there: facts about the site's lists, not gaps
+    # in this copy, so said once and plainly, and never counted as missing.
+    dead = stats.get("dead") or []
+    if dead:
+        listed = "\n".join(f"- {u}" for u in dead[:10])
+        warning += (
+            f"\n\n{len(dead)} page(s) the site lists or links to answer HTTP 404 — "
+            f"they are not on the site, so they are not missing from this copy:\n{listed}"
+            + (f"\n… and {len(dead) - 10} more" if len(dead) > 10 else ""))
+    tables = stats.get("index_pages") or []
+    if tables:
+        warning += (f"\n\n{len(tables)} index page(s) — tables of contents with nothing "
+                    f"but links — were followed to the pages they list, not stored.")
     # Asked for and refused is a different fact from reached and unreadable,
     # and used to be filed under it: thirty-three 429s from a rate-limited
     # site were reported as "nothing on them read like documentation"
@@ -1110,6 +1150,21 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
                                          else [len(d.markdown) for d in docs])
     if shape_note:
         warning += "\n\n" + shape_note
+
+    # Kept to a topic: say what that meant, and what it left out, where the
+    # caller can see it and widen -- choosing pages is scope, and scope is
+    # declared, never silent.
+    focus = stats.get("topic") or {}
+    if focus:
+        sections = ", ".join(f"`{where}` ({n})" for where, n in focus.get("left_by_section") or [])
+        warning += (
+            f"\n\n**Kept to the topic {focus.get('topic')!r}.** Every page was judged "
+            f"by its title, address, headings and prose against: "
+            f"{', '.join((focus.get('terms') or [])[:16])}. {focus.get('kept', 0)} "
+            f"page(s) belong and are stored, with the pages that introduce the "
+            f"technology; {focus.get('left', 0)} judged outside the topic were not "
+            f"stored" + (f" -- by section: {sections}" if sections else "") + ". "
+            "Ask again with a broader topic, or none, to take those too.")
 
     where = entry["file"]
     trace.event(
@@ -1268,7 +1323,12 @@ def stored_name(name: str) -> str | None:
         return exact[0]
 
     if len(wanted) >= 3:
-        near = [n for n in names if _normalise(n).startswith(wanted)]
+        # A prefix that runs on into the same word ("pyd" -> "pydantic"), not
+        # one that stops at a hyphen: "langgraph-javascript" is an edition and
+        # "go-web-development" a topic, and neither is what "langgraph" or
+        # "go" asks for.
+        near = [n for n in names if _normalise(n).startswith(wanted)
+                and not _normalise(n)[len(wanted):].startswith("-")]
         if len(near) == 1:
             return near[0]
     return None
@@ -1336,11 +1396,17 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
 # ─────────────────────────────────────────────────────────────
 # Answering by name instead of by URL
 # ─────────────────────────────────────────────────────────────
-def tool_find_docs(name: str, ecosystem: str | None = None) -> str:
+def tool_find_docs(name: str, ecosystem: str | None = None,
+                   language: str | None = None) -> str:
     """Work out where a technology documents itself. Fetches nothing else."""
-    found = _resolve(name, ecosystem=(ecosystem or "").strip())
+    lang = languages.canonical(language)
+    if (language or "").strip() and lang is None:
+        raise ForgeError(f"Unknown language {language!r}.")
+    found = _resolve(name, ecosystem=(ecosystem or "").strip(),
+                     **({"language": lang.name} if lang else {}))
 
     lines = [f"Resolving **{name}**"
+             + (f" for {lang.name}" if lang else "")
              + (f" ({found.ecosystem})" if found.ecosystem else "") + ":", ""]
     if not found.candidates:
         lines.append(found.note or f"Nothing found for {name!r}.")
@@ -1355,11 +1421,14 @@ def tool_find_docs(name: str, ecosystem: str | None = None) -> str:
 
     lines.append("")
     if found.best:
+        also = f", language=\"{lang.name}\"" if lang else ""
         lines.append(
             f"Best: {found.best.url} — harvest it with "
-            f"`learn_technology(name=\"{name}\")`, or "
+            f"`learn_technology(name=\"{name}\"{also})`, or "
             f"`harvest_docs(url=\"{found.best.url}\", name=\"{_kb_slug(name)}\")`."
         )
+        if lang and found.note:
+            lines.append(found.note)
     else:
         lines.append(found.note)
     return "\n".join(lines)
@@ -1369,6 +1438,7 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
                       js: bool = False, scope: str = "section",
                       version: str | None = None, intent: str = "",
                       corpora: list | None = None, strict: bool = False,
+                      topic: str | None = None,
                       trace: "tracing.TraceContext | None" = None) -> str:
     """Harvest a WHOLE documentation set from a URL, as a tracked harvest.
 
@@ -1385,16 +1455,22 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
     caller that already owns a job, and such a caller wants `_harvest_now`.
     """
     trace = trace or tracing.NULL_CONTEXT
-    label = name or _name_from_url(url)
+    topic = (topic or "").strip()
+    # A harvest kept to a topic is a different corpus from the whole manual,
+    # and is filed as one: "go-web-development" can never be mistaken for all
+    # of Go by a later `learn_technology("go")` answering "already stored".
+    filed = _topic_name(name or _name_from_url(url), topic)
+    label = filed
 
     def work(progress: harvest_jobs.Progress) -> str:
         progress.url = url
         progress.phase = "harvesting"
         try:
-            return _harvest_now(url=url, name=name, max_pages=max_pages, js=js,
+            return _harvest_now(url=url, name=filed if (name or topic) else None,
+                                max_pages=max_pages, js=js,
                                 scope=scope, version=version, intent=intent,
                                 corpora=corpora, strict=strict,
-                                progress=progress, trace=trace)
+                                progress=progress, trace=trace, topic=topic)
         finally:
             # See `tool_learn_technology`: only once run_tool() has given up
             # ownership by detaching is this ours to close.
@@ -1405,8 +1481,64 @@ def tool_harvest_docs(url: str, name: str | None = None, max_pages: int = 0,
                        handoff={"url": url, "name": name, "max_pages": max_pages,
                                 "js": js, "scope": scope, "version": version,
                                 "intent": intent, "corpora": corpora,
-                                "strict": strict},
+                                "strict": strict, "topic": topic},
                        tool="harvest_docs")
+
+
+def _topic_name(name: str, topic: str) -> str:
+    """What a harvest kept to `topic` is filed under: the name, and the topic."""
+    if not topic:
+        return name
+    words = [w for w in re.findall(r"[a-z0-9]+", topic.lower())
+             if w not in ("for", "the", "a", "an", "and", "with", "in", "of", "to")]
+    return _kb_slug(f"{name}-{'-'.join(words)[:40]}") if words else name
+
+
+def _already_stored(filed: str, name: str, version: str | None,
+                    trace) -> tuple[str | None, str]:
+    """`(answer, note)`: the answer to give when `filed` already holds what was
+    asked for, else None and a note to put above the harvest.
+
+    Already known? Re-crawling a site to answer a question you can already
+    answer is the most expensive way to be unhelpful.
+    """
+    known = stored_name(filed)
+    if not known:
+        return None, ""
+    backend = store()
+    entry = backend.entry(known, version)
+    # Naming no version asks for the current release. If every version
+    # stored was pinned by name for some project, none of them is known to
+    # be that, and answering "already stored" hands back a release nobody
+    # here asked for (`Issues.md` V3: pydantic 1.10 for a versionless
+    # learn). Harvest the current one beside them instead.
+    pinned_only = (version is None and entry is not None
+                   and entry.get("pinned") is True)
+    if pinned_only:
+        trace.event("only pinned versions stored", target=name,
+                    message=f"{known} holds only versions asked for by name; "
+                            f"harvesting the current release")
+        have = ", ".join(v["version"] for v in backend.versions(known))
+        return None, (f"**{known}** is stored only at versions asked for by name "
+                      f"(have: {have}), so none is known to be the current release. "
+                      f"Harvesting the current one now.\n\n")
+    if entry is not None:
+        trace.event("already stored", target=name,
+                    message=f"{known} {entry['version']} — nothing fetched",
+                    result={"technology": known, "version": entry["version"],
+                            "pages": entry["pages"]})
+        return (
+            f"**{known}** {entry['version']} is already stored — "
+            f"{entry['pages']} pages, harvested {entry['harvested']}.\n\n"
+            f"Read it with `read_knowledge_base(name=\"{known}\", "
+            f"version=\"{entry['version']}\")`. Nothing was fetched."
+        ), ""
+    try:
+        have = ", ".join(v["version"] for v in backend.versions(known))
+        return None, (f"**{known}** is stored, but not version {version!r} "
+                      f"(have: {have}). Harvesting it now.\n\n")
+    except StoreError:
+        return None, ""
 
 
 def tool_learn_technology(name: str, version: str | None = None,
@@ -1414,17 +1546,32 @@ def tool_learn_technology(name: str, version: str | None = None,
                           js: bool = False, intent: str = "",
                           corpora: list | None = None,
                           strict: bool = False, refresh: bool = False,
+                          language: str | None = None, topic: str | None = None,
                           trace: "tracing.TraceContext | None" = None) -> str:
-    """Learn a technology from its name alone: resolve, verify, harvest, store."""
+    """Learn a technology from its name alone: resolve, verify, harvest, store.
+
+    `language` asks for one language's edition of a technology that documents
+    each separately -- LangGraph for JavaScript, Playwright for Python -- and
+    `topic` for the part of the documentation about one subject, whole. See
+    `resolver.resolve(language=)` and `topics`.
+    """
     trace = trace or tracing.NULL_CONTEXT
     # File under the canonical form, not the caller's spelling. Otherwise
     # "Effect.ts" and "effect" become two copies of the same library, and the
     # second harvest silently re-crawls a site already stored under the first.
     slug = _kb_slug(_normalise(name) or name)
+    lang = languages.canonical(language)
+    if (language or "").strip() and lang is None:
+        raise ForgeError(
+            f"Unknown language {language!r}. Say one of: javascript (or node, "
+            f"typescript), python, go, rust, java, kotlin, csharp, ruby, php, "
+            f"swift, dart, elixir, cpp.")
+    topic = (topic or "").strip()
+    # Where this harvest will be filed, as far as can be known before
+    # resolving. A language's edition is filed apart from the default one
+    # only when the site keeps them apart, which resolution decides.
+    guess = _topic_name(slug + (f"-{lang.name}" if lang else ""), topic)
 
-    # Already known? Re-crawling a site to answer a question you can already
-    # answer is the most expensive way to be unhelpful.
-    #
     # Unless what is stored is wrong, and until `refresh` there was no way to
     # say so. Measured 2026-09-10: `pytorch` had been stored from a community
     # mirror, and once resolution was fixed this tool still answered "already
@@ -1433,52 +1580,19 @@ def tool_learn_technology(name: str, version: str | None = None,
     # it harvests with; the only routes out were `forget_documentation`, which
     # is gated behind an environment variable, and knowing the URL already —
     # which is the thing the caller came here missing.
-    known = stored_name(name)
-    if refresh and known:
+    if refresh and stored_name(guess):
         trace.event("refreshing", target=name,
-                    message=f"{known} is stored; re-fetching because refresh was asked for")
-        known = ""
-    if known:
-        backend = store()
-        entry = backend.entry(known, version)
-        # Naming no version asks for the current release. If every version
-        # stored was pinned by name for some project, none of them is known to
-        # be that, and answering "already stored" hands back a release nobody
-        # here asked for (`Issues.md` V3: pydantic 1.10 for a versionless
-        # learn). Harvest the current one beside them instead.
-        pinned_only = (version is None and entry is not None
-                       and entry.get("pinned") is True)
-        if pinned_only:
-            trace.event("only pinned versions stored", target=name,
-                        message=f"{known} holds only versions asked for by name; "
-                                f"harvesting the current release")
-            have = ", ".join(v["version"] for v in backend.versions(known))
-            note = (f"**{known}** is stored only at versions asked for by name "
-                    f"(have: {have}), so none is known to be the current release. "
-                    f"Harvesting the current one now.\n\n")
-        elif entry is not None:
-            trace.event("already stored", target=name,
-                       message=f"{known} {entry['version']} — nothing fetched",
-                       result={"technology": known, "version": entry["version"],
-                              "pages": entry["pages"]})
-            return (
-                f"**{known}** {entry['version']} is already stored — "
-                f"{entry['pages']} pages, harvested {entry['harvested']}.\n\n"
-                f"Read it with `read_knowledge_base(name=\"{known}\", "
-                f"version=\"{entry['version']}\")`. Nothing was fetched."
-            )
-        else:
-            try:
-                have = ", ".join(v["version"] for v in backend.versions(known))
-                note = (f"**{known}** is stored, but not version {version!r} "
-                        f"(have: {have}). Harvesting it now.\n\n")
-            except StoreError:
-                note = ""
+                    message=f"{stored_name(guess)} is stored; re-fetching because "
+                            f"refresh was asked for")
+        answer, note = None, ""
     else:
-        note = ""
+        answer, note = _already_stored(guess, name, version, trace)
+    if answer:
+        return answer
 
     def work(progress: harvest_jobs.Progress) -> str:
         """Resolve then harvest. Runs on a worker thread past the deadline."""
+        nonlocal note
         try:
             progress.phase = "resolving"
             resolve_stage = trace.stage("resolving identity",
@@ -1486,7 +1600,8 @@ def tool_learn_technology(name: str, version: str | None = None,
                                         target=name)
             resolve_stage.start()
             try:
-                found = _resolve(name, ecosystem=(ecosystem or "").strip())
+                found = _resolve(name, ecosystem=(ecosystem or "").strip(),
+                                 **({"language": lang.name} if lang else {}))
             except BaseException as e:
                 resolve_stage.finish(tracing.FAILED, error=f"{type(e).__name__}: {e}")
                 raise
@@ -1511,16 +1626,27 @@ def tool_learn_technology(name: str, version: str | None = None,
                 message=f"resolved to {found.best.url} via {found.resolved_via or 'registry'}",
                 result=found.as_dict())
 
+            # The edition is filed apart only when the site files it apart.
+            edition = lang is not None and _names_language(found.best.url, lang)
+            filed = _topic_name(slug + (f"-{lang.name}" if edition else ""), topic)
+            if filed != guess and not refresh:
+                already, more = _already_stored(filed, name, version, trace)
+                if already:
+                    return already
+                note = note or more
+
             progress.url = found.best.url
             progress.phase = "harvesting"
-            harvested = _harvest_now(url=found.best.url, name=slug,
+            harvested = _harvest_now(url=found.best.url, name=filed,
                                      max_pages=max_pages, js=js, version=version,
                                      intent=intent, corpora=corpora,
                                      strict=strict, progress=progress, trace=trace,
-                                     release_hint=found.release)
+                                     release_hint=found.release, topic=topic)
+            which = (f" ({lang.name})" if lang else "") + (f", on {topic!r}" if topic else "")
+            said = f"\n{found.note}" if (lang and found.note) else ""
             return (
-                f"{note}Resolved **{name}** to {found.best.url}\n"
-                f"({found.best.evidence}; {found.best.reason})\n\n{harvested}"
+                f"{note}Resolved **{name}**{which} to {found.best.url}\n"
+                f"({found.best.evidence}; {found.best.reason}){said}\n\n{harvested}"
             )
         finally:
             # Closing here is only correct once run_tool() has *already*
@@ -1545,11 +1671,12 @@ def tool_learn_technology(name: str, version: str | None = None,
     # that had never heard of the first, and langchain was crawled twice.
     # Now that a running harvest is visible from any process, this is a check
     # rather than a request.
-    return _as_harvest(name, work, trace,
+    return _as_harvest(name if guess == slug else guess, work, trace,
                        handoff={"name": name, "version": version,
                                 "max_pages": max_pages, "js": js, "intent": intent,
                                 "corpora": corpora, "strict": strict,
-                                "refresh": refresh},
+                                "refresh": refresh, "language": language,
+                                "topic": topic},
                        tool="learn_technology")
 
 
@@ -2194,6 +2321,12 @@ TOOLS: list[Tool] = [
                                            "Detected from the URL when omitted. Harvesting a "
                                            "version you already hold replaces just that one; "
                                            "other versions are kept."},
+                "topic": {"type": "string",
+                          "description": "Keep the harvest to one subject, e.g. \"web "
+                                         "development\" or \"authentication\": every "
+                                         "page about it, whole, plus the pages that "
+                                         "introduce the technology; the rest is listed "
+                                         "by section, not stored. Omit for everything."},
             },
             "required": ["url"],
         },
@@ -2209,14 +2342,40 @@ TOOLS: list[Tool] = [
         "Prefer this over guessing a documentation URL yourself: a guessed URL comes "
         "from the same training data that did not know the library, and a wrong guess "
         "silently stores the wrong project. If it is already stored, it says so and "
-        "fetches nothing.",
+        "fetches nothing. Scope it the way the user did: `language` for one "
+        "language's edition (\"langgraph for node\" is language=\"javascript\"), "
+        "`topic` for the part about one subject (\"go for web dev\" is name=\"go\", "
+        "topic=\"web development\") — each still harvested whole.",
         {
             "type": "object",
             "properties": {
                 "name": {"type": "string",
                          "description": "The package or technology name, as you saw it "
                                         "written, e.g. \"effect\", \"pydantic\", "
-                                        "\"@tanstack/react-query\"."},
+                                        "\"@tanstack/react-query\", or a language "
+                                        "itself, e.g. \"go\", \"rust\"."},
+                "language": {"type": "string",
+                             "description": "The programming language or runtime the "
+                                            "user needs this technology's docs for: "
+                                            "\"javascript\" (also \"node\", "
+                                            "\"typescript\"), \"python\", \"go\", "
+                                            "\"rust\", \"java\", \"kotlin\", "
+                                            "\"csharp\", \"ruby\", \"php\", \"swift\", "
+                                            "\"dart\". Many projects document each "
+                                            "language separately (LangGraph, LangChain, "
+                                            "Playwright); this takes that language's "
+                                            "edition and files it as <name>-<language>. "
+                                            "Omit it when the user named none."},
+                "topic": {"type": "string",
+                          "description": "Keep the harvest to one subject, in the "
+                                         "user's words: \"web development\", "
+                                         "\"authentication\", \"streaming\", "
+                                         "\"agents with memory\". Every page about it "
+                                         "is harvested whole, with the pages that "
+                                         "introduce the technology; what was left out "
+                                         "is listed by section. Filed as "
+                                         "<name>-<topic>. Omit it to take the whole "
+                                         "documentation."},
                 "version": {"type": "string",
                             "description": "Which version's documentation you need, e.g. "
                                            "\"1.10\". Take it from the project's lockfile "
@@ -2305,6 +2464,10 @@ TOOLS: list[Tool] = [
                 "name": {"type": "string", "description": "The package or technology name."},
                 "ecosystem": {"type": "string", "enum": ["npm", "pypi", "crates"],
                               "description": "Which registry to trust. Omit to try all."},
+                "language": {"type": "string",
+                             "description": "Which language's edition to look for, e.g. "
+                                            "\"javascript\" or \"python\" — see "
+                                            "learn_technology."},
             },
             "required": ["name"],
         },
@@ -2380,7 +2543,8 @@ TOOLS: list[Tool] = [
                             "description": "Optional phrase to match against page titles."},
                 "version": {"type": "string",
                             "description": "Which stored version to read, e.g. \"v3\". "
-                                           "Defaults to the newest version stored — the highest release number, not the most recent download."},
+                                           "Defaults to the current release — the one list_knowledge_base lists first, "
+                                           "which is not always the highest number stored nor the most recent download."},
             },
             "required": ["name"],
         },

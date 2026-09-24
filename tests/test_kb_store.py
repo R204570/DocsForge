@@ -433,6 +433,26 @@ def test_deleting_one_version_leaves_the_others(store):
     assert store.technologies()[1] == 0
 
 
+def _abandon(store, version):
+    """A harvest that died part-way: Postgres keeps its row as 'failed'."""
+    with pytest.raises(RuntimeError):
+        with store.writer("pytest-demo", version, "https://x.dev/docs/", "crawl") as w:
+            w.add(*PAGES[0])
+            raise RuntimeError("the harvest died")
+
+
+def test_deleting_counts_only_versions_that_finished(store):
+    """A failed harvest's row went with the delete and into its count, so two
+    readable versions were reported as "3 version(s)" beside the pages of two."""
+    _save(store, version="v2", pages=PAGES[:1])
+    _save(store, version="v3", pages=PAGES)
+    _abandon(store, "v4")
+    _abandon(store, "v3")
+
+    assert store.delete("pytest-demo", "v3") == 1
+    assert store.delete("pytest-demo") == 1
+
+
 def test_the_suite_stays_off_the_developers_database_after_app_is_imported():
     """2026-09-15: `app.py` re-reads `.env` on import, several tests import it
     mid-session, and conftest had *popped* DOCSFORGE_DB -- so from that moment

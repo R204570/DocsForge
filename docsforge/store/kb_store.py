@@ -1012,19 +1012,25 @@ class PostgresStore:
         store counts and what the tool reports: deleting a whole technology
         used to return the `technology` rowcount, so two versions of
         `django` were reported as "1 version(s)" (bench-2, Issues.md V4).
+
+        Only 'ready' versions count, as everywhere else a version is read: an
+        abandoned or in-flight harvest goes with the rest, but it is not a
+        version anyone could have read, and counting it put "3 version(s)"
+        beside the pages of two.
         """
         self.migrate()
         with self._borrow() as cx:
             if version is None:
                 n = cx.execute(
                     "select count(*) from doc_version v join technology t on t.id = v.technology_id "
-                    " where t.name = %s", (tech,)).fetchone()[0]
+                    " where t.name = %s and v.state = 'ready'", (tech,)).fetchone()[0]
                 cx.execute("delete from technology where name = %s", (tech,))
             else:
-                n = cx.execute(
+                states = cx.execute(
                     "delete from doc_version v using technology t "
-                    " where v.technology_id = t.id and t.name = %s and v.version = %s",
-                    (tech, version)).rowcount
+                    " where v.technology_id = t.id and t.name = %s and v.version = %s "
+                    "returning v.state", (tech, version)).fetchall()
+                n = sum(state == "ready" for (state,) in states)
             cx.commit()
         return n
 
