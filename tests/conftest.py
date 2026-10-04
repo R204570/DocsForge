@@ -56,6 +56,9 @@ def _isolate_resolution_memory(tmp_path, monkeypatch):
     # that started background harvests there would show up in the developer's
     # own `list_knowledge_base` as jobs that stalled.
     monkeypatch.setenv("DOCSFORGE_HARVEST_STATE", str(tmp_path / "harvests"))
+    # The test lab's database defaults to lab_data/ beside the code; a suite
+    # that recorded a chat turn there would leave it in the checkout.
+    monkeypatch.setenv("DOCSFORGE_LAB_DIR", str(tmp_path / "lab"))
 
 
 @pytest.fixture(autouse=True, scope="session")

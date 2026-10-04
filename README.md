@@ -54,6 +54,7 @@ docsforge/              the package
   store/                kb_store — Markdown files or Postgres
   tools/                forge_tools, harvest_jobs, tracing, applog
   server/               mcp_server, app (+ static/)
+  lab/                  the test lab at /lab in the web chat: accounts, tests, verdicts
   providers/            one model backend per file
 scripts/                measurement harnesses and live smoke drivers;
                         scripts/benchmark/ is the live suite -- every tool measured
@@ -258,7 +259,10 @@ with a single accent; nothing on the home screen but the input.
 
 The sidebar opens with the panel button or `Ctrl`+`B`, and holds your past
 conversations. They live in your browser — forty most recent, Markdown only,
-nothing uploaded — so **New chat** no longer throws work away.
+nothing uploaded — so **New chat** no longer throws work away. The server keeps
+its own record of each turn (the question, the tool calls and what they
+returned, the answer) for the [test lab](#the-test-lab), in `lab_data/` on this
+machine; `DOCSFORGE_LAB_RECORD=0` turns that off.
 
 Every tool call the model makes is listed above the answer it produced — what
 was fetched, what kind of source it was, and how much came back — so an answer
@@ -339,6 +343,62 @@ Everything is optional; see `.env.example` for the full list.
 | `DOCSFORGE_ALLOW_PRIVATE` | unset | Allow fetching private/loopback addresses. |
 | `DOCSFORGE_ALLOW_DELETE` | unset | Let the **model** delete stored documentation. Off by default — see below. |
 | `DOCSFORGE_REASONING` | `off` | Allow a bounded number of model calls at four decision points — see below. |
+| `DOCSFORGE_LAB` | on | `0` removes the [test lab](#the-test-lab) and its routes. |
+| `DOCSFORGE_LAB_RECORD` | on | `0` keeps the lab but stops recording chat turns and tool calls. |
+| `DOCSFORGE_LAB_DIR` | `./lab_data` | The lab's database and harvest-test runs (beside the code, like `knowledge_base/`). |
+| `DOCSFORGE_LAB_REMOTE` | unset | Let non-loopback clients reach `/lab`. Only on a network you own. |
+| `DOCSFORGE_LAB_WORKERS` / `_HARVESTS` | `2` / `1` | Resolution and content tests at once; harvest tests at once. |
+
+### The test lab
+
+```bash
+python -m docsforge.server.app      # then open http://127.0.0.1:8000/lab
+```
+
+A signed-in panel for testing DocsForge by hand while the machine does the
+running. It is linked from nowhere, answers this machine only (a request from
+anywhere else gets a 404), and is never part of `main.py`'s public server.
+The first visit makes two accounts:
+
+- **tester** — lands on the *test bench*. Three tests, each run the way
+  DocsForge runs them for a model:
+  - **Resolve a name** — `find_docs` with the cache off, then the page it
+    resolved to fetched with `fetch_docs`, so you check the address *and* what
+    is there. Give where it should land (`zod.dev`) and an automatic check runs
+    too.
+  - **Check a page** — `detect_source_type` and `fetch_docs` on one URL, the
+    Markdown beside a link to the live page, measured for collapsed code, UI
+    chrome, permalink marks and relative links.
+  - **Harvest** — `learn_technology` (a name) or `harvest_docs` (a URL) in a
+    process of its own, with the store, caches and harvest records under
+    `lab_data/runs/` whatever `.env` says, so a test harvest never lands in
+    DocsStore. Its trace streams live; every stored page is listed and can be
+    read in place.
+
+  Or a **batch**: a list, one test per line, run by itself — the held-out
+  rounds and field-test sites are ready-made lists. Every test shows each tool
+  it ran, the arguments, what it returned and the stages underneath. When a
+  test finishes it asks for a verdict: a few questions for that kind of test,
+  issue tags, the right URL if it was wrong, notes. The *review queue* holds
+  every finished test nobody has judged. A finished resolution can be carried
+  on as a content check or a harvest in one click.
+- **admin** — lands on the *overview*: technologies and pages stored,
+  tests run, accuracy **as testers judged it** (with the automatic check's
+  figure under it, never in place of it), tool calls per day and by tool,
+  harvests in flight, who has been testing, the most reported problems. Plus
+  the *verdicts inbox* (open → triaged → fixed, with a note the tester sees),
+  exports as Markdown, JSON or `scripts/heldout.py` cases, *setup* (providers,
+  store, paths, every `DOCSFORGE_*` setting — secrets shown as set, never
+  echoed), *accounts*, and the *logs*.
+
+Both see **AI activity**: every chat turn — the question, each tool call with
+its arguments and full output, the answer — and every tool call on its own,
+filterable by tool, result and where it came from, each open to a verdict.
+
+Passwords are scrypt-hashed, sessions are HttpOnly SameSite=Strict cookies
+stored only as hashes, five wrong passwords lock a name for ten minutes, and
+nothing changes state without the panel's own request header. A lost admin
+password is reset from a terminal: `python -m docsforge.lab reset NAME`.
 
 ### Removing a harvest
 
@@ -389,6 +449,7 @@ re-harvest: harvesting the same name again replaces that version on its own.
 | `GET` | `/api/library/{tech}/{version}` | That version's page index. |
 | `GET` | `/api/library/{tech}/{version}/page/{n}` | One page, as Markdown and sanitized HTML. |
 | `GET` | `/api/library-search` | Ranked search. `?q=&tech=&version=&limit=`. |
+| `GET` | `/lab` | The [test lab](#the-test-lab). Loopback only; its API is under `/api/lab/`, signed in. |
 
 The server is stateless — the browser holds the conversation and posts it back each turn.
 
@@ -1174,7 +1235,7 @@ compiler. Edit in Stitch, download, re-run.
 ## Tests
 
 ```bash
-DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,165 offline tests, no network
+DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,310 offline tests, no network
 
 # The 37 Postgres tests skip unless you point them at a throwaway database,
 # which makes a green run look more complete than it is — set this before

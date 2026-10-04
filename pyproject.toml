@@ -107,6 +107,7 @@ include = ["docsforge*"]
 
 [tool.setuptools.package-data]
 "docsforge.server" = ["static/*", "site/*"]
+"docsforge.lab" = ["static/*"]
 
 # The suite imports the package from the repository root. `pythonpath` makes
 # that true no matter which directory pytest is launched from.

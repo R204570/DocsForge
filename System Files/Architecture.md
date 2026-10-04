@@ -86,6 +86,14 @@ docsforge/server/
   vercel.py                    the same server as a stateless, ephemeral Vercel Function
   site/                        three self-contained public pages: /, /tools, /connect
   app.py + static/             the web chat and DocsStore browser -- local testing only
+docsforge/lab/               the test lab, mounted by app.py only, at /lab (loopback)
+  auth.py                      admin and tester accounts (scrypt), sessions, lockout
+  runner.py                    resolve / fetch / harvest tests; queue, workers, batches
+  harvest_worker.py            one harvest test in a process and a store of its own
+  activity.py                  every chat turn and tool call, recorded from closed traces
+  records.py, stats.py         verdicts, exports, the admin's numbers, setup, the log
+  quality.py                   the field test's page measure and the held-out match
+  db.py + static/              one SQLite file under lab_data/; the panel
 docsforge/providers/         one model backend per file, for the web chat
 scripts/
   benchmark/                   the live suite: run.py, cases.py, live.py, offline.py
@@ -513,6 +521,15 @@ ticks are one row counting up. `tools/applog.py` is rotating JSONL at
 `logs/docsforge.log` (offline: `offline/logs/`): one line per request, tool
 call, trace event, harvest transition and error. Neither fabricates a
 percentage where the backend has no denominator.
+
+A third reader arrived with the test lab (`docsforge/lab/`): a person judging
+whether an answer was right. Traces are forgotten once forty newer ones
+exist, so the lab keeps them -- `tracing.on_close` hands every closed trace
+to `lab/activity.py`, which files the call, its arguments, its output and
+every stage beneath it in `lab_data/lab.db`, and the chat and the lab's test
+runner tag each with where it came from. It is added by listening, not by
+new call sites, and it records nothing until the local web app has started:
+`main.py`'s public server never loads it.
 
 ---
 

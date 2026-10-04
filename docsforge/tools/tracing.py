@@ -72,6 +72,39 @@ MAX_OUTPUT = 20_000
 
 _counter = itertools.count(1)
 
+#: Whoever wants every trace as well as the browser: the test lab's activity
+#: record, and the lab's harvest worker streaming events to its parent. Called
+#: best-effort after the trace's own bookkeeping, outside its lock; a listener
+#: that raises is ignored, because it must never break the work described.
+_EVENT_LISTENERS: list = []
+_CLOSE_LISTENERS: list = []
+
+
+def on_event(fn) -> None:
+    """Call `fn(trace, event)` for every event any trace records."""
+    if fn not in _EVENT_LISTENERS:
+        _EVENT_LISTENERS.append(fn)
+
+
+def on_close(fn) -> None:
+    """Call `fn(trace)` once for every trace that closes."""
+    if fn not in _CLOSE_LISTENERS:
+        _CLOSE_LISTENERS.append(fn)
+
+
+def remove_listener(fn) -> None:
+    for listeners in (_EVENT_LISTENERS, _CLOSE_LISTENERS):
+        while fn in listeners:
+            listeners.remove(fn)
+
+
+def _notify(listeners: list, *args) -> None:
+    for fn in list(listeners):
+        try:
+            fn(*args)
+        except Exception:
+            pass
+
 
 def new_id(label: str = "trace") -> str:
     safe = "".join(c for c in (label or "").lower() if c.isalnum() or c == "-")[:24]
@@ -202,6 +235,8 @@ class Trace:
                 q.put_nowait(event)
             except queue.Full:
                 pass
+        if _EVENT_LISTENERS:
+            _notify(_EVENT_LISTENERS, self, event)
         if applog is not None:
             try:
                 applog.trace_event(self.id, event.name, event.state, event.message)
@@ -226,6 +261,8 @@ class Trace:
                 q.put_nowait(None)  # sentinel: no more events
             except queue.Full:
                 pass
+        if _CLOSE_LISTENERS:
+            _notify(_CLOSE_LISTENERS, self)
 
     def subscribe(self, idle_heartbeat: float = 15.0,
                  max_idle_cycles: int = 480) -> Iterator[TraceEvent]:

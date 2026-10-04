@@ -1412,7 +1412,12 @@ def tool_find_docs(name: str, ecosystem: str | None = None,
         raise ForgeError(f"Unknown language {language!r}.")
     found = _resolve(name, ecosystem=(ecosystem or "").strip(),
                      **({"language": lang.name} if lang else {}))
+    return resolution_report(name, found, lang)
 
+
+def resolution_report(name: str, found, lang=None) -> str:
+    """What `find_docs` hands a model for a resolution. Separate so the test
+    lab, which resolves with the cache off, shows the same words."""
     lines = [f"Resolving **{name}**"
              + (f" for {lang.name}" if lang else "")
              + (f" ({found.ecosystem})" if found.ecosystem else "") + ":", ""]

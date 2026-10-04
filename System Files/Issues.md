@@ -598,6 +598,39 @@ names, **51/56 (91%)**. Every remaining miss is named in G12 and in the
 README's known limits. The harvest figure is strict: five of its nine misses
 are sites complete in fewer than ten pages.
 
+## Found in the test lab (2026-09-25)
+
+The lab's first runs (`docsforge/lab/`, while it was being built) put a person
+beside each result. Two things no automatic check had flagged:
+
+### T1 — `fetch_docs` of a deep page returned the section's `llms.txt` · open
+
+`fetch_docs("https://docs.pydantic.dev/latest/concepts/models/")` returned
+2,816 characters: the `llms.txt` index of `/latest/concepts/`, not the Models
+page. `detect_source_type` said so — `llms_txt (resolved to
+…/concepts/llms.txt)` — and the lab's automatic check passed it as
+"substantial and clean", because nothing in the Markdown says it is the wrong
+page. Only reading it beside the live page shows it. For a harvest, the
+nearest `llms.txt` is the right first rung; for one page asked for by its
+address, it substitutes a table of contents for the page. **To fix:** a
+single-page fetch of a URL with a path should extract that page, and probe
+for `llms.txt` only at a bare origin or docs root (as the README describes).
+A regression test belongs in `tests/test_realworld.py`.
+
+### T2 — federated corpora stored the same pages several times · open
+
+`harvest_docs("https://htmx.org/docs/", max_pages=6)` federated four corpora
+(`/docs/`, `/api/`, `/attributes/`, `/events/`). Because `/docs/` is one page
+and the section widened to `/`, each corpus's crawl walked back into the same
+top pages: `htmx.org/docs/`, `/reference/`, `/`, `/extensions` and `/api/` were
+stored in three of the four sets. 27 pages stored, about 12 distinct. A reader
+of the combined technology sees the same page up to three times, and every
+coverage figure counts it each time. **To fix:** a page already stored in a
+sibling corpus of the same harvest is skipped (or linked), and the corpus
+boundary of a widened section excludes the other corpora's roots.
+
+---
+
 ## Detection
 
 ### D1 — `detect_source_type` classifies garbage as `html` · open (`Evaluation.md` §2.6)
