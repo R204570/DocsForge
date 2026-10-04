@@ -170,7 +170,8 @@ def run_one(label: str, url: str, pages: int, where: Path) -> dict:
 
     keep = ("expected", "discovered", "acquired", "fetched", "whole", "reason",
             "truncated", "remaining", "index", "current_release", "revisions",
-            "unextractable", "refused", "rate_limited", "corpora", "failed")
+            "unextractable", "refused", "rate_limited", "corpora", "failed",
+            "widened", "dead", "index_pages", "listed", "found_by_links")
     result["stats"] = {k: stats[k] for k in keep if k in stats}
     result["pages"] = per_page
     totals = {k: sum(p[k] for p in per_page) for k in

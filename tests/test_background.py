@@ -363,3 +363,19 @@ def test_harvest_docs_names_itself_when_it_hands_work_to_the_server(kb, monkeypa
     ft.tool_harvest_docs(url="https://x.dev/docs/", name="effect")
     assert sent["tool"] == "harvest_docs"
     assert sent["kwargs"]["url"] == "https://x.dev/docs/"
+
+
+def test_a_harvest_that_widened_its_section_says_so(kb, monkeypatch):
+    """htmx: `/docs/` held one page and the harvest took the site. The move
+    changes what coverage is measured against, so the answer names it."""
+    def fake_harvest(url, opts, fetcher=None, stats=None, sink=None):
+        stats["widened"] = {"from": "/docs/", "to": "/", "reason": "/docs/ held 1 page(s)"}
+        return [ft.Doc(f"https://htmx.org/{p}", p, "body") for p in ("docs/", "reference/")], "crawl"
+
+    monkeypatch.setattr(ft, "harvest", fake_harvest)
+    monkeypatch.setattr(harvest_jobs, "DEADLINE", 5)
+    monkeypatch.setattr(ft, "_resolve", lambda *a, **k: resolution("https://htmx.org/docs/",
+                                                                    name="htmx"))
+    out = ft._harvest_now(url="https://htmx.org/docs/", name="htmx")
+    assert "The section /docs/ held only 1 page(s)" in out
+    assert "widened to /" in out

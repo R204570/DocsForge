@@ -69,6 +69,29 @@ DECIDERS = (
     "_switch_to_language",  # whether a page is, or leads to, that edition
     "_language_links",      # which sections a many-language front page offers
     "_official_answer",     # when a name is a language, not a package
+    "_weigh_popularity",    # when what a name usually means overrules the ladder
+    "_popular_repo",        # which repository a name usually means
+    "_same_project_site",   # whether an answer already is that project's site
+    "_is_a_client",         # whether a registry package is a binding, not the thing
+    "_docs_behind",         # when a front page gives way to its docs host
+    "_is_index_listing",    # whether a URL is a package index's page
+    "_with_roots",          # which pages stand behind a manifest that failed
+    "_language_hubs",       # which page lists a site's languages
+    "_answers_anything",    # whether a site answers any path it is given
+    "_front_page_docs",     # when a front page gives way to the docs it links
+    "_docs_path",           # what counts as a documentation address
+    "_readme_docs",         # which docs a repository's README names
+    "_segment_names",       # whether a path segment names a language
+    "_declared",            # how a declared homepage is made fetchable
+    "_transient",           # which failures block a weaker answer
+    "_clean_repo",          # how a git remote becomes a repository URL
+    "_docs_host_beside",    # when the site's docs host replaces the answer
+    "_docs_root",           # which front-page links are a docs root
+    "_canonical_of",        # when a docs host is the same site under another name
+    "_generated_reference", # when a docs host is an API reference built from code
+    "_follow_client_redirect",  # where a refresh stub leads
+    "_sibling_docs",        # which sibling hosts a docs hub sends readers to
+    "_docs_host_candidate", # whether one of them is the documentation host
 )
 
 
@@ -138,8 +161,15 @@ def fingerprint() -> str:
 #: ownership alone is held for the registry lap rather than returned (R10).
 #: An entry cached under 6 can be a refusal of a scoped package that now
 #: resolves, or a squatter chosen before any registry was asked.
-FINGERPRINT = "b011f3dbf086cc1f"
-EXPECTED_RULES = 8
+#:
+#: RULES 9 (2026-09-24/25): popularity, bindings, package-index pages, a front
+#: page's docs host and docs link, `js` as a name suffix, docs.rs/pkg.go.dev
+#: and README fallbacks, https for declared homepages, a dead domain as a
+#: finding, and language editions read from manifests, hubs and compound
+#: segments -- see `resolver.RULES`. Not released between the two days, so
+#: one number.
+FINGERPRINT = "6ece429bba93d2bb"
+EXPECTED_RULES = 9
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

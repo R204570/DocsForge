@@ -27,7 +27,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 
 from docsforge.core import languages
 from docsforge.core.engine import Fetcher, ForgeError, Options
@@ -141,7 +141,10 @@ def _same_page(url: str) -> str:
     """
     parts = urlparse(url)
     host = (parts.hostname or "").lower()
-    port = f":{parts.port}" if parts.port else ""
+    try:
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:                      # a registry's malformed address
+        port = ""
     return (f"{parts.scheme.lower()}://{host}{port}"
             f"{parts.path.rstrip('/')}"
             + (f"?{parts.query}" if parts.query else ""))
@@ -230,6 +233,25 @@ def _json(fetcher: Fetcher, url: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _declared(url: str) -> str:
+    """A homepage as a registry or repository declared it, made fetchable.
+
+    Scheme-less (`docs.rs/clap`, as GitHub stores it) gets one; `http://`
+    becomes `https://`. `www.gradio.app` does not answer on port 80 at all:
+    declared as `http://`, the site timed out, a timeout is "could not be
+    read", and `gradio` stayed its repository (held-out round 2, 2026-09-24).
+    Nothing that publishes documentation today serves it over plain HTTP only.
+    """
+    text = (url or "").strip()
+    if not text:
+        return ""
+    if text.startswith("http://"):
+        return "https://" + text[len("http://"):]
+    if not text.startswith("https://"):
+        return "https://" + text if "." in text.split("/", 1)[0] else ""
+    return text
+
+
 def _clean_repo(url: str) -> str:
     """A git remote as a browsable https URL."""
     text = (url or "").strip()
@@ -237,6 +259,10 @@ def _clean_repo(url: str) -> str:
     text = re.sub(r"^git://", "https://", text)
     text = re.sub(r"^ssh://git@", "https://", text)
     text = re.sub(r"^git@([^:]+):", r"https://\1/", text)
+    # `ssh://git@github.com:owner/repo` is scp syntax behind an ssh scheme:
+    # the colon is a path separator, not a port. Left in, it crashed every
+    # resolution that met it (`scikit-learn` on npm, held-out round 2).
+    text = re.sub(r"^(https?://[^/:]+):(?!\d+(?:/|$))", r"\1/", text)
     text = re.sub(r"\.git$", "", text)
     return text if text.startswith("http") else ""
 
@@ -281,7 +307,7 @@ def is_forge(url: str) -> bool:
 #: documentation. What they must not do is outrank the project's own domain,
 #: which is what `name_authority` below is for.
 SHARED_NAMESPACES = ("github.io", "gitlab.io", "pages.dev", "netlify.app",
-                     "vercel.app", "readthedocs.io", "surge.sh",
+                     "vercel.app", "readthedocs.io", "hexdocs.pm", "surge.sh",
                      "codeberg.page", "sourceforge.io", "js.org",
                      "herokuapp.com", "web.app", "firebaseapp.com")
 
@@ -291,7 +317,7 @@ SHARED_NAMESPACES = ("github.io", "gitlab.io", "pages.dev", "netlify.app",
 #: them a hostname claim; `path-identity` has to refuse them a path claim.
 PACKAGE_HOSTS = ("docs.rs", "pkg.go.dev", "npmjs.com", "pypi.org",
                  "crates.io", "rubygems.org", "packagist.org", "nuget.org",
-                 "hex.pm", "metacpan.org", "godocs.io")
+                 "hex.pm", "hexdocs.pm", "metacpan.org", "godocs.io")
 
 #: TLDs a global project actually publishes on. Everything else that is two
 #: letters is a country code, and a country-code host carrying a global
@@ -314,7 +340,7 @@ GENERIC_TLDS = {"com", "org", "net", "io", "dev", "ai", "app", "sh", "co",
 #: a request for Django 5.2 to `www.djangoproject.com`'s weblog instead of
 #: `docs.djangoproject.com`. Fixed and short on purpose — `mojoportal.org` is
 #: still refused, because `portal` is not on this list and never will be.
-NAME_SUFFIXES = ("lang", "project")
+NAME_SUFFIXES = ("lang", "project", "js")
 
 
 def _tld(host: str) -> str:
@@ -328,6 +354,16 @@ def in_shared_namespace(url: str) -> str:
         if host == space or host.endswith("." + space):
             return space
     return ""
+
+
+#: Registries' own pages about a package: a listing, never its documentation.
+INDEX_LISTINGS = ("pypi.org", "npmjs.com", "crates.io", "rubygems.org",
+                  "packagist.org", "nuget.org", "libraries.io", "pkgs.org")
+
+
+def _is_index_listing(url: str) -> bool:
+    host = _host(url)
+    return any(host == p or host.endswith("." + p) for p in INDEX_LISTINGS)
 
 
 def is_package_host(url: str) -> bool:
@@ -344,7 +380,10 @@ MIN_PROBE_TEXT = 200
 #: stub that sits where a docs root used to be.
 _META_REFRESH = re.compile(
     r"""<meta[^>]+http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*"""
-    r"""["'][^"']*url\s*=\s*([^"'\s>]+)""", re.I)
+    r"""["']?[^"'>]*?url\s*=\s*([^"'\s>]+)""", re.I)
+#: Quoted or not: `docs.serde.rs` writes `<meta http-equiv=refresh
+#: content=0;url=serde/index.html>`, and a quotes-only pattern took the stub
+#: for a page (final round-2 run).
 
 #: A stub that redirects with a script instead: `location.href = "..."`.
 _JS_REDIRECT = re.compile(
@@ -577,6 +616,7 @@ def from_registries(name: str, ecosystem: str, fetcher: Fetcher) -> tuple[list[C
             hit = hit or eco
             for cand in got:
                 cand.registry = eco
+                cand.url = _declared(cand.url) or cand.url
             found += got
             if ecosystem:
                 break
@@ -747,8 +787,19 @@ def probe_docs_root(url: str, fetcher: Fetcher) -> list[Candidate]:
             out.append(Candidate(r.url, "probe:llms.txt", 0.95,
                                  f"{target} exists and is not HTML"))
         elif "html" in ctype:
-            out.append(Candidate(r.url, f"probe:{path}", 0.7,
-                                 f"{target} returned a page"))
+            landed = getattr(r, "url", "") or target
+            first = lambda u: ([p for p in urlparse(u).path.lower().split("/") if p] or [""])[0]
+            if first(landed) != first(target) and not _docs_path(landed):
+                # `gohugo.io/docs/` redirects to `/about/`: the site keeps its
+                # manual at the root, a section per directory, and taking the
+                # page it landed on drew the harvest around one of them --
+                # five pages of Hugo (held-out round 1, every run).
+                out.append(Candidate(f"{origin}/", f"probe:{path}", 0.7,
+                                     f"{target} redirects to {landed}, outside itself: "
+                                     f"the documentation is the site"))
+            else:
+                out.append(Candidate(r.url, f"probe:{path}", 0.7,
+                                     f"{target} returned a page"))
         if out and out[-1].confidence >= 0.95:
             break
     return out
@@ -1098,6 +1149,13 @@ def _owns_the_name(url: str, slug: str) -> bool:
     # meant `docs.djangoproject.com` earned neither `own-domain` nor
     # `docs-host`, so a request for Django 5.2 resolved to
     # `www.djangoproject.com` and harvested 214 weblog posts.
+    #
+    # `js` on the same footing: a JavaScript project's own domain is very
+    # often its name run into the word -- vuejs.org, nodejs.org,
+    # expressjs.com, threejs.org, docs.solidjs.com -- and `solid-js` is
+    # normalised to `solid`, so `docs.solidjs.com/llms.txt` earned neither
+    # `own-domain` nor `docs-host` and failed on mentions alone (held-out
+    # test, 2026-09-24).
     if any(label.replace("-", "") == flat + suffix
            for label in labels for suffix in NAME_SUFFIXES):
         return True
@@ -1370,7 +1428,8 @@ def ownership_only(signals: list[str]) -> bool:
     return bool(strong) and all(s.startswith(OWNERSHIP) for s in strong)
 
 
-def _settle_held(held: "Candidate", candidates: list["Candidate"]) -> "Candidate":
+def _settle_held(held: "Candidate", candidates: list["Candidate"],
+                 clients: frozenset = frozenset()) -> "Candidate":
     """Decide a domain answer that was held for standing on ownership alone.
 
     It loses only to a verified page that shows something about the *project*
@@ -1390,8 +1449,58 @@ def _settle_held(held: "Candidate", candidates: list["Candidate"]) -> "Candidate
     # The held page is in `candidates` too, re-verified against the
     # registry's facts; if that gave it evidence of its own, it competes.
     better = [c for c in candidates
-              if c.verified and not is_forge(c.url) and not ownership_only(c.signals)]
-    return max(better, key=evidence) if better else held
+              if c.verified and not is_forge(c.url) and not ownership_only(c.signals)
+              and id(c) not in clients]
+    return _docs_behind(max(better, key=evidence) if better else held, candidates)
+
+
+def _docs_behind(picked: "Candidate", candidates: list["Candidate"]) -> "Candidate":
+    """The site's own documentation host, when the answer is its front page.
+
+    The front page settles *whose* site it is -- `streamlit.io` carries the
+    install line and the repository -- and then that evidence belongs to the
+    site, `docs.streamlit.io` included, which on its own stands on ownership
+    and so could not win above. Held-out test, 2026-09-24: `streamlit` and
+    `docker` both resolved to the marketing page with the verified docs host
+    beside it. An answer that is already a documentation page stays.
+    """
+    if (picked is None or is_forge(picked.url) or "docs-host" in picked.signals
+            or _looks_like_docs(picked.url) or in_shared_namespace(picked.url)):
+        return picked
+    site = _registrable(_host(picked.url))
+    docs = [c for c in candidates
+            if c.verified and "docs-host" in c.signals and not is_forge(c.url)
+            and _registrable(_host(c.url)) == site]
+    return max(docs, key=evidence) if docs else picked
+
+
+#: Words a repository adds to a name when it is one language's binding for
+#: the thing rather than the thing: `docker-py`, `redis-py`, `rust-docker`,
+#: `go-redis`, `stripe-python`, `node-redis`. Not `js`: `three.js` and
+#: `vue.js` are the projects themselves, by the same convention that names
+#: their domains.
+BINDING_MARKERS = frozenset({
+    "py", "python", "rs", "rust", "go", "golang", "rb", "ruby", "php", "java",
+    "net", "dotnet", "csharp", "sharp", "node", "client", "sdk", "driver",
+    "bindings", "binding", "api"})
+
+
+def _is_a_client(facts: dict, name: str) -> bool:
+    """Is this registry entry's own repository a binding for `name`?
+
+    `normalise` folds `docker-py` into `docker` on purpose -- the dressing is
+    how a lookup spells the same library -- so the test is on the words the
+    repository adds: all of them binding markers, none of them asked for.
+    """
+    found = _GITHUB_REPO.match((facts or {}).get("repository") or "")
+    if not found:
+        return False
+    words = lambda text: {w for w in re.split(r"[^a-z0-9]+", text.lower()) if w}
+    repo = words(re.sub(r"\.git$", "", found.group(2)))
+    asked = words(name.split("/")[-1])
+    extra = repo - asked
+    return bool(extra) and extra <= BINDING_MARKERS and bool(repo - extra) \
+        and (repo - extra) <= asked
 
 
 def is_identified(signals: list[str]) -> bool:
@@ -1529,7 +1638,19 @@ def _transient(e: ForgeError) -> bool:
     status = getattr(e, "status", None)
     if status is not None:
         return status in (408, 425, 429) or status >= 500
+    # A name that does not resolve is a finding too: the registry declared a
+    # domain nobody holds any more. Taken for a network blip, an unrelated
+    # crate's dead homepage (`www.fedfans.com`, for `koa`) was held to
+    # outrank `koajs.com`, and `koa` and `diesel` both came back refused
+    # (held-out round 2, 2026-09-24).
+    if _DNS_MISS.search(str(e)):
+        return False
     return "Request failed for" in str(e)
+
+
+_DNS_MISS = re.compile(r"NameResolutionError|getaddrinfo failed|Name or service not known|"
+                       r"nodename nor servname|No address associated with hostname|"
+                       r"Failed to resolve", re.I)
 
 
 def unexamined_above(picked: Candidate | None,
@@ -1594,6 +1715,13 @@ def verify(candidate: Candidate, name: str, fetcher: Fetcher,
     URL gets harvested and summarised, and nobody finds out it was the wrong
     project.
     """
+    if _is_index_listing(candidate.url):
+        # `uv` resolved to `pypi.org/project/uv/`: a registry's page about a
+        # package names it constantly and documents nothing (held-out test,
+        # 2026-09-24). docs.rs and pkg.go.dev *are* documentation, and stay.
+        candidate.verified = False
+        candidate.reason = "a package index's page about the package, not its documentation"
+        return candidate
     try:
         body = fetcher.text(candidate.url, timeout=PROBE_TIMEOUT)[:VERIFY_WINDOW]
     except ForgeError as e:
@@ -1684,8 +1812,8 @@ def from_evidence(name: str, state, fetcher: Fetcher, budget=None) -> list[Candi
         if budget is not None:
             budget.charge()
         data = _json(fetcher, f"https://api.github.com/repos/{owner}/{project}")
-        home = ((data or {}).get("homepage") or "").strip()
-        if home.startswith(("http://", "https://")):
+        home = _declared((data or {}).get("homepage") or "")
+        if home:
             out.append(Candidate(
                 home, "evidence:repo-homepage", 0.88,
                 f"github.com/{owner}/{project} declares its homepage as {home}"))
@@ -1762,7 +1890,29 @@ REJECT_TTL = 7 * 86400
 #:      for the documentation site it declares, when that passes the gate;
 #:      and a resolution may be for one language's edition (`language=`),
 #:      filed under its own key.
-RULES = 8
+#:   9  what a name usually means, and what is not the thing: the most-starred
+#:      repository named exactly that is consulted and its site can overrule
+#:      a same-named package (`redis`, `helm`, `rails`, `hugo`); a registry
+#:      package that is a language binding (`docker-py`) cannot unseat the
+#:      project's own site; a package index's page is never documentation;
+#:      a front page gives way to its own `docs.` host; `js` is a name suffix
+#:      (`docs.solidjs.com`); crates and Go modules fall back to docs.rs and
+#:      pkg.go.dev; and language editions are read from manifests, hub pages
+#:      and sibling hosts, and refused where the site answers any path.
+#:      Measured on 53 held-out names, 2026-09-24. Entries cached under 8
+#:      include every one of the wrong answers that measurement found. Then,
+#:      from round 2 of the same measurement (57 fresh names) before any of
+#:      it was released: a front page gives way to the documentation it
+#:      links; a repository's README names its docs when its homepage is a
+#:      demo; declared homepages are fetched over https; a domain that no
+#:      longer resolves is a finding, not a pause; and a language is named
+#:      inside a compound segment (`python-api`). And from the final runs of
+#:      2026-09-25, still unreleased: a docs host is refused when it is an
+#:      alias, a stub, a preview or a generated reference; a hub's sibling
+#:      `guides.` host is tried; a docs path that redirects out of itself
+#:      means the site is the manual; and GitHub's search window is waited
+#:      out rather than given up on.
+RULES = 9
 
 
 def _cache_file() -> Path:
@@ -2096,6 +2246,16 @@ def resolve(name: str, ecosystem: str = "", fetcher: Fetcher | None = None,
             result = _resolve_uncached(name, ecosystem, fetcher, verify_best, limit)
         if verify_best and result.best is not None and is_forge(result.best.url):
             _prefer_docs_behind_repo(result, name, fetcher)
+        if verify_best and not ecosystem and result.resolved_via != "official":
+            # Not over a language's own manual: `TheAlgorithms/Python` has
+            # more stars than anything else named "python" and is not it.
+            _weigh_popularity(result, name, fetcher, lang.name if lang else "")
+        if verify_best and result.best is not None and result.resolved_via != "official":
+            # The site's own `docs.` host first: `ansible.com`'s front page
+            # links "Documentation" to one product's readthedocs, while
+            # `docs.ansible.com` is Ansible's (round 1 re-run).
+            _docs_host_beside(result, name, fetcher)
+            _front_page_docs(result, name, fetcher)
         if lang is not None and verify_best:
             result = _for_language(result, name, lang, ecosystem, fetcher, limit)
     finally:
@@ -2130,6 +2290,624 @@ def _page_key(url: str) -> str:
     return (parsed.hostname or "").lower() + (parsed.path or "/").rstrip("/").lower()
 
 
+#: What a front page calls the link to its documentation.
+_DOCS_WORDS = ("docs", "documentation", "read the docs", "user guide", "guide",
+               "guides", "manual", "reference", "api docs", "api reference")
+_ANCHOR = re.compile(r"<a\s[^>]*?href\s*=\s*[\"']?([^\"'\s>#]+)[^>]*>(.*?)</a>", re.I | re.S)
+
+
+_DOCS_SEGMENTS = {"doc", "docs", "documentation", "guide", "guides", "manual"}
+
+
+#: A site-root `llms.txt` shorter than this is an overview of the site, not a
+#: list of its documentation.
+FRONT_MANIFEST_MAX = 3_000
+#: ...and a documentation link from a front page is at most this deep.
+FRONT_LINK_DEPTH = 2
+_MD_ANCHOR = re.compile(r"\[([^\]]+)\]\(\s*<?([^)\s>]+)")
+
+
+_NOT_DOCS_WORDS = {"contribute", "contributing", "contributors", "community", "forum",
+                   "forums", "discuss", "blog", "news", "careers", "jobs"}
+
+_ROOT_TAIL = re.compile(r"^(?:v?\d[\w.]*|current|latest|stable|master|main|next|"
+                        r"index\.html?)$", re.I)
+
+
+def _docs_root(url: str) -> bool:
+    """Is this the root of a site's documentation -- `/doc`, `/docs/latest/`,
+    `/en/docs/`, `/guide/index.html` -- rather than a page inside it?"""
+    parts = [p.lower() for p in urlparse(url).path.split("/") if p]
+    if parts and re.fullmatch(r"[a-z]{2}(?:-[a-z]{2})?", parts[0]) and len(parts) > 1:
+        parts = parts[1:]                                   # a locale: /en/docs/
+    return (bool(parts) and parts[0] in _DOCS_SEGMENTS
+            and all(_ROOT_TAIL.match(p) for p in parts[1:]))
+
+
+def _docs_path(url: str) -> bool:
+    """A documentation address: a docs host, or a path with a docs segment
+    (`symfony.com/doc`, `numpy.org/doc/stable/`, `nginx.org/en/docs/`)."""
+    segments = {re.sub(r"\.\w+$", "", p).lower()
+                for p in urlparse(url).path.split("/") if p}
+    labels = set(_host(url).split(".")[:-1])
+    return (_looks_like_docs(url) or bool(segments & _DOCS_SEGMENTS)
+            or bool(labels & {"docs", "doc"})
+            or _host(url) in ("docs.rs", "hexdocs.pm", "pkg.go.dev")
+            or _host(url).endswith(".hexdocs.pm"))
+
+
+def _front_page_docs(result: Resolution, name: str, fetcher: Fetcher) -> None:
+    """The documentation a project's front page leads to, when the answer is
+    the front page.
+
+    `mypy` resolved to `mypy-lang.org`, whose "Documentation" link is
+    `mypy.readthedocs.io`; `symfony` to `symfony.com`, whose "Docs" is
+    `/doc/current/`; `supabase` for Python to `supabase.com`, where no
+    language section could be found because every one of them is under
+    `/docs/` (held-out round 2, 2026-09-24). A front page proves whose site
+    it is and documents very little; harvested whole, it is the marketing
+    as much as the manual.
+
+    A documentation page already verified on the same site is taken first,
+    at no cost; failing that, the page's own link named for its docs -- on
+    the same site, or on a host that carries the name -- and only if that
+    page passes the gate too.
+    """
+    best = result.best
+    if best is None or best.source == "evidence:docs-host":
+        # Already moved to the site's documentation host: its own front page
+        # links back to the hub it came from (`guides.rubyonrails.org`'s
+        # "Docs" is `rubyonrails.org/docs`), and following it goes in a circle.
+        return
+    # A site's own short `llms.txt` is its front page for machines: `dapr.io`'s
+    # lists Home, Community, Adopters and Enterprise, then "Official docs" at
+    # `docs.dapr.io` (held-out round 3, 2026-09-25). A long one lists the
+    # documentation itself and is the answer.
+    manifest = urlparse(best.url).path.strip("/").lower() == "llms.txt"
+    if (is_forge(best.url) or is_package_host(best.url)
+            or (urlparse(best.url).path.strip("/") and not manifest)
+            or (_docs_path(best.url) and not manifest) or "docs-host" in best.signals):
+        return
+    site = _registrable(_host(best.url))
+    slug = normalise(name)
+    ready = [c for c in result.candidates
+             if c.verified and c is not best and not is_forge(c.url) and _docs_path(c.url)
+             and _registrable(_host(c.url)) == site
+             and (_is_docs_host(c.url) or _docs_root(c.url))]
+    chosen = max(ready, key=evidence) if ready else None
+    if chosen is None:
+        try:
+            r = fetcher.get(best.url, timeout=PROBE_TIMEOUT, allow_redirects=True)
+            html = r.text if getattr(r, "status_code", 0) == 200 else ""
+            base = getattr(r, "url", "") or best.url
+        except ForgeError:
+            html, base = "", best.url
+        if manifest and len(html) > FRONT_MANIFEST_MAX:
+            return
+        links = _ANCHOR.findall(html[:VERIFY_WINDOW])
+        if manifest:
+            links = [(href, label) for label, href in _MD_ANCHOR.findall(html)]
+        ranked: list[tuple[int, str]] = []
+        own_docs = False
+        for href, label in links:
+            words = re.sub(r"<[^>]+>|\s+", " ", label).strip().lower()
+            if words.endswith((" docs", " documentation")) and len(words) <= 40:
+                words = "docs"                      # "Symfony Docs", "API documentation"
+            if words not in _DOCS_WORDS:
+                continue
+            link = _declared(urljoin(base, href.strip()))
+            if _host(link) == _host(base) and _page_key(link) != _page_key(base):
+                own_docs = True     # labelled docs, on this very site, whatever its path
+            if (not link.startswith(("http://", "https://")) or is_forge(link)
+                    or not _docs_path(link) or _page_key(link) == _page_key(base)):
+                continue
+            # The contributors' guide, the forum and the blog are not the
+            # documentation, whatever the link says: jQuery's "Documentation"
+            # nav entry went to `contribute.jquery.org/documentation/`.
+            words_in = set(_host(link).split(".")) | {
+                p.lower() for p in urlparse(link).path.split("/") if p}
+            if words_in & _NOT_DOCS_WORDS:
+                continue
+            # A front page's link to its documentation is to a section, not
+            # to a page deep inside one: `fastapi.tiangolo.com` has a nav
+            # entry "docs" at `/reference/openapi/docs/`, the module that
+            # serves `/docs`, and following it moved FastAPI's answer into
+            # its API reference.
+            if len([p for p in urlparse(link).path.split("/") if p]) > FRONT_LINK_DEPTH:
+                continue
+            # On the site itself, the root of its documentation, not a page in
+            # it: `biomejs.dev`'s "Get started" is `/guides/getting-started`,
+            # one section of a manual that spans several, and taking it cut
+            # Biome's harvest to eight pages (round 1 re-run).
+            # (`doc.traefik.io` beside `traefik.io` is a host of its own.)
+            if _host(link) == _host(base) and not _docs_root(link):
+                continue
+            host = _host(link)
+            first = ([p for p in urlparse(link).path.split("/") if p] or [""])[0]
+            named = _owns_the_name(link, slug) or (is_package_host(link)
+                                                   and normalise(first) == slug)
+            if _registrable(host) != site and not named:
+                continue
+            ranked.append((_DOCS_WORDS.index(words), link))
+        if own_docs:
+            # A front page that documents itself on its own host is a docs
+            # site; the package reference it also links is the reference half.
+            # `tokio.rs` links "Docs" to `/tokio/tutorial` and "API docs" to
+            # `docs.rs/tokio`, and taking the second failed the benchmark's
+            # `tokio_is_crates` (final run, 2026-09-25).
+            ranked = [(r, l) for r, l in ranked
+                      if _host(l) not in ("docs.rs", "pkg.go.dev", "godocs.io")]
+        for _rank, link in sorted(dict.fromkeys(ranked))[:3]:
+            # `phoenix.hexdocs.pm/` is ExDoc's refresh stub for `overview.html`:
+            # judged as it stands, it names nothing.
+            try:
+                first_hop = fetcher.get(link, timeout=PROBE_TIMEOUT, allow_redirects=True)
+                hop = _follow_client_redirect(first_hop, getattr(first_hop, "url", "") or link,
+                                              fetcher)
+                if hop is not None:
+                    link = getattr(hop, "url", "") or link
+            except ForgeError:
+                pass
+            cand = Candidate(link, "front-page:docs", best.confidence,
+                             f"{best.url} links to {link} as its documentation")
+            # What the name usually means supplies the repository to judge
+            # a package docs page by: `hexdocs.pm/phoenix` carries no claim
+            # on the name of its own.
+            popular = next((v for (k, _l), v in _POPULAR.items() if k == slug and v), None)
+            facts = {"homepage": best.url, "via_domain": _registrable(_host(link)) == site}
+            if popular:
+                facts["repository"] = f"https://github.com/{popular['repo']}"
+            verify(cand, name, fetcher, facts)
+            if cand.verified:
+                chosen = cand
+                break
+    if chosen is None:
+        return
+    chosen.release = chosen.release or best.release
+    chosen.registry = chosen.registry or best.registry
+    result.candidates = dedupe([chosen] + result.candidates)
+    result.note = (f"{result.note} {best.url} is the project's front page; its "
+                   f"documentation is {chosen.url}.").strip()
+    result.best = chosen
+    result.resolved_via = f"{result.resolved_via or 'domain'}+docs"
+
+
+_LINK_TAG = re.compile(r"<link\b[^>]*>", re.I)
+_META_TAG = re.compile(r"<meta\b[^>]*>", re.I)
+#: Generators whose output is an API reference built from the code.
+_REFERENCE_GENERATORS = ("rustdoc", "typedoc", "javadoc", "doxygen", "godoc", "pdoc")
+
+
+def _generated_reference(html: str) -> bool:
+    for tag in _META_TAG.findall(html[:LINK_WINDOW]):
+        if re.search(r"""name\s*=\s*["']?generator\b""", tag, re.I):
+            content = re.search(r"""content\s*=\s*["']?([^"'>]+)""", tag, re.I)
+            if content and content.group(1).strip().lower().startswith(_REFERENCE_GENERATORS):
+                return True
+    return False
+
+
+def _canonical_of(html: str, base: str) -> str:
+    """The page's `rel=canonical` address, whatever order its attributes are in."""
+    for tag in _LINK_TAG.findall(html[:LINK_WINDOW]):
+        if re.search(r"""rel\s*=\s*["']?canonical\b""", tag, re.I):
+            found = re.search(r"""href\s*=\s*["']?([^"'\s>]+)""", tag, re.I)
+            if found:
+                return urljoin(base, found.group(1))
+    return ""
+
+
+#: Host labels that mark a preview of the documentation, not the documentation.
+_PRERELEASE_LABELS = {"alpha", "beta", "preview", "next", "staging", "canary", "nightly",
+                      "edge", "dev", "rc"}
+
+#: The first label of a sibling host a project keeps its manual on.
+SIBLING_DOCS = ("docs", "guides", "guide", "learn", "manual", "developer")
+
+
+def _docs_host_beside(result: Resolution, name: str, fetcher: Fetcher) -> None:
+    """The site's documentation host, when the answer is elsewhere on that site.
+
+    `sympy` resolved to `www.sympy.org/en/docs.html`, a page of links whose
+    documentation is `docs.sympy.org`, and a harvest of it was nine pages of
+    the project website (held-out round 3, 2026-09-25). `rails` and `ember`
+    the same, one step further: `rubyonrails.org/docs` and `emberjs.com/docs`
+    are hubs whose manuals are `guides.rubyonrails.org` and
+    `guides.emberjs.com`, hosts that do not carry the bare name.
+
+    Tried in order: `docs.<site>` when it carries the name, then the sibling
+    documentation hosts the answer itself links to. Each must pass the gate;
+    one request each, and `docs.` fails fast in DNS where there is none.
+    """
+    best = result.best
+    if (best is None or is_forge(best.url) or is_package_host(best.url)
+            or in_shared_namespace(best.url) or "docs-host" in best.signals
+            or _is_docs_host(best.url)
+            or re.search(r"/llms(?:-full)?\.txt$", urlparse(best.url).path)):
+        # A manifest the site published is already its documentation, for
+        # machines; a docs host is not a better answer than that.
+        return
+    site = _registrable(_host(best.url))
+    slug = normalise(name)
+    targets: list[tuple[str, str]] = []
+    named = f"https://docs.{site}/"
+    if _host(named) != _host(best.url) and _owns_the_name(named, slug):
+        targets.append((named, f"docs.{site} is the documentation host of {_host(best.url)}"))
+    if _docs_path(best.url):
+        # A documentation hub: where it sends readers is the manual.
+        targets += [(t, f"{best.url} links to {t} as its documentation")
+                    for t in _sibling_docs(best.url, fetcher, site)
+                    if _page_key(t) != _page_key(named)]
+    popular = next((v for (k, _l), v in _POPULAR.items() if k == slug and v), None)
+    for target, why in targets[:3]:
+        cand = _docs_host_candidate(target, why, best, name, fetcher, popular)
+        if cand is None:
+            continue
+        cand.release = cand.release or best.release
+        cand.registry = cand.registry or best.registry
+        result.candidates = dedupe([cand] + result.candidates)
+        result.note = (f"{result.note} {best.url} is on the project's site; its "
+                       f"documentation host is {cand.url}.").strip()
+        result.best = cand
+        result.resolved_via = f"{result.resolved_via or 'domain'}+docs-host"
+        return
+
+
+def _sibling_docs(url: str, fetcher: Fetcher, site: str) -> list[str]:
+    """Roots of the documentation hosts beside `url` that its page links to,
+    most-linked first."""
+    try:
+        r = fetcher.get(url, timeout=PROBE_TIMEOUT, allow_redirects=True)
+    except ForgeError:
+        return []
+    if getattr(r, "status_code", 0) != 200:
+        return []
+    here = _host(getattr(r, "url", "") or url)
+    counts: dict[str, int] = {}
+    for match in _ANY_LINK.finditer(r.text or ""):
+        link = urljoin(url, (match.group(1) or match.group(2) or match.group(3) or "").strip())
+        host = _host(link)
+        if (not host or host == here or _registrable(host) != site
+                or host.split(".")[0] not in SIBLING_DOCS):
+            continue
+        root = f"https://{host}/"
+        counts[root] = counts.get(root, 0) + 1
+    return sorted(counts, key=lambda t: (SIBLING_DOCS.index(_host(t).split(".")[0]),
+                                         -counts[t]))
+
+
+def _docs_host_candidate(target: str, why: str, best: Candidate, name: str,
+                         fetcher: Fetcher, popular: dict | None) -> Candidate | None:
+    """`target` as the answer's documentation host, if it is one."""
+    try:
+        r = fetcher.get(target, timeout=PROBE_TIMEOUT, allow_redirects=True)
+    except ForgeError:
+        return None
+    landed = getattr(r, "url", "") or target
+    if getattr(r, "status_code", 0) != 200:
+        return None
+    # `docs.diesel.rs` is a refresh stub for `diesel.rs/docs`, and
+    # `docs.serde.rs` one for Serde's rustdoc index: judged as served, both
+    # replaced the project's own guide site (final round-2 run).
+    hop = _follow_client_redirect(r, landed, fetcher)
+    if hop is not None:
+        r, landed = hop, getattr(hop, "url", "") or landed
+    else:
+        stub = getattr(r, "text", "") or ""
+        if len(stub) < 4_000 and (_META_REFRESH.search(stub) or _JS_REDIRECT.search(stub)):
+            return None             # a signpost to somewhere that could not be read
+    if _host(landed) == _host(best.url):
+        return None                 # an alias for the site already found
+    if set(_host(landed).split(".")[:-2]) & _PRERELEASE_LABELS:
+        # A preview of the next documentation is not the documentation of
+        # record: `docs.jenkins.io` redirects to `alpha.docs.jenkins.io`,
+        # while Jenkins documents itself at `jenkins.io/doc` (final round 3).
+        return None
+    if _generated_reference(getattr(r, "text", "") or ""):
+        # An API reference generated from the code is the half of the
+        # documentation a guide site links to, not a better answer than it.
+        return None
+    canonical = _canonical_of(getattr(r, "text", "") or "", landed)
+    if canonical and _host(canonical) == _host(best.url):
+        # The same site under a second name: `docs.helm.sh` serves Helm's
+        # front page ("Artboard", canonical `https://helm.sh/`), and it
+        # replaced `helm.sh/docs/` in the final round-1 run.
+        return None
+    cand = Candidate(landed, "evidence:docs-host", best.confidence, why)
+    facts = {"homepage": best.url, "via_domain": True}
+    if popular:
+        facts["repository"] = f"https://github.com/{popular['repo']}"
+    verify(cand, name, fetcher, facts)
+    if not cand.verified:
+        return None
+    if "docs-host" not in cand.signals and "repo-backlink" not in cand.signals:
+        # A sibling that does not carry the name must at least link the
+        # project's repository: `guides.rubyonrails.org` links `rails/rails`.
+        return None
+    return cand
+
+
+#: A repository needs this many stars to say what a name usually means...
+POPULAR_MIN_STARS = 500
+#: ...and this many to overrule an answer the ladder already reached.
+POPULAR_OVERRIDE_STARS = 2000
+_POPULAR: dict[tuple[str, str], dict | None] = {}
+#: The longest wait for GitHub's search window to reopen, in seconds.
+SEARCH_WAIT_MAX = 65
+#: GitHub's names for the languages `languages` knows, where they differ.
+_GH_LANGUAGE = {"python": "python", "go": "go", "rust": "rust", "java": "java",
+                "kotlin": "kotlin", "csharp": "c#", "ruby": "ruby", "php": "php",
+                "swift": "swift", "dart": "dart", "elixir": "elixir", "cpp": "c++"}
+
+
+def _popular_repo(name: str, fetcher: Fetcher, language: str = "") -> dict | None:
+    """The most-starred repository whose name *is* this name, if one stands out.
+
+    What a name usually means is public evidence: `redis` is `redis/redis`
+    (76,000 stars, redis.io), not the Python client PyPI files under the same
+    word; `helm` is `helm/helm` (helm.sh), not a Rust crate; `rails` is
+    `rails/rails`. Measured on 53 held-out names, 2026-09-24: the ladder sent
+    eight of them to a same-named package or a squatter, and the most-starred
+    repository of exactly that name pointed at the right site for all of them
+    but `docker`, which has none. One search request, cached for the process.
+    """
+    slug = normalise(name)
+    if len(slug) < 2:
+        return None
+    key = (slug, language)
+    if key in _POPULAR:
+        return _POPULAR[key]
+    term = name.strip().split("/")[-1]
+    query = f"{term} in:name"
+    if _GH_LANGUAGE.get(language):
+        query += f" language:{_GH_LANGUAGE[language]}"
+    url = "https://api.github.com/search/repositories?" + urlencode(
+        {"q": query, "sort": "stars", "order": "desc", "per_page": "10"})
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    data = None
+    for attempt in range(2):
+        try:
+            r = fetcher.get(url, timeout=REGISTRY_TIMEOUT, headers=headers)
+        except (ForgeError, TypeError):
+            break
+        if r.status_code == 200:
+            try:
+                data = json.loads(r.text)
+            except ValueError:
+                data = None
+            break
+        # The search API allows ten requests a minute without a token, and its
+        # window is a minute: wait it out once rather than learn nothing. A
+        # 20-second cap gave up on most refusals, and without this evidence a
+        # same-named stranger stands -- `kafka` became the Rust crate, `fiber`
+        # Uber's library, `ember` a renamed programming language, all right
+        # again a minute later (final round-2 run, 2026-09-25). Learning ten
+        # dependencies at once is exactly the burst that meets the limit.
+        headers = getattr(r, "headers", {}) or {}
+        reset = headers.get("x-ratelimit-reset", "") or headers.get("X-RateLimit-Reset", "")
+        wait = (int(reset) - time.time()) if str(reset).isdigit() else -1
+        if attempt == 0 and r.status_code in (403, 429) and 0 < wait <= SEARCH_WAIT_MAX:
+            time.sleep(wait + 1)
+            continue
+        break
+    if not isinstance(data, dict):
+        # Not remembered: a refusal says nothing about the name, and the
+        # next resolution may be allowed to ask.
+        return None
+    flat = lambda text: re.sub(r"[^a-z0-9]", "", (text or "").lower())
+    best = None
+    for item in data.get("items") or []:
+        called = item.get("name", "")
+        if item.get("fork") or normalise(called) != slug:
+            continue
+        # `normalise` folds `redis-py` into `redis`, which is right for a
+        # lookup and wrong here: the binding is exactly what this is for
+        # telling apart. `three.js` for `three` is the same project.
+        if flat(called) != flat(term) and _is_a_client(
+                {"repository": f"https://github.com/{item.get('full_name', '')}"}, term):
+            continue
+        if best is None or item.get("stargazers_count", 0) > best["stars"]:
+            home = _declared(item.get("homepage") or "")
+            if not home:
+                # No site declared: a Rust crate is documented on docs.rs and a
+                # Go module on pkg.go.dev whatever its repository says --
+                # `hyperium/tonic` declares nothing, and `tonic` went to a
+                # Python project's readthedocs (held-out round 3, 2026-09-25).
+                language = (item.get("language") or "").lower()
+                if language == "rust":
+                    home = f"https://docs.rs/{term.lower()}"
+                elif language == "go":
+                    home = f"https://pkg.go.dev/github.com/{item.get('full_name', '')}"
+            best = {"repo": item.get("full_name", ""), "stars": item.get("stargazers_count", 0),
+                    "homepage": home}
+    if best is not None and best["stars"] < POPULAR_MIN_STARS:
+        best = None
+    # And the name's first meaning, not merely its best exact match: asked
+    # for `nestjs`, the search's top result is `nestjs/nest` (76,726 stars,
+    # matched through its owner), and the most-starred repository *called*
+    # `nestjs` is a third party's monorepo of Nest modules -- which replaced
+    # `docs.nestjs.com` in the round-1 re-run (2026-09-24). Where something
+    # else carries the name further, it is not what the name means.
+    top = max((i.get("stargazers_count", 0) for i in data.get("items") or []
+               if not i.get("fork")), default=0)
+    if best is not None and best["stars"] < top:
+        best = None
+    _POPULAR[key] = best
+    return best
+
+
+def _registrable(host: str) -> str:
+    labels = host.split(".")
+    return ".".join(labels[-2:]) if len(labels) >= 2 else host
+
+
+#: Shared hosts whose subdomain is an owner, not a project.
+_OWNER_PAGES = ("github.io", "gitlab.io", "codeberg.page")
+
+
+def _same_project_site(url: str, popular: dict) -> bool:
+    """Is `url` on the popular repository's own site, or the repository?"""
+    if not url:
+        return False
+    if popular["repo"] and f"github.com/{popular['repo']}".lower() in url.lower():
+        return True
+    home = popular.get("homepage") or ""
+    if not home:
+        return False
+    here, there = _host(url), _host(home)
+    first = lambda u: ([p for p in urlparse(u).path.split("/") if p] or [""])[0].lower()
+    if is_package_host(url):
+        # docs.rs/<crate>: the host is shared, the first segment is the project.
+        return here == there and first(url) == first(home)
+    if in_shared_namespace(url):
+        # On <owner>.github.io/<repo> the repository is the first segment;
+        # <project>.readthedocs.io is the project's own host, whatever the
+        # path. Compared by segment everywhere, `requests.readthedocs.io`
+        # and `requests.readthedocs.io/en/latest/` were two projects, and
+        # Requests was "overruled" by itself, losing its ecosystem (offline
+        # benchmark `requests_is_pypi`, final run).
+        if not here.endswith(_OWNER_PAGES):
+            return here == there
+        return here == there and (not first(home) or first(url) == first(home))
+    return here == there or _registrable(here) == _registrable(there)
+
+
+def _weigh_popularity(result: Resolution, name: str, fetcher: Fetcher,
+                      language: str = "") -> None:
+    """Check the answer against what the name usually means, and defer to it
+    when the two disagree and the popular project is clearly dominant.
+
+    The popular project's site goes through the same gate as anything else,
+    judged against its repository; an answer is only replaced by one that
+    passes. Not consulted when the caller named a registry: then the package
+    in that registry is what was asked for.
+    """
+    # Narrowed to the language asked for first (`gin` for Go), then not: what
+    # a name means does not change with the edition wanted, and
+    # `elasticsearch` for Python has no Python repository of that name.
+    popular = _popular_repo(name, fetcher, language)
+    if popular is None and language:
+        popular = _popular_repo(name, fetcher, "")
+    if popular is None:
+        return
+    if result.unexamined and popular["stars"] < POPULAR_OVERRIDE_STARS:
+        # A refusal because the strongest candidate could not be read is not
+        # an absence for just anything to fill: the answer may be that very
+        # page. Only what the name clearly means may answer it, through the
+        # same gate -- and if the unreadable page *is* its site, the gate
+        # cannot read it either and the refusal stands. `tonic` was refused
+        # over a Python project's rate-limited readthedocs while
+        # `hyperium/tonic` (docs.rs/tonic) was the meaning (round 3).
+        return
+    best = result.best
+    own_repo = False
+    if best is not None and _same_project_site(best.url, popular):
+        if not (is_forge(best.url) and popular.get("homepage")):
+            return
+        # The answer is the project's repository and it declares a site --
+        # what `_prefer_docs_behind_repo` does from the REST API, done from
+        # what the search already said: that API allows sixty requests an
+        # hour without a token, and `gradio` stayed a repository when they
+        # ran out (held-out round 2).
+        own_repo = True
+    elif best is not None and popular["stars"] < POPULAR_OVERRIDE_STARS:
+        return
+    home = popular.get("homepage") or ""
+    if not home or is_forge(home) or _is_index_listing(home):
+        return
+    repo = f"https://github.com/{popular['repo']}"
+    cand = Candidate(home, "popular:github", 0.9,
+                     f"the most-starred repository named {name!r} is {popular['repo']} "
+                     f"({popular['stars']:,} stars), and it declares {home} as its site")
+    options = [cand]
+    if not _looks_like_docs(home) and not is_package_host(home):
+        options = _with_roots(probe_docs_root(home, fetcher)) + options
+    facts = {"repository": repo, "homepage": home}
+    chosen = None
+    for option in options:
+        verify(option, name, fetcher, facts)
+        if option.verified:
+            chosen = option
+            break
+    if chosen is None:
+        return
+    chosen.evidence = chosen.evidence or cand.evidence
+    was = best.url if best is not None else ""
+    result.candidates = dedupe([chosen] + result.candidates)
+    result.best = chosen
+    result.unexamined = False
+    result.resolved_via = (f"{result.resolved_via}+popular" if result.resolved_via
+                           else "popular")
+    if not own_repo:
+        # A registry's release and ecosystem belonged to the package it
+        # answered with, which this is not.
+        result.release = ""
+        if best is not None and best.registry:
+            result.ecosystem = ""
+    if own_repo:
+        result.note = ((f"{result.note} " if result.note else "")
+                       + f"The repository {was} declares {home} as its site, and "
+                       f"{chosen.url} is its documentation.")
+        return
+    result.note = ((f"{result.note} " if result.note else "")
+                   + f"The most-starred repository named {name!r} is {popular['repo']} "
+                   f"({popular['stars']:,} stars), whose site is {chosen.url}"
+                   + (f"; {was} documents a different project that shares the name"
+                      if was else "") + ".")
+
+
+_PAGE_URL = re.compile(r"https?://[A-Za-z0-9.-]+(?:/[^\s\"'<>\)\]]*)?")
+
+
+def _readme_docs(repo_url: str, name: str, fetcher: Fetcher, have: set,
+                 most: int = 2) -> list[Candidate]:
+    """Documentation sites a repository's own page links to, most-linked first.
+
+    Only on a host that carries the name, and only at a documentation
+    address: a README links to badges, sponsors and chat servers as well.
+    """
+    try:
+        r = fetcher.get(repo_url, timeout=PROBE_TIMEOUT, allow_redirects=True)
+    except ForgeError:
+        return []
+    if getattr(r, "status_code", 0) != 200:
+        return []
+    slug = normalise(name)
+    counts: dict[str, int] = {}
+    for link in _PAGE_URL.findall(r.text or ""):
+        root = f"{urlparse(link).scheme}://{urlparse(link).netloc}/"
+        if (is_forge(root) or is_package_host(root) or _is_index_listing(root)
+                or not _owns_the_name(root, slug) or not _docs_path(root)
+                or _page_key(root) in have):
+            continue
+        counts[root] = counts.get(root, 0) + 1
+    ranked = sorted(counts, key=counts.get, reverse=True)[:most]
+    return [Candidate(u, "evidence:readme-docs", 0.85,
+                      f"{repo_url} links to {u} as documentation ({counts[u]} times)")
+            for u in ranked]
+
+
+def _with_roots(options: list[Candidate]) -> list[Candidate]:
+    """Each `llms.txt` option followed by the page it sits in.
+
+    A manifest can fail the gate where its site passes -- `docs.solidjs.com/
+    llms.txt` names Solid 309 times and links nothing, while `docs.solidjs.com/`
+    links the repository -- and one miss should not cost the site.
+    """
+    out: list[Candidate] = []
+    for option in options:
+        out.append(option)
+        if urlparse(option.url).path.lower().endswith("/llms.txt"):
+            root = option.url.rsplit("/", 1)[0] + "/"
+            out.append(Candidate(root, option.source.replace("llms.txt", "root"),
+                                 option.confidence - 0.05,
+                                 f"{root} publishes {option.url}"))
+    return out
+
+
 def _prefer_docs_behind_repo(result: Resolution, name: str, fetcher: Fetcher) -> None:
     """A repository that won, swapped for the documentation site it declares.
 
@@ -2146,15 +2924,40 @@ def _prefer_docs_behind_repo(result: Resolution, name: str, fetcher: Fetcher) ->
         return
     owner, project = found.group(1), re.sub(r"\.git$", "", found.group(2))
     data = _json(fetcher, f"https://api.github.com/repos/{owner}/{project}")
-    home = ((data or {}).get("homepage") or "").strip()
-    if not home.startswith(("http://", "https://")) or is_forge(home) or is_package_host(home):
-        return
-    cand = Candidate(home, "evidence:repo-homepage", 0.9,
-                     f"github.com/{owner}/{project} declares its homepage as {home}",
-                     release=result.best.release)
-    cand.registry = result.best.registry
-    probed = [cand] + ([] if _looks_like_docs(home) else probe_docs_root(home, fetcher))
-    facts = {"repository": result.best.url}
+    home = _declared((data or {}).get("homepage") or "")
+    probed: list[Candidate] = []
+    if home and not is_forge(home) and not _is_index_listing(home):
+        cand = Candidate(home, "evidence:repo-homepage", 0.9,
+                         f"github.com/{owner}/{project} declares its homepage as {home}",
+                         release=result.best.release)
+        cand.registry = result.best.registry
+        # The documentation root under a declared homepage before the
+        # homepage itself, which is usually the project's front page.
+        probed = ([cand] if _looks_like_docs(home) or is_package_host(home)
+                  else _with_roots(probe_docs_root(home, fetcher)) + [cand])
+    # Every crate is documented on docs.rs and every Go module on pkg.go.dev,
+    # whether or not the repository says so: `tokio-rs/axum` declares no
+    # homepage, and its documentation is `docs.rs/axum`.
+    registry = result.best.registry or result.ecosystem
+    if registry == "crates":
+        crate = name.strip().lower()
+        probed.append(Candidate(f"https://docs.rs/{crate}", "evidence:docs.rs", 0.85,
+                                f"{crate} is a crate, and docs.rs builds every crate's "
+                                f"documentation"))
+    elif registry == "go":
+        probed.append(Candidate(f"https://pkg.go.dev/github.com/{owner}/{project}",
+                                "evidence:pkg.go.dev", 0.85,
+                                f"github.com/{owner}/{project} is a Go module, and "
+                                f"pkg.go.dev documents every one"))
+    # The repository's own statement of where it lives counts as a registry's
+    # does: `date-fns.org` and `www.gradio.app` render their pages in the
+    # browser, and judged on the repository link alone neither passed.
+    # Last, the documentation its README links to: `pmndrs/zustand` declares
+    # a demo as its homepage and documents itself at `zustand.docs.pmnd.rs`,
+    # which only the README names (held-out round 2).
+    probed += _readme_docs(result.best.url, name, fetcher,
+                           {_page_key(c.url) for c in probed})
+    facts = {"repository": result.best.url, **({"homepage": home} if home else {})}
     for option in probed:
         verify(option, name, fetcher, facts)
         if option.verified:
@@ -2162,8 +2965,8 @@ def _prefer_docs_behind_repo(result: Resolution, name: str, fetcher: Fetcher) ->
             option.release = option.release or result.best.release
             result.candidates = dedupe([option] + result.candidates)
             result.note = (f"{result.note} The repository {result.best.url} won the "
-                           f"registry lap; its declared homepage {option.url} is the "
-                           f"documentation, and it passed the same checks.").strip()
+                           f"registry lap; {option.url} is its documentation "
+                           f"({option.evidence}), and it passed the same checks.").strip()
             result.best = option
             result.resolved_via = f"{result.resolved_via}+repo-homepage"
             return
@@ -2226,38 +3029,137 @@ def _content_of(body: str, url: str) -> str:
         return _visible_text(body)
 
 
+#: Links in HTML, and in the Markdown an `llms.txt` is written in.
+#: Unquoted too: a minified Hugo site writes `href=/docs/languages/`, and
+#: `grpc.io/docs/` offered no link at all to a quoted-only pattern.
+_ANY_LINK = re.compile(r"""href\s*=\s*(?:["']([^"'#]+)|([^\s>"'#]+))|\]\(\s*<?([^)\s>#]+)""")
+
+
 def _language_links(html: str, base: str, lang: "languages.Language", name: str,
                     most: int = 3) -> list[str]:
     """Where a page that serves several languages sends readers of one.
 
     `docs.langchain.com/` is one front page for Python and JavaScript alike,
     and links to `/oss/python/...` and `/oss/javascript/...`; there is no
-    segment in its own URL to swap. The links are grouped by the path up to
-    the segment after the language's name -- `/oss/javascript/langchain/` --
-    and the group that names the project comes first, then the largest.
+    segment in its own URL to swap. Links are grouped by the path through the
+    language's segment -- `/develop/typescript/`, `/platforms/python/`,
+    `/docs/languages/go/` -- and, where the next segment names the project
+    (`/oss/javascript/langgraph/`), by that. Each group offers its section
+    root, then the shallowest page in it; the group that names the project
+    comes first, then the largest.
+
+    Read from Markdown links as well as `href`s, because the page found is
+    often an `llms.txt`, and from the site's sibling hosts: `temporal.io`
+    files its per-language guides on `docs.temporal.io` (held-out test,
+    2026-09-24: all four such cases missed their edition for one of these).
     """
     if not html:
         return []
-    host = (urlparse(base).hostname or "").lower()
+    site = _registrable((urlparse(base).hostname or "").lower())
     slug = normalise(name)
     groups: dict[str, list[str]] = {}
-    for href in re.findall(r"""href\s*=\s*["']([^"'#]+)""", html):
-        link = urljoin(base, href.strip())
-        parsed = urlparse(link)
-        if (parsed.hostname or "").lower() != host:
+    for match in _ANY_LINK.finditer(html):
+        href = (match.group(1) or match.group(2) or match.group(3) or "").strip()
+        if not href:
             continue
-        parts = [p for p in parsed.path.split("/") if p]
+        link = urljoin(base, href)
+        parsed = urlparse(link)
+        host = (parsed.hostname or "").lower()
+        if not host or _registrable(host) != site or is_forge(link):
+            continue
+        parts = [_PAGE_FILE.sub("", p) for p in parsed.path.split("/") if p]
+        parts = [p for p in parts if p]
         for i, part in enumerate(parts):
-            if part.lower() in lang.segments:
-                key = "/" + "/".join(parts[:i + 2]) + "/"
+            if _segment_names(part, lang, slug):
+                depth = i + 1
+                if i + 1 < len(parts) - 1 and slug and slug in normalise(parts[i + 1]):
+                    depth = i + 2
+                key = f"{parsed.scheme}://{host}/" + "/".join(parts[:depth]) + "/"
                 groups.setdefault(key, []).append(link)
                 break
     if not groups:
         return []
+    # The project's own section first; a guide before an API reference --
+    # from `pulumi.com/docs`, `/docs/reference/pkg/python/` outnumbers
+    # `/docs/iac/languages-sdks/python/` and is the reference half; then
+    # the largest.
+    reference = lambda key: bool({p.lower() for p in urlparse(key).path.split("/")}
+                                 & {"reference", "api", "apidocs", "pkg", "packages"})
     ranked = sorted(groups.items(),
-                    key=lambda kv: (slug and slug in normalise(kv[0]), len(kv[1])),
+                    key=lambda kv: (bool(slug) and slug in normalise(urlparse(kv[0]).path),
+                                    not reference(kv[0]), len(kv[1])),
                     reverse=True)
-    return [links[0] for _key, links in ranked[:most]]
+    out: list[str] = []
+    for key, links in ranked[:most]:
+        shallowest = min(links, key=lambda u: (urlparse(u).path.count("/"), len(u)))
+        out += [key, shallowest]
+    return list(dict.fromkeys(out))
+
+
+#: A page's own file name, which says nothing about where it is filed:
+#: `platforms/python.md` is the Python section, `languages/index.md` the hub.
+_PAGE_FILE = re.compile(r"(?:^index)?\.(?:md|mdx|html?|txt)$", re.I)
+
+#: The page a multi-language site lists its languages on.
+_HUB_WORDS = ("languages", "language", "sdks", "sdk", "platforms", "libraries",
+              "client-libraries", "clients", "client", "integrations")
+
+
+def _language_hubs(html: str, base: str, most: int = 2, name: str = "") -> list[str]:
+    """Links to the page that lists a site's languages, nearest first.
+
+    `grpc.io/docs/` names no language; `grpc.io/docs/languages/` names all of
+    them. One hop, taken only when the page itself offered nothing.
+    """
+    site = _registrable((urlparse(base).hostname or "").lower())
+    hubs: list[str] = []
+    for match in _ANY_LINK.finditer(html or ""):
+        link = urljoin(base, (match.group(1) or match.group(2) or match.group(3) or "").strip())
+        parsed = urlparse(link)
+        if _registrable((parsed.hostname or "").lower()) != site or is_forge(link):
+            continue
+        parts = [_PAGE_FILE.sub("", p) for p in parsed.path.split("/") if p]
+        parts = [p for p in parts if p]
+        # Whole, or as the last word of a compound: Elastic's
+        # `/client/index.html` and `/docs/reference/elasticsearch-clients`.
+        if parts and (parts[-1].lower() in _HUB_WORDS
+                      or parts[-1].lower().rsplit("-", 1)[-1] in _HUB_WORDS):
+            hubs.append(link)
+    # The hub for the project asked about before a sibling product's:
+    # `elastic.co/guide/` lists `enterprise-search-clients/` above
+    # `elasticsearch/client/`, and the first led to the wrong product's
+    # Python client.
+    slug = normalise(name) if name else ""
+    return sorted(dict.fromkeys(hubs),
+                  key=lambda u: (not (slug and slug in normalise(urlparse(u).path)),
+                                 urlparse(u).path.count("/")))[:most]
+
+
+#: A redirect onto one of these is a site turning a reader away, not an edition.
+_TURNED_AWAY = re.compile(r"/(?:auth|login|log-in|signin|sign-in|signup|sign-up|account|"
+                          r"register|sso)(?:/|$)", re.I)
+
+
+def _answers_anything(option: str, lang: "languages.Language", fetcher: Fetcher) -> bool:
+    """Does the site answer 200 where no edition could be?
+
+    `sentry.io/python/` lands on a login page that repeats the path it was
+    given, so the path "names" Python and the site "answers" it. The same
+    address with the language's segment replaced by a word nothing publishes
+    tells the two apart: one request, spent only when the path is the only
+    evidence.
+    """
+    parsed = urlparse(option)
+    parts = [p for p in parsed.path.split("/") if p]
+    swapped = [("zq-docsforge-none" if p.lower() in lang.segments else p) for p in parts]
+    if swapped == parts:
+        return False
+    control = parsed._replace(path="/" + "/".join(swapped) + "/").geturl()
+    try:
+        r = fetcher.get(control, timeout=PROBE_TIMEOUT, allow_redirects=True)
+    except ForgeError:
+        return False
+    return getattr(r, "status_code", 0) == 200
 
 
 def _same_site_root(a: str, b: str) -> bool:
@@ -2273,11 +3175,44 @@ def _same_site_root(a: str, b: str) -> bool:
     return (pa.path or "/").strip("/") == "" or (pb.path or "/").strip("/") == ""
 
 
-def _names_language(url: str, lang: "languages.Language") -> bool:
+def _segment_names(segment: str, lang: "languages.Language", slug: str = "") -> bool:
+    """Does one path segment name `lang`?
+
+    Whole, as `/python/` does; or as one word of a compound, as Elastic's
+    `/client/python-api/` and a `/ruby-sdk/` do -- but only for a word of four
+    letters or more: `go-live` is not Go, and `net-core` is not .NET.
+    """
+    low = segment.lower()
+    if low in lang.segments:
+        return True
+    # A language and the word for what is published for it, nothing else:
+    # `event-history-typescript` is one page of Temporal's encyclopedia, and
+    # read as a section it replaced `/develop/typescript/` (round 1 re-run).
+    words = [w for w in re.split(r"[-_.]", low) if w]
+    if len(words) != 2:
+        return False
+    first, second = words
+    # The project and its language, however short: `redis-py`, `docker-py`,
+    # `go-redis`. Redis files its Python client at
+    # `/develop/clients/redis-py/`, and with only four-letter words trusted a
+    # group of FastAPI tutorials was taken for the Python edition instead.
+    if slug and ((first == slug and second in lang.segments)
+                 or (second == slug and first in lang.segments)):
+        return True
+    return ((len(first) >= 4 and first in lang.segments and second in _EDITION_WORDS)
+            or (len(second) >= 4 and second in lang.segments and first in _EDITION_WORDS))
+
+
+#: What a site calls one language's edition of itself, beside the language.
+_EDITION_WORDS = {"api", "sdk", "client", "driver", "lib", "library", "bindings",
+                  "docs", "guide", "reference", "quickstart"}
+
+
+def _names_language(url: str, lang: "languages.Language", slug: str = "") -> bool:
     parsed = urlparse(url)
     words = [p.lower() for p in parsed.path.split("/") if p]
-    words.append(((parsed.hostname or "").split(".") or [""])[0].lower())
-    return any(w in lang.segments for w in words)
+    host = ((parsed.hostname or "").split(".") or [""])[0].lower()
+    return host in lang.segments or any(_segment_names(w, lang, slug) for w in words)
 
 
 def _switch_to_language(result: Resolution, name: str, lang: "languages.Language",
@@ -2295,7 +3230,7 @@ def _switch_to_language(result: Resolution, name: str, lang: "languages.Language
     best = result.best
     if best is None:
         return False
-    if _names_language(best.url, lang):
+    if _names_language(best.url, lang, normalise(name)):
         return True
     try:
         r = fetcher.get(best.url, timeout=PROBE_TIMEOUT, allow_redirects=True)
@@ -2303,7 +3238,7 @@ def _switch_to_language(result: Resolution, name: str, lang: "languages.Language
         here = (getattr(r, "url", "") or best.url) if raw else best.url
     except ForgeError:
         raw, here = "", best.url
-    if _names_language(here, lang):
+    if _names_language(here, lang, normalise(name)):
         best.url = here
         return True
     page = _content_of(raw, here)
@@ -2312,8 +3247,24 @@ def _switch_to_language(result: Resolution, name: str, lang: "languages.Language
         result.note = (f"{result.note} The documentation found is written for "
                        f"{lang.name}.").strip()
         return True
-    options = (_variant_urls(here, lang)[:VARIANT_TRIES]
-               + _language_links(raw, here, lang, name))
+    # A manifest is a file in a directory; its editions are the directory's.
+    # `opentelemetry.io/go/` redirects to `/docs/languages/go/`, and
+    # `opentelemetry.io/llms.txt/go` is nothing.
+    base = (here.rsplit("/", 1)[0] + "/"
+            if re.search(r"/llms(?:-full)?\.txt$", urlparse(here).path) else here)
+    links = _language_links(raw, here, lang, name)
+    if not links:
+        for hub in _language_hubs(raw, here, name=name):
+            try:
+                r = fetcher.get(hub, timeout=PROBE_TIMEOUT, allow_redirects=True)
+            except ForgeError:
+                continue
+            if getattr(r, "status_code", 0) == 200:
+                links = _language_links(r.text or "", getattr(r, "url", "") or hub,
+                                        lang, name)
+            if links:
+                break
+    options = _variant_urls(base, lang)[:VARIANT_TRIES] + links
     for option in list(dict.fromkeys(options)):
         try:
             r = fetcher.get(option, timeout=PROBE_TIMEOUT, allow_redirects=True)
@@ -2324,13 +3275,18 @@ def _switch_to_language(result: Resolution, name: str, lang: "languages.Language
         landed = getattr(r, "url", "") or option
         if _page_key(landed) in (_page_key(best.url), _page_key(here)):
             continue                                # sent back where it started
+        if _TURNED_AWAY.search(urlparse(landed).path) and not _TURNED_AWAY.search(
+                urlparse(option).path):
+            continue                                # a login page, not an edition
         ctype = (r.headers.get("content-type") or "").lower()
         if "html" not in ctype and "markdown" not in ctype and "text/plain" not in ctype:
             continue
         body = _content_of(r.text or "", landed)
         fits = languages.written_for(body, lang)
-        if fits is False or (fits is None and not _names_language(landed, lang)):
+        if fits is False or (fits is None and not _names_language(landed, lang, normalise(name))):
             continue
+        if fits is None and _answers_anything(option, lang, fetcher):
+            continue                                # the path is all it had
         cand = Candidate(landed, f"variant:{lang.name}", best.confidence,
                          f"the {lang.name} edition of {here}", True,
                          f"the {lang.name} edition the site publishes beside the "
@@ -2533,7 +3489,16 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                        dict(_facts_for(cand, found, facts),
                             via_domain=cand.source.startswith("domain:")),
                        state=state)
-            picked = (_settle_held(provisional, result.candidates)
+            # A package whose own repository is named for something else is a
+            # client for the thing asked about, not the thing: PyPI's `redis`
+            # lives at `redis/redis-py`, its `docker` at `docker/docker-py`.
+            # Such a package cannot unseat the project's own site (R10's hold
+            # was written for a squatter against the real package, where the
+            # repository does carry the name: `pallets/flask`).
+            clients = frozenset(
+                id(c) for c in result.candidates
+                if c.registry and _is_a_client(_facts_for(c, found, facts), name))
+            picked = (_settle_held(provisional, result.candidates, clients)
                       if provisional is not None
                       else best_verified(result.candidates))
             blocker = unexamined_above(picked, result.candidates)

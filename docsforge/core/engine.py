@@ -812,7 +812,8 @@ def detect_source(url: str, fetcher: Fetcher, scope: str | None = None) -> Detec
         # 2 KB of the AI SDK's 5.7 MB got stored and recorded as complete — and
         # it only ever happened on this path, because the probe below already
         # prefers llms-full.txt and never got the chance to run.
-        return _fuller_dump(url, fetcher) or Detection("llms_txt", url)
+        return (_fuller_dump(url, fetcher) or _signposted(url, None, fetcher)
+                or Detection("llms_txt", url))
     if u.endswith("sitemap.xml") or path.endswith("/sitemap_index.xml"):
         return Detection("sitemap", url)
 
@@ -852,9 +853,55 @@ def detect_source(url: str, fetcher: Fetcher, scope: str | None = None) -> Detec
             # `<SYSTEM>` and are exactly what this is looking for.
             if _is_html_document(body):
                 continue
-            return Detection("llms_txt", probe, body)
+            return (_signposted(getattr(r, "url", "") or probe, body, fetcher)
+                    or Detection("llms_txt", probe, body))
 
     return Detection("html", url)
+
+
+#: An llms file this short is not documentation; if it names other llms
+#: files, it is a signpost to them.
+SIGNPOST_MAX = 2_000
+_LLMS_POINTER = re.compile(r"https?://[^\s)<>\]\"']+/llms(?:-full)?\.txt", re.I)
+
+
+def _signposted(url: str, body: str | None, fetcher: Fetcher) -> "Detection | None":
+    """The llms file a short one points at, if that is all it does.
+
+    `threejs.org/llms.txt` is 274 bytes: a title, a sentence, and "the full
+    documentation for LLMs" at `threejs.org/docs/llms.txt`, "complete inline
+    documentation" at `/docs/llms-full.txt` -- bare URLs, not a manifest's
+    links. Taken as the manifest, it was stored as three.js' documentation,
+    one page (held-out re-run, 2026-09-24). Followed one hop, the full dump
+    first, on the same site only.
+    """
+    if body is None:
+        try:
+            r = fetcher.get(url, timeout=10, allow_redirects=True)
+        except ForgeError:
+            return None
+        if r.status_code != 200 or "html" in (r.headers.get("content-type") or "").lower():
+            return None
+        body = _decode(r)
+    if len(body) > SIGNPOST_MAX:
+        return None
+    site = ".".join((urlparse(url).hostname or "").lower().split(".")[-2:])
+    here = _page_key(url)
+    pointers = [p for p in dict.fromkeys(_LLMS_POINTER.findall(body))
+                if _page_key(p) != here
+                and (urlparse(p).hostname or "").lower().endswith(site)]
+    pointers.sort(key=lambda p: 0 if p.lower().endswith("llms-full.txt") else 1)
+    for target in pointers:
+        try:
+            r = fetcher.get(target, timeout=DUMP_TIMEOUT, allow_redirects=True)
+        except ForgeError:
+            continue
+        if r.status_code != 200 or "html" in (r.headers.get("content-type") or "").lower():
+            continue
+        found = _decode(r)
+        if len(found) > len(body) and not _is_html_document(found):
+            return Detection("llms_txt", getattr(r, "url", "") or target, found)
+    return None
 
 
 def _llms_dirs(url: str, scope: str | None = None) -> list[str]:
@@ -1024,7 +1071,12 @@ _META_REFRESH = re.compile(
     r"""<meta[^>]+http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*"""
     r"""["'][^"']*url\s*=\s*([^"'\s>]+)""", re.I)
 _JS_REPLACE = re.compile(
-    r"""location\s*\.\s*(?:replace\s*\(|href\s*=)\s*["']([^"']+)["']""", re.I)
+    r"""(?:(?:window|document|self|top)\s*\.\s*)?location\s*"""
+    r"""(?:\.\s*(?:replace|assign)\s*\(|(?:\.\s*href)?\s*=(?!=))\s*["']([^"']+)["']""",
+    re.I)
+#: `pugjs.org/` is one line, `<script>document.location = 'api/getting-
+#: started.html';</script>`, and the pattern above knew only `location.replace`
+#: and `location.href =`: the harvest stored nothing (held-out round 3).
 #: Deliberately NOT a canonical link. Nearly every real page carries one, and
 #: treating it as a redirect sent a page with prose in it off to whatever it
 #: named — caught by `test_a_real_page_is_never_mistaken_for_a_signpost`, which
@@ -2309,6 +2361,31 @@ def _dump_sections(text: str) -> list[tuple[str, int, int]]:
     if len(linked) > len(starts):
         starts = linked
 
+    # A fourth: front matter opens each page. `developers.cloudflare.com/
+    # workers/llms-full.txt` changed to it -- 450 pages, each `---` /
+    # `description:` / `title:` / `---` then a "View as Markdown" link to
+    # the page's own `.md` -- and four stray `URL:`-shaped lines inside its
+    # pages were taken for boundaries: two "pages" of 2.7 MB and 2.2 MB
+    # (field test re-run, 2026-09-25). Taken when it outnumbers the other
+    # spellings and nearly every block names its page; one that names none
+    # is not a boundary.
+    fronted = []
+    blocks = [m for m in _DUMP_FRONTMATTER.finditer(text) if not _inside(m.start(), fences)]
+    for m in blocks:
+        source = ""
+        for key in ("url", "source_url", "source", "canonical", "permalink"):
+            found = re.search(rf"(?mi)^{key}:[ \t]*[\"']?(https?://[^\s\"']+)", m.group(1))
+            if found:
+                source = found.group(1)
+                break
+        if not source:
+            twin = _FRONTMATTER_TWIN.search(text, m.end(), m.end() + 800)
+            source = twin.group(1) if twin else ""
+        if source:
+            fronted.append((m.start(), source))
+    if len(fronted) > len(starts) and len(fronted) >= 0.9 * len(blocks):
+        starts = fronted
+
     out = []
     for i, (start, source) in enumerate(starts):
         end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
@@ -2317,6 +2394,9 @@ def _dump_sections(text: str) -> list[tuple[str, int, int]]:
 
 
 _DUMP_HEADING_LINK = re.compile(r"^#{1,2}[ \t]*\[[^\]\n]+\]\((https?://[^)\s]+)\)[ \t]*$", re.M)
+_DUMP_FRONTMATTER = re.compile(r"^---\n((?:[A-Za-z_][\w-]*:[^\n]*\n)+)---\n", re.M)
+#: The page's own Markdown twin, linked just below its front matter.
+_FRONTMATTER_TWIN = re.compile(r"\]\((https?://[^)\s]+?)(?:/index)?\.md\)")
 
 
 def _dump_pages(text: str) -> list[tuple[str, str, str]]:
@@ -2342,8 +2422,20 @@ def _dump_pages(text: str) -> list[tuple[str, str, str]]:
         chunk = text[start:end].strip()
         if not chunk:
             continue
+        # A page opened by front matter is titled there, and the block itself
+        # is metadata, not the page's text.
+        stated = ""
+        front = _DUMP_FRONTMATTER.match(chunk + "\n")
+        if front:
+            named = re.search(r"(?mi)^title:[ \t]*[\"']?(.+?)[\"']?[ \t]*$", front.group(1))
+            stated = named.group(1).strip() if named else ""
+            chunk = chunk[front.end():].strip() or chunk
+        # A dump written from the rendered site carries the site's chrome on
+        # every page: Cloudflare's opens each with "[Skip to content]" and a
+        # "Last updated | Copy as Markdown | View as Markdown" line.
+        chunk = _drop_chrome_lines(chunk).strip() or chunk
         line = chunk.split("\n", 1)[0]
-        title = line.lstrip("# ").strip() if line.lstrip().startswith("#") else ""
+        title = stated or (line.lstrip("# ").strip() if line.lstrip().startswith("#") else "")
         linked_title = re.match(r"^\[(.+?)\]\([^)]*\)$", title)
         if linked_title:
             title = linked_title.group(1).strip()
@@ -2767,7 +2859,15 @@ STRIP = ["nav", "header", "footer", "aside", "script", "style", "noscript",
          "[role=contentinfo]", ".sidebar", ".navbar", ".toc",
          ".breadcrumb", ".ad", ".cookie", "[aria-hidden=true]"]
 CONTENT = ["main", "article", "[role=main]", ".markdown-body",
-           ".doc-content", ".content", ".prose", "#content", "#main"]
+           ".doc-content", ".content", ".prose", "#content", "#main",
+           # Named for what they hold, after the conventional names: lodash's
+           # whole API reference is `.doc-container` (163,592 characters) and
+           # density alone settled on one method group (held-out round 2).
+           ".docs-content", ".doc-container", ".documentation", ".docs", "#docs"]
+
+#: Selectors a page may use once per section rather than once per page.
+REPEATED = {".content", ".prose", "article", ".markdown-body", ".doc-content",
+            ".docs-content"}
 
 # How much text a CONTENT match must hold before it is believed. Below this the
 # selector is assumed to have found a stub — a heading, an empty shell — and the
@@ -2884,6 +2984,10 @@ def pick_main(soup, plan=None) -> tuple[object | None, str]:
         found = soup.select_one(sel)
         if found and len(found.get_text(strip=True)) > MIN_MAIN_CHARS:
             chosen, selector = found, sel
+            if sel in REPEATED:
+                gathered = _gather_sections(soup, sel, found)
+                if gathered is not None:
+                    chosen, selector = gathered, f"{sel} (every section)"
             break
         if found is not None and short is None and _one_real_sentence(found):
             short, short_selector = found, sel
@@ -2924,6 +3028,31 @@ def pick_main(soup, plan=None) -> tuple[object | None, str]:
     # those apart, and the answer is validated against the page before it is
     # trusted: the model proposes, the code disposes.
     return _ask_for_selector(soup)
+
+
+def _gather_sections(soup, sel: str, first):
+    """Every top-level match of `sel`, in order, when the page is built of them.
+
+    `koajs.com` is one page of Koa's whole manual in a `<div class="content">`
+    per section; the first match is the Introduction, 426 characters of 56 KB,
+    and that was all a harvest stored (held-out round 2). Taken only when the
+    first holds less than half of what they hold together, so a page with one
+    real container and a stray second is read as before.
+    """
+    matches = soup.select(sel)
+    if len(matches) < 2:
+        return None
+    ids = {id(m) for m in matches}
+    tops = [m for m in matches if not any(id(p) in ids for p in m.parents)]
+    if len(tops) < 2:
+        return None
+    sizes = [len(m.get_text(strip=True)) for m in tops]
+    if len(first.get_text(strip=True)) * 2 >= sum(sizes):
+        return None
+    wrapper = soup.new_tag("div")
+    for m in tops:
+        wrapper.append(m.extract())
+    return wrapper
 
 
 def _skeleton(soup) -> str:
@@ -2982,6 +3111,27 @@ _ERROR_WORDS = ("page not found", "404", "not found", "does not exist",
 #: Above this a page has too much real content to be an error, whatever words
 #: it contains. A genuine "Error handling" chapter is long.
 _ERROR_CHARS = 1200
+
+
+_NOT_FOUND = re.compile(
+    r"\b(?:404|page not found|not found|does not exist|doesn't exist|"
+    r"could not be found|can(?:'|no)t be found|no longer (?:exists|available))\b", re.I)
+#: A page whose whole text is at most this long and says it is not there.
+NOT_FOUND_CHARS = 200
+
+
+def _plainly_not_found(title: str, doc: str) -> bool:
+    """Is this page's whole text an error message? Arithmetic, no model.
+
+    `sanic.dev`'s own sitemap lists 100 addresses under `/en/en/`, and every
+    one answers 200 with "# Not found": all forty stored, as documentation
+    (held-out round 3). The reasoner below can judge the ambiguous cases; a
+    page that says nothing but "not found" is not one of them.
+    """
+    body = re.sub(r"<!--.*?-->", "", doc or "", flags=re.S)
+    body = re.sub(r"^\s*#+\s*", "", body, flags=re.M)
+    text = " ".join(body.split())
+    return len(text) <= NOT_FOUND_CHARS and bool(_NOT_FOUND.search(text))
 
 
 def _error_shaped(title: str, doc: str) -> bool:
@@ -3244,12 +3394,17 @@ def _clean_code_blocks(main) -> None:
 
 def _soup_of(el):
     """The document an element belongs to -- the only thing that makes tags."""
+    from bs4 import BeautifulSoup
     root = el
     while getattr(root, "parent", None) is not None:
         root = root.parent
-    if hasattr(root, "new_tag"):
+    # The document itself, not anything with the method: bs4 4.13 gave every
+    # tag a `new_tag` that raises when the tree it is in was lifted out of
+    # its document, and `cobra.dev` lost 11 of its 25 pages to that as
+    # "unextractable" -- every page whose code block sat in a detached main
+    # (held-out test, 2026-09-24).
+    if isinstance(root, BeautifulSoup):
         return root
-    from bs4 import BeautifulSoup
     return BeautifulSoup("", "html.parser")
 
 
@@ -3278,7 +3433,12 @@ _CHROME_LINE = re.compile(
     r"edit page|on this page|in this article|table of contents|skip to (main )?content|"
     r"was this (page|article)? ?helpful\??|thank you for your feedback[.!]?|"
     r"previous|next|previous page|next page)\s*$", re.I)
-_LAST_UPDATED = re.compile(r"^\s*last (updated|modified)\b.{0,80}$", re.I)
+_LAST_UPDATED = re.compile(
+    r"^\s*last (updated|modified)\b(?:.{0,80}|.*\b(copy|view) as markdown\b.*)$", re.I)
+
+
+#: A chrome line as Markdown writes it: `[Skip to content](#main-content)`.
+_LINKED_LINE = re.compile(r"^\s*\[([^\]]+)\]\([^)]*\)\s*$")
 
 
 def _drop_chrome_lines(body: str) -> str:
@@ -3286,8 +3446,11 @@ def _drop_chrome_lines(body: str) -> str:
     for line in body.split("\n"):
         if line.lstrip().startswith(("```", "~~~")):
             fence = not fence
-        if not fence and (_CHROME_LINE.match(line) or _LAST_UPDATED.match(line)):
-            continue
+        if not fence:
+            linked = _LINKED_LINE.match(line)
+            if (_CHROME_LINE.match(line) or _LAST_UPDATED.match(line)
+                    or (linked and _CHROME_LINE.match(linked.group(1)))):
+                continue
         out.append(line)
     return "\n".join(out)
 
@@ -4104,7 +4267,8 @@ def _markdown_alternate(soup, base: str) -> str:
 def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 stats: dict | None = None, sink=None, *,
                 seeds: list[str] | None = None, admit=None,
-                statement: str = "", known: set[str] | None = None) -> list[Doc]:
+                statement: str = "", known: set[str] | None = None,
+                reread: set[str] | None = None) -> list[Doc]:
     """Fetch and extract every page of a documentation section.
 
     With `seeds`, this is the acquisition loop for a site that stated what
@@ -4119,6 +4283,8 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
     to this harvest at all -- one language, one release -- applied alike to
     seeds and to every link found. `known` is pages this harvest already has
     from elsewhere, as `_page_key`s; a link to one of them is not followed.
+    `reread` is pages it already has that are fetched again for their links
+    only, and not stored a second time.
     """
     seen: set[str] = set()
     out: list[Doc] = []
@@ -4431,6 +4597,17 @@ def _crawl_html(start: str, fetcher: Fetcher, opts: Options,
                 continue
 
             refused_in_a_row = 0
+            if reread and _page_key(url) in reread:
+                release()               # read for where it leads; stored already
+                continue
+            if _plainly_not_found(title, doc):
+                # Not there, whatever the status said: counted with the 404s,
+                # and kept out of the plan -- forty "Not found" pages read as
+                # JS shells and switched a whole crawl to rendering.
+                dead.append(url)
+                _log(opts, f"  not on the site {url}: it answers 200 with a not-found page")
+                release()
+                continue
             # A page that had to be rendered to be read counts as a shell for
             # the plan (R4), whatever the static test said of it.
             report["shell"] = _looks_like_shell(html) or needed_help
@@ -4585,7 +4762,10 @@ _NOT_DOCS = re.compile(
     r"/(blog|weblog|news|posts?|articles?|journal|updates|announcements?|"
     r"changelog|releases?|careers?|jobs|pricing|"
     r"about|contact|team|events?|showcase|agencies|partners|sponsors|store|"
-    r"shop|legal|privacy|terms|press|community)(/|$)", re.I)
+    r"shop|legal|privacy|terms|press|community|"
+    # A site crawled whole meets its essays, talks and chat invites too
+    # (`htmx.org/essays/`, `/talk/`, `/webring/`, `/discord`).
+    r"essays?|talks?|podcasts?|newsletters?|webring|discord|slack|merch|swag)(/|$)", re.I)
 
 #: A dated path is an article. Every site that has ever published one dates it,
 #: whatever it calls the section — and naming the sections is what failed:
@@ -4740,9 +4920,14 @@ def _admission(url: str, prefix: str, seeds: list[str] | None = None):
         if _locale_of(link) not in locales:
             return False
         seg = _release_segment(link)
+        if release is not None and (seg is None or seg != release):
+            # Filed under one release, so a link outside that release line is
+            # another edition -- including the current one filed under none:
+            # asked for Poetry 1.8, the crawl followed `/docs/1.8/` pages into
+            # `/docs/basic-usage/` and stored six current pages as 1.8
+            # (offline benchmark `poetry_pinned_pages_are_1.8`, 2026-09-24).
+            return False
         if seg is not None:
-            if release is not None and seg[0] == release[0] and seg[1] != release[1]:
-                return False
             if unversioned_below is not None and seg[0] < unversioned_below:
                 # The current docs are filed under no release, and this link
                 # is a release's copy of them (`/docs/1.8/` beside `/docs/`).
@@ -5045,6 +5230,9 @@ def _harvest(url: str, opts: Options, fetcher: Fetcher | None,
     """`harvest`, for one topic or none -- see there."""
     own = fetcher is None
     fetcher = fetcher or Fetcher(opts)
+    #: The section is ours to draw -- and to redraw -- only when the caller
+    #: named none.
+    derived = opts.scope in ("", "section", None) and not opts.section
     try:
         if opts.scope in ("", "section", None) and not opts.section:
             # Everything below is derived from this URL -- the section, the
@@ -5194,11 +5382,93 @@ def _harvest(url: str, opts: Options, fetcher: Fetcher | None,
 
         _log(opts, "  harvesting by crawl")
         crawl_opts = replace(opts, crawl=True)
-        return (_crawl_html(url, fetcher, crawl_opts, stats, sink=sink,
-                            admit=_admission(url, prefix)), "crawl")
+        out = _crawl_html(url, fetcher, crawl_opts, stats, sink=sink,
+                          admit=_admission(url, prefix))
+        if derived and not (opts.version or "").strip() and (
+                len(out) < WIDEN_BELOW or _points_elsewhere(url, out, stats)):
+            out += _widen(url, prefix, out, fetcher, opts, stats, sink)
+        return out, "crawl"
     finally:
         if own:
             fetcher.close()
+
+
+#: A derived section that yields fewer pages than this was a page, not the
+#: documentation's section.
+WIDEN_BELOW = 3
+
+
+#: A section this small whose crawl kept pointing at other sections of the
+#: same site, far more than at itself, is a corner of the documentation.
+POINTS_ELSEWHERE_BELOW = 10
+POINTS_ELSEWHERE_SECTIONS = 2
+
+
+def _points_elsewhere(url: str, have: list[Doc], stats: dict | None) -> bool:
+    """`jasmine.github.io/pages/docs_home.html`: three pages under `/pages/`,
+    while every one of them pointed at `/api/` (119 votes) and `/tutorials/`
+    (26) on the same host. The section was drawn around the landing page,
+    not the manual (held-out round 3)."""
+    if stats is None or len(have) >= POINTS_ELSEWHERE_BELOW:
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    elsewhere = [c for c in (stats.get("corpora") or [])
+                 if (c.get("host") or "").lower() == host
+                 and not looks_like_article(c.get("url") or "")]
+    votes = sum(c.get("votes") or 0 for c in elsewhere)
+    return len(elsewhere) >= POINTS_ELSEWHERE_SECTIONS and votes >= 5 * max(1, len(have))
+
+
+def _widen(url: str, prefix: str, have: list[Doc], fetcher, opts: Options,
+           stats: dict | None, sink) -> list[Doc]:
+    """The rest of the documentation, when the section drawn held one page.
+
+    `htmx.org/docs/` is one long page, and htmx's documentation is the site:
+    `/attributes/`, `/extensions/`, `/examples/`, `/reference/`. A crawl kept
+    to `/docs/` stored that one page and reported a drained frontier, while
+    its own out-of-scope evidence named the sections it could not enter
+    (held-out test, 2026-09-24). One level up, once, from that level's own
+    page; with marketing and articles held out as for any whole-site crawl
+    (`_admission`), the pages already stored not fetched again, and the move
+    recorded beside the coverage it changed.
+    """
+    parts = [p for p in prefix.split("/") if p]
+    if not parts:
+        return []
+    wider = "/" + "/".join(parts[:-1]) + ("/" if len(parts) > 1 else "")
+    had = {_page_key(d.url) for d in have}
+    # From the page already stored, read again for its links: the way into
+    # the rest of the manual is the section's own page, not the level above.
+    # `gohugo.io/documentation/` links every section of Hugo's manual, and
+    # `gohugo.io/` links none of them -- started from the root, the widened
+    # crawl found one more page (final round-1 re-run).
+    start = have[0].url if have else f"{urlparse(url).scheme}://{urlparse(url).netloc}{wider}"
+    _log(opts, f"  {prefix} holds {len(have)} page(s): the documentation is not "
+               f"one section here; crawling within {wider}")
+    kept = dict(stats) if stats is not None else None
+    if stats is not None:
+        # The narrow crawl's account of its coverage is about a scope this
+        # harvest no longer has; the wider crawl gives its own.
+        for key in ("reason", "whole", "discovered", "remaining", "truncated",
+                    "frontier_drained", "corpora", "fetched"):
+            stats.pop(key, None)
+    try:
+        more = _crawl_html(start, fetcher, replace(opts, crawl=True, section=wider),
+                           stats, sink=sink, admit=_admission(start, wider), known=had,
+                           reread=had)
+    except ForgeError:
+        if stats is not None:
+            stats.clear()
+            stats.update(kept)
+        return []
+    more = [d for d in more if _page_key(d.url) not in had]
+    if stats is not None:
+        stats["widened"] = {"from": prefix, "to": wider,
+                            "reason": f"{prefix} held {len(have)} page(s)"}
+        for key in ("fetched", "discovered"):
+            if isinstance(stats.get(key), int):
+                stats[key] += len(have)
+    return more
 
 
 _DOCSIFY = re.compile(r"window\.\$docsify\s*=")

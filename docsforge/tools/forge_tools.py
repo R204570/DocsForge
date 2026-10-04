@@ -1116,6 +1116,14 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
     if tables:
         warning += (f"\n\n{len(tables)} index page(s) — tables of contents with nothing "
                     f"but links — were followed to the pages they list, not stored.")
+    # The harvest moved its own boundary, which changes what "complete" is
+    # measured against: said, never done quietly.
+    widened = stats.get("widened") or {}
+    if widened:
+        warning += (f"\n\nThe section {widened.get('from')} held only "
+                    f"{widened.get('reason', '').rsplit(' held ', 1)[-1] or 'a page'}, so "
+                    f"the harvest widened to {widened.get('to')}: this site's "
+                    f"documentation is not filed under one section.")
     # Asked for and refused is a different fact from reached and unreadable,
     # and used to be filed under it: thirty-three 429s from a rate-limited
     # site were reported as "nothing on them read like documentation"
