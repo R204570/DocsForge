@@ -58,3 +58,7 @@ logs/
 
 # offline runner (benchmarks/offline.py): local logs, caches, harvest records
 offline/
+
+# the test lab (docsforge/lab/): accounts, tests, verdicts, the activity record,
+# harvest runs -- local to this machine by design
+lab_data/

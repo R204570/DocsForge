@@ -109,5 +109,15 @@ def harvest(job: str, label: str, state: str, phase: str = "",
            error=(error or "")[:300])
 
 
+def lab(event: str, user: str = "", **fields) -> None:
+    """Something that happened in the test lab: a sign-in, a test started or
+    finished, a verdict given. Grep `"kind": "lab"` for the testers' side of
+    a debugging session beside the tool calls their tests made."""
+    # A field named like the line's own keys would overwrite them (or fail).
+    safe = {(f"{k}_" if k in ("ts", "kind", "event", "user") else k): v
+            for k, v in fields.items()}
+    _write("lab", event=event, user=user, **safe)
+
+
 def error(where: str, message: str) -> None:
     _write("error", where=where, message=(message or "")[:500])

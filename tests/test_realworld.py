@@ -456,6 +456,17 @@ def test_links_into_other_languages_and_releases_are_not_followed():
     assert not admit("https://d.dev/ja/5.2/c/")
 
 
+def test_a_pinned_release_does_not_follow_links_into_the_current_docs():
+    """Offline benchmark `poetry_pinned_pages_are_1.8`: the 1.8 pages link to
+    `/docs/basic-usage/`, the current release's copy, and six of them were
+    stored as 1.8."""
+    seeds = [f"https://p.org/docs/1.8/{p}/" for p in ("cli", "basic-usage", "faq")]
+    admit = df._admission("https://p.org/docs/", "/docs/", seeds=seeds)
+    assert admit("https://p.org/docs/1.8/pyproject/")
+    assert not admit("https://p.org/docs/basic-usage/")
+    assert not admit("https://p.org/docs/2.0/cli/")
+
+
 def test_a_few_release_like_words_do_not_open_the_version_picker():
     """docusaurus.io lists current pages unversioned, and a few whose paths
     contain a release-like word; the rule for unversioned documentation was
@@ -606,3 +617,257 @@ def test_a_language_is_not_a_package():
     assert languages.official_docs("Golang") == "https://go.dev/doc/"
     assert languages.official_docs("C#") == languages.official_docs("csharp")
     assert languages.official_docs("langgraph") == ""
+
+
+# ─── htmx: a section that is one page ────────────────────────────
+def test_htmx_docs_is_one_page_and_the_harvest_widens_to_the_site(monkeypatch):
+    """`htmx.org/docs/` is one long page; the documentation is the site.
+
+    Held-out test, 2026-09-24: a crawl kept to `/docs/` stored one page and
+    reported a drained frontier. It now widens one level, says so, leaves the
+    essays out, and goes on from the page it already has -- read again for its
+    links, not stored twice: `gohugo.io/documentation/` links every section
+    of Hugo's manual and `gohugo.io/` none of them.
+    """
+    from docsforge.core import engine
+
+    body = "<p>" + "htmx gives you access to AJAX directly in HTML. " * 30 + "</p>"
+    page = lambda title, links="": (
+        f"<html><head><title>{title}</title></head><body><nav>{links}</nav>"
+        f"<main><h1>{title}</h1>{body}</main></body></html>")
+    nav = ('<a href="/docs/">Docs</a><a href="/reference/">Reference</a>'
+           '<a href="/examples/">Examples</a><a href="/essays/why/">Essay</a>')
+    pages = {
+        "https://htmx.org/docs/": page("Documentation", nav),
+        "https://htmx.org/": page("htmx", nav),
+        "https://htmx.org/reference/": page("Reference", nav),
+        "https://htmx.org/examples/": page("Examples", nav),
+        "https://htmx.org/essays/why/": page("Why", nav),
+    }
+    fetched = []
+
+    class Site:
+        throttled = 0
+
+        def html(self, url, **kw):
+            fetched.append(url)
+            if url not in pages:
+                raise engine.ForgeError(f"HTTP 404 for {url}", status=404)
+            return pages[url]
+
+        def html_at(self, url, **kw):
+            return self.html(url), url
+
+        def text(self, url, **kw):
+            raise engine.ForgeError(f"HTTP 404 for {url}", status=404)
+
+        def get(self, url, **kw):
+            raise engine.ForgeError(f"HTTP 404 for {url}", status=404)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(engine, "_land", lambda url, f: (url, pages.get(url, "")))
+    monkeypatch.setattr(engine, "detect_source",
+                        lambda url, f, scope=None: engine.Detection("html", url, None))
+    monkeypatch.setattr(engine, "_listed_pages", lambda *a, **k: ([], "sitemap"))
+    monkeypatch.setattr(engine, "_resolve_section", lambda url, html: "/docs/")
+    stats: dict = {}
+    docs, strategy = engine._harvest("https://htmx.org/docs/",
+                                     engine.Options(delay=0.0, max_pages=0),
+                                     Site(), stats, None)
+    urls = [d.url for d in docs]
+    assert strategy == "crawl"
+    assert sorted(urls) == ["https://htmx.org/docs/", "https://htmx.org/examples/",
+                            "https://htmx.org/reference/"]
+    assert urls.count("https://htmx.org/docs/") == 1         # read twice, stored once
+    assert fetched.count("https://htmx.org/docs/") == 2
+    assert stats["widened"]["from"] == "/docs/" and stats["widened"]["to"] == "/"
+    assert "/docs/" not in (stats.get("reason") or "")
+
+
+def test_a_section_the_caller_named_is_never_widened(monkeypatch):
+    from docsforge.core import engine
+
+    called = []
+    monkeypatch.setattr(engine, "_widen", lambda *a, **k: called.append(a) or [])
+    monkeypatch.setattr(engine, "detect_source",
+                        lambda url, f, scope=None: engine.Detection("html", url, None))
+    monkeypatch.setattr(engine, "_listed_pages", lambda *a, **k: ([], "sitemap"))
+    monkeypatch.setattr(engine, "_crawl_html", lambda *a, **k: [
+        engine.Doc(url="https://htmx.org/docs/", title="Docs", markdown="x" * 500)])
+    engine._harvest("https://htmx.org/docs/",
+                    engine.Options(delay=0.0, section="/docs/"), object(), {}, None)
+    assert called == []
+
+
+# ─── cobra.dev: a code block in a main lifted out of its document ─
+def test_a_code_block_in_a_detached_main_is_still_extracted():
+    """bs4 4.13 gives every tag a `new_tag` that raises once its tree is
+    detached; `cobra.dev` lost 11 of 25 pages to it as "unextractable"."""
+    from bs4 import BeautifulSoup
+    from docsforge.core import engine
+
+    soup = BeautifulSoup("<html><body><main><h1>Flags</h1><pre><span class='line'>a</span>"
+                         "<span class='line'>b</span></pre></main></body></html>", "html.parser")
+    main = soup.find("main").extract()
+    engine._clean_code_blocks(main)
+    assert main.find("pre").find("code").get_text() == "a\nb"
+
+
+# ─── threejs.org: an llms.txt that only points elsewhere ──────────
+def test_threejs_llms_txt_is_a_signpost_to_the_real_files():
+    """274 bytes naming `/docs/llms.txt` and `/docs/llms-full.txt` in bare
+    text; stored as the docs, it was one page (held-out re-run, 2026-09-24)."""
+    from docsforge.core import engine
+
+    signpost = ("# Three.js\n\n> A 3D library.\n\nSee the full documentation for LLMs at: "
+                "https://threejs.org/docs/llms.txt\n\nFor complete inline documentation "
+                "including TSL: https://threejs.org/docs/llms-full.txt\n")
+    full = "# Three.js docs\n\n" + "## Scene\n\nA scene holds objects.\n\n" * 400
+
+    class R:
+        def __init__(self, text, status=200, url=""):
+            self.text, self.status_code, self.url = text, status, url
+            self.headers = {"content-type": "text/plain"}
+            self.encoding, self.content = "utf-8", text.encode()
+
+    class Site:
+        def get(self, url, **kw):
+            pages = {"https://threejs.org/llms.txt": signpost,
+                     "https://threejs.org/docs/llms-full.txt": full,
+                     "https://threejs.org/docs/llms.txt": "# index\n- [Scene](https://threejs.org/docs/scene.md)\n"}
+            if url in pages:
+                return R(pages[url], url=url)
+            return R("nope", status=404, url=url)
+
+    d = engine.detect_source("https://threejs.org/llms.txt", Site())
+    assert d.url == "https://threejs.org/docs/llms-full.txt"
+    assert d.body == full
+    # A stranger's file named in one is not followed.
+    other = "See https://evil.example/llms-full.txt\n"
+    assert engine._signposted("https://threejs.org/llms.txt", other, Site()) is None
+
+
+# ─── docs.docker.com: an llms-full.txt that is a list of pages ────
+def test_docker_llms_full_txt_is_a_metadata_index_not_a_dump():
+    """465 KB called `llms-full.txt`, every section a title, an address and a
+    sentence: split as a dump it was 1,952 pages, 1,939 thin and no code."""
+    from docsforge.core import llmsfinder
+
+    entry = ("## {t}\nURL: https://docs.docker.com/{p}/\n"
+             "Markdown: https://docs.docker.com/{p}.md\nDescription: About {t}.\n\n")
+    body = ("# Docker Documentation full text\n\n> Source index: https://docs.docker.com/llms.txt\n\n"
+            "## Latest\nURL: \nMarkdown: https://docs.docker.com/.md\n\n"
+            + "".join(entry.format(t=f"Page {i}", p=f"engine/page-{i}") for i in range(12)))
+    url = "https://docs.docker.com/llms-full.txt"
+    assert llmsfinder.classify_llms_shape(body, url) == "index"
+    links = llmsfinder.parse_llms_links(body, url)
+    assert len(links) == 12                      # the empty "Latest" entry is not a page
+    assert links[0] == ("Page 0", "https://docs.docker.com/engine/page-0.md")
+
+
+def test_a_real_dump_with_source_lines_is_still_a_dump():
+    from docsforge.core import llmsfinder
+
+    page = ("## Page {i}\nSource: https://x.dev/p{i}\n\nProse about the page, "
+            "with an example:\n\n```js\nrun({i})\n```\n\n")
+    body = "# X\n\n" + "".join(page.format(i=i) for i in range(12))
+    assert llmsfinder.metadata_entries(body, "https://x.dev/llms-full.txt") == []
+    assert llmsfinder.classify_llms_shape(body, "https://x.dev/llms-full.txt") == "dump"
+
+
+# ─── developers.cloudflare.com: a dump whose pages open with front matter ─
+def test_cloudflare_llms_full_txt_is_cut_on_front_matter():
+    """Four stray `URL:`-shaped lines were taken for page boundaries: two
+    "pages" of 2.7 MB and 2.2 MB, where the file holds 450."""
+    from docsforge.core import engine
+
+    page = ("---\ndescription: About {t}.\ntitle: {t}\nimage: https://x/og.png\n---\n\n"
+            "[Skip to content](#main-content)\n\n# {t}\n\nLast updated | "
+            "[View as Markdown](https://developers.cloudflare.com/workers/{p}.md)\n\n"
+            + "Workers run on the edge. " * 20 + "\n\n")
+    stray = "Example output:\n\nURL: https://example.com/somewhere\n\n"
+    text = "".join(page.format(t=f"Page {i}", p=f"examples/page-{i}")
+                   + (stray if i % 5 == 0 else "") for i in range(20))
+    pages = engine._dump_pages(text)
+    assert len(pages) == 20
+    assert pages[3][0] == "https://developers.cloudflare.com/workers/examples/page-3"
+    assert pages[3][1] == "Page 3"
+    assert not pages[3][2].startswith("---")
+
+
+# ─── koajs.com and lodash.com: one page, many containers ──────────
+def test_koajs_com_is_one_page_in_a_content_block_per_section():
+    """The first `.content` was the Introduction: 426 characters of 56 KB."""
+    from docsforge.core import engine
+    section = ('<section><div class="content"><h2>{t}</h2><p>'
+               + "Koa middleware cascades in a stack-like manner. " * 12
+               + '</p><pre><code>app.use(async ctx => {{}})</code></pre></div></section>')
+    html = ('<html><head><title>Koa</title></head><body><div id="menu"><a href="#a">A</a></div>'
+            + "".join(section.format(t=t) for t in ("Introduction", "Application", "Context",
+                                                     "Request", "Response"))
+            + "</body></html>")
+    title, md = engine._html_to_md(html, "https://koajs.com/")
+    for heading in ("Introduction", "Application", "Context", "Request", "Response"):
+        assert heading in md
+    assert md.count("```") >= 10
+
+
+def test_a_page_with_one_real_container_and_a_stray_second_is_read_as_before():
+    from docsforge.core import engine
+    html = ('<html><body><div class="content"><h1>Guide</h1><p>'
+            + "Real documentation prose about configuring the thing. " * 20
+            + '</p></div><div class="content"><p>Footer note.</p></div></body></html>')
+    title, md = engine._html_to_md(html, "https://x.dev/guide/")
+    assert "Footer note" not in md
+
+
+def test_lodash_docs_live_in_a_doc_container():
+    from docsforge.core import engine
+    method = ('<div><h3>_.chunk(array, [size=1])</h3><p>'
+              + "Creates an array of elements split into groups the length of size. " * 3
+              + '</p><div class="highlight js"><pre>_.chunk([1, 2, 3], 2)</pre></div></div>')
+    html = ('<html><body><header><a href="/">lodash</a></header><div class="doc-main">'
+            '<div class="toc-container"><a href="#chunk">chunk</a></div>'
+            '<div class="doc-container">' + method * 30 + '</div></div></body></html>')
+    title, md = engine._html_to_md(html, "https://lodash.com/docs/")
+    assert md.count("_.chunk([1, 2, 3], 2)") == 30
+
+
+# ─── pugjs.org: a front page that is one line of script ───────────
+@pytest.mark.parametrize("html,target", [
+    ("<script>document.location = 'api/getting-started.html';</script>",
+     "https://pugjs.org/api/getting-started.html"),
+    ("<script>window.location.href='/docs/'</script>", "https://pugjs.org/docs/"),
+    ("<script>location.assign('/x/')</script>", "https://pugjs.org/x/"),
+    ('<script>if (location.href == "a") {}</script>', ""),     # a comparison, not a move
+])
+def test_pugjs_org_redirects_by_script_in_every_spelling(html, target):
+    from docsforge.core import engine
+    assert engine._redirect_target(html, "https://pugjs.org/") == target
+
+
+# ─── sanic.dev: a sitemap of pages that answer 200 "Not found" ────
+def test_a_page_that_only_says_not_found_is_dead_not_documentation():
+    from docsforge.core import engine
+    assert engine._plainly_not_found("Sanic User Guide", "<!-- source: x -->\n\n# Not found")
+    assert engine._plainly_not_found("404", "# 404\n\nThis page could not be found.")
+    # A real page about 404 handling is not one.
+    doc = "# Handling 404\n\n" + "Return a 404 response when a route is missing. " * 10
+    assert not engine._plainly_not_found("Errors", doc)
+
+
+# ─── jasmine.github.io: a section drawn around the landing page ───
+def test_a_small_section_pointing_at_the_sites_other_sections_widens():
+    from docsforge.core import engine
+    have = [engine.Doc(f"https://jasmine.github.io/pages/{i}.html", "p", "") for i in range(3)]
+    stats = {"corpora": [
+        {"url": "https://jasmine.github.io/api/", "host": "jasmine.github.io", "votes": 119.0},
+        {"url": "https://jasmine.github.io/tutorials/", "host": "jasmine.github.io", "votes": 26.0},
+        {"url": "https://github.com/jasmine/", "host": "github.com", "votes": 40.0}]}
+    assert engine._points_elsewhere("https://jasmine.github.io/pages/docs_home.html", have, stats)
+    # A section that is most of what it links to stays itself.
+    few = {"corpora": [{"url": "https://x.dev/blog/", "host": "x.dev", "votes": 3.0},
+                       {"url": "https://x.dev/api/", "host": "x.dev", "votes": 4.0}]}
+    assert not engine._points_elsewhere("https://x.dev/docs/", have, few)

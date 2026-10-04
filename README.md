@@ -54,6 +54,7 @@ docsforge/              the package
   store/                kb_store — Markdown files or Postgres
   tools/                forge_tools, harvest_jobs, tracing, applog
   server/               mcp_server, app (+ static/)
+  lab/                  the test lab at /lab in the web chat: accounts, tests, verdicts
   providers/            one model backend per file
 scripts/                measurement harnesses and live smoke drivers;
                         scripts/benchmark/ is the live suite -- every tool measured
@@ -258,7 +259,10 @@ with a single accent; nothing on the home screen but the input.
 
 The sidebar opens with the panel button or `Ctrl`+`B`, and holds your past
 conversations. They live in your browser — forty most recent, Markdown only,
-nothing uploaded — so **New chat** no longer throws work away.
+nothing uploaded — so **New chat** no longer throws work away. The server keeps
+its own record of each turn (the question, the tool calls and what they
+returned, the answer) for the [test lab](#the-test-lab), in `lab_data/` on this
+machine; `DOCSFORGE_LAB_RECORD=0` turns that off.
 
 Every tool call the model makes is listed above the answer it produced — what
 was fetched, what kind of source it was, and how much came back — so an answer
@@ -339,6 +343,62 @@ Everything is optional; see `.env.example` for the full list.
 | `DOCSFORGE_ALLOW_PRIVATE` | unset | Allow fetching private/loopback addresses. |
 | `DOCSFORGE_ALLOW_DELETE` | unset | Let the **model** delete stored documentation. Off by default — see below. |
 | `DOCSFORGE_REASONING` | `off` | Allow a bounded number of model calls at four decision points — see below. |
+| `DOCSFORGE_LAB` | on | `0` removes the [test lab](#the-test-lab) and its routes. |
+| `DOCSFORGE_LAB_RECORD` | on | `0` keeps the lab but stops recording chat turns and tool calls. |
+| `DOCSFORGE_LAB_DIR` | `./lab_data` | The lab's database and harvest-test runs (beside the code, like `knowledge_base/`). |
+| `DOCSFORGE_LAB_REMOTE` | unset | Let non-loopback clients reach `/lab`. Only on a network you own. |
+| `DOCSFORGE_LAB_WORKERS` / `_HARVESTS` | `2` / `1` | Resolution and content tests at once; harvest tests at once. |
+
+### The test lab
+
+```bash
+python -m docsforge.server.app      # then open http://127.0.0.1:8000/lab
+```
+
+A signed-in panel for testing DocsForge by hand while the machine does the
+running. It is linked from nowhere, answers this machine only (a request from
+anywhere else gets a 404), and is never part of `main.py`'s public server.
+The first visit makes two accounts:
+
+- **tester** — lands on the *test bench*. Three tests, each run the way
+  DocsForge runs them for a model:
+  - **Resolve a name** — `find_docs` with the cache off, then the page it
+    resolved to fetched with `fetch_docs`, so you check the address *and* what
+    is there. Give where it should land (`zod.dev`) and an automatic check runs
+    too.
+  - **Check a page** — `detect_source_type` and `fetch_docs` on one URL, the
+    Markdown beside a link to the live page, measured for collapsed code, UI
+    chrome, permalink marks and relative links.
+  - **Harvest** — `learn_technology` (a name) or `harvest_docs` (a URL) in a
+    process of its own, with the store, caches and harvest records under
+    `lab_data/runs/` whatever `.env` says, so a test harvest never lands in
+    DocsStore. Its trace streams live; every stored page is listed and can be
+    read in place.
+
+  Or a **batch**: a list, one test per line, run by itself — the held-out
+  rounds and field-test sites are ready-made lists. Every test shows each tool
+  it ran, the arguments, what it returned and the stages underneath. When a
+  test finishes it asks for a verdict: a few questions for that kind of test,
+  issue tags, the right URL if it was wrong, notes. The *review queue* holds
+  every finished test nobody has judged. A finished resolution can be carried
+  on as a content check or a harvest in one click.
+- **admin** — lands on the *overview*: technologies and pages stored,
+  tests run, accuracy **as testers judged it** (with the automatic check's
+  figure under it, never in place of it), tool calls per day and by tool,
+  harvests in flight, who has been testing, the most reported problems. Plus
+  the *verdicts inbox* (open → triaged → fixed, with a note the tester sees),
+  exports as Markdown, JSON or `scripts/heldout.py` cases, *setup* (providers,
+  store, paths, every `DOCSFORGE_*` setting — secrets shown as set, never
+  echoed), *accounts*, and the *logs*.
+
+Both see **AI activity**: every chat turn — the question, each tool call with
+its arguments and full output, the answer — and every tool call on its own,
+filterable by tool, result and where it came from, each open to a verdict.
+
+Passwords are scrypt-hashed, sessions are HttpOnly SameSite=Strict cookies
+stored only as hashes, five wrong passwords lock a name for ten minutes, and
+nothing changes state without the panel's own request header. A lost admin
+password is reset from a terminal: `python -m docsforge.lab reset NAME`.
 
 ### Removing a harvest
 
@@ -389,6 +449,7 @@ re-harvest: harvesting the same name again replaces that version on its own.
 | `GET` | `/api/library/{tech}/{version}` | That version's page index. |
 | `GET` | `/api/library/{tech}/{version}/page/{n}` | One page, as Markdown and sanitized HTML. |
 | `GET` | `/api/library-search` | Ranked search. `?q=&tech=&version=&limit=`. |
+| `GET` | `/lab` | The [test lab](#the-test-lab). Loopback only; its API is under `/api/lab/`, signed in. |
 
 The server is stateless — the browser holds the conversation and posts it back each turn.
 
@@ -450,16 +511,22 @@ so reaching further never means believing more:
 | **memory** | A resolution seen in the last 30 days, per language asked for. Costs zero requests. Refusals are re-tried after 7 days, because a site can add the evidence later. |
 | **language** | When the name *is* a language or runtime — `go`, `python`, `rust`, `node` — its own manual (`go.dev/doc/`), verified like anything else. A language is not a package: asked for `go`, a registry offered a Rust crate. |
 | **domain** | `{name}.dev` / `.io` / `.org` / `.com`, and the docs root beneath whichever answers. |
-| **registries** | Exact-name lookup in npm, PyPI and crates.io. A winning GitHub repository gives way to the documentation site it declares as its homepage. |
+| **registries** | Exact-name lookup in npm, PyPI and crates.io. A winning GitHub repository gives way to the documentation site it declares as its homepage — or, failing that, to `docs.rs` / `pkg.go.dev`, or to the docs its README names. A package that is a language binding (`docker-py`, `redis-py`) never unseats the project's own site, and a package index's page (`pypi.org/project/…`) is never documentation. |
 | **name shapes** | For multi-word names: `opentelemetry.io`, `airflow.apache.org`, `tanstack.com/query`, `docs.spring.io/spring-boot`. |
 | **search** | npm and crates.io fuzzy search — only the registry you named, if you named one — then `DOCSFORGE_SEARCH` if you configure one. Never a search engine's HTML. |
+| **what the name usually means** | The most-starred GitHub repository named exactly that — when it is the search's top result — and the site it declares, verified like anything else. Above 2,000 stars it overrules a same-named package the ladder reached: `redis` is redis.io, not the Python client; `helm` is helm.sh, not a Rust crate. Skipped when you name a registry. |
+| **front page → docs** | An answer that is a site's front page gives way to the documentation it links (`mypy-lang.org` → `mypy.readthedocs.io`, `symfony.com` → `/doc`), and a hub gives way to the manual beside it (`www.sympy.org/en/docs.html` → `docs.sympy.org`, `rubyonrails.org/docs` → `guides.rubyonrails.org`) — but never to a mirror of the same site, a preview (`alpha.`), a stub, or an API reference generated from the code. |
 
 **One language's edition.** Many projects document each language separately —
 LangGraph and LangChain at `/oss/python/…` and `/oss/javascript/…`, Playwright at
 `playwright.dev/docs/` (Node) and `/python/docs/`. With `language=`, the name is
 resolved as usual and then the asked language's edition is found beside it: a
 language segment swapped, a prefix added, a host label swapped, or the section a
-many-language front page links to. It is taken only when the page's own code shows
+many-language front page links to — read from HTML or from an `llms.txt`, one hop
+away on a hub page (`grpc.io/docs/languages/`), on a sibling host
+(`docs.temporal.io`), or inside a compound name (`/client/python-api/`). A site that
+answers any path with a page (a login screen) cannot vouch for an edition by its
+address alone. It is taken only when the page's own code shows
 that language, or the site files it under that language's name, and it is stored as
 `<name>-<language>`:
 
@@ -541,7 +608,10 @@ Give it any page of a docs site and it finds the rest, best strategy first:
    The files nearest the docs section are asked for before the origin's (an origin's
    is often about the company: `resend.com/llms-full.txt` is 8 KB of product overview,
    `/docs/llms-full.txt` is 2.2 MB of documentation). A dump is cut into the pages it
-   says it holds, each under its own URL.
+   says it holds, each under its own URL. A file is read for what it is, not what it
+   is called: a short one that only points at others (`threejs.org/llms.txt`) is
+   followed, and an `llms-full.txt` that is really a list of pages in `URL:` /
+   `Markdown:` fields (Docker's) is fetched page by page.
 2. **The site's own lists** — its generator's manifest (Sphinx `objects.inv`, MkDocs
    search index) and its sitemaps (XML, plain text or gzipped, every one `robots.txt`
    declares, the section's own first), read *together*.
@@ -558,7 +628,10 @@ GitHub's seven of Actions — and each used to be stored as complete.
 **The section is the site's.** The boundary is read from the start page's own
 sidebar, after following any redirect, not guessed from the URL's shape:
 `angular.dev/overview` is a page, not a folder called `overview`;
-`docs.github.com/en/actions` is Actions, not all of GitHub's docs.
+`docs.github.com/en/actions` is Actions, not all of GitHub's docs. And a section that
+turns out to be one page is not the documentation: `htmx.org/docs/` is one long page
+and htmx's docs are the site, so the harvest widens one level — once, articles and
+marketing held out — and says so in the answer. A section you name is never widened.
 
 **JavaScript sites.** A page with no readable HTML is taken from its Markdown copy
 when it declares one (`<link rel="alternate" type="text/markdown">` — Apple,
@@ -751,6 +824,46 @@ stored as Resend's docs, a Rust crate resolved for `langgraph` on npm, seven-min
 timeouts reading AWS's sitemap index — each now a test in `tests/test_realworld.py`
 and an entry in `System Files/Issues.md`.
 
+On the final build (2026-09-25) all 53 harvest without an error, 17 of them proven
+complete, and the residue the field test counts — collapsed code, chrome lines,
+permalink marks, dead relative links — fell from 18,441 lines to 460 against the first
+full run, with the same 52.7 million characters stored.
+
+### Held-out accuracy: names nobody tuned for
+
+The field test is where failures were found and fixed, so its numbers are the ones the
+code was shaped by. `scripts/heldout.py` measures the other thing: technologies chosen,
+and their right documentation written down, **before the first run**. Resolution from
+the name alone with the cache off; then a 40-page harvest of the answer, every stored
+page measured. Three rounds of 53–57 names each — JavaScript, Python, Rust, Go, and
+tools like Docker, Kafka and Helm — plus language editions ("gRPC for Go", "Sentry for
+Python", "Temporal for TypeScript").
+
+```bash
+python scripts/heldout.py --set round3              # 56 names, 40 pages each
+python scripts/heldout.py --set round1 --resolve-only
+```
+
+A round stops being unseen the moment its failures are worked on, so each is reported
+twice: its **first pass**, on the build that had never met it, and the **final build**.
+
+| round | first pass, resolution | final: resolution | final: harvest | final: pages clean |
+|---|---|---|---|---|
+| 1 (53 names) | 33/53 (62%) | **52/53 (98%)** | 51/52 (98%) | 99% |
+| 2 (57, written after round 1's fixes) | 47/57 (82%) | **57/57 (100%)** | 52/57 (91%) | 99% |
+| 3 (56, written after round 2's fixes) | 51/56 (91%) | **53/56 (95%)** | 50/53 (94%) | 98% |
+
+Round 3's first pass — **91% of fresh names resolved to their official documentation**
+— is the honest figure for a name nobody has looked at. The harvest column is strict:
+a harvest "passes" at ten pages or everything listed, so five of the nine misses are
+sites that are complete in fewer pages (esbuild is nine pages; Koa's and Ramda's
+manuals are one page each — 36,870 characters and 56 code blocks for Koa). What is
+left, named: `socket.io` is unreachable from the network this was measured on; `tonic`
+is not found by GitHub's search under its own name; `sqlx` is two well-known projects
+(Go and Rust — ask with `language=`); Selenium documents every language as tabs on one
+set of pages, so there is no separate Python edition to switch to; Ember's guides and
+egui's site render only in a browser.
+
 ## Measuring whether any of it helps
 
 `scripts/measure_answers.py` asks the only question that matters: does a harvested
@@ -930,9 +1043,15 @@ pitch is calibrated confidence cannot be selective about its own.
   portal that no name shape reaches. Refusing beats guessing.
 - **A resolved name is not always the right project.** Verification confirms a
   page is *about something with that name*, which is not the same as confirming
-  the project. Measured over 25 judged names, cold: **23 correct**, up from 19.
-  Check the URL in the result before trusting a harvest, pass `ecosystem=` when
-  you know it, and use `forget_resolution` when it is wrong.
+  the project. On 56 names nobody had tuned for, **91% resolved correctly on the
+  first try** ([held-out accuracy](#held-out-accuracy-names-nobody-tuned-for)). The
+  misses are contested names (`sqlx` is a Go library and a Rust one), projects GitHub's
+  search does not surface under their own name, and sites that render only in a
+  browser. Check the URL in the result before trusting a harvest, pass `ecosystem=` or
+  `language=` when a name is shared, and use `forget_resolution` when it is wrong.
+- **Resolution leans on GitHub's search**, which allows ten requests a minute without a
+  token. A burst beyond that waits up to a minute rather than answer without it; set
+  `GITHUB_TOKEN` to lift the limit.
 
   `flask` and `polars`, which used to reach a to-do app at flask.io and a
   third-party site, now resolve to their own documentation: a domain that stands
@@ -1116,7 +1235,7 @@ compiler. Edit in Stitch, download, re-run.
 ## Tests
 
 ```bash
-DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,165 offline tests, no network
+DOCSFORGE_DB="" DATABASE_URL="" python -m pytest tests/ -q   # 1,310 offline tests, no network
 
 # The 37 Postgres tests skip unless you point them at a throwaway database,
 # which makes a green run look more complete than it is — set this before

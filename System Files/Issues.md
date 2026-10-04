@@ -1,8 +1,9 @@
 # Issues
 
-The register. Extended on **2026-09-24** with the real-world field test
+The register. Extended on **2026-09-24/25** with the real-world field test
 (`scripts/fieldtest.py`, 53 sites — the *Real-world acquisition* and *Scoped
-requests* sections). Rebuilt on **2026-09-21** from the live benchmark suite
+requests* sections) and the held-out measurement (`scripts/heldout.py`, three
+rounds of names nobody tuned for — the *Held-out accuracy* section). Rebuilt on **2026-09-21** from the live benchmark suite
 (`scripts/benchmark/`, published as `benchmarks/bench-1/` and, with the
 `versions` suite, `benchmarks/bench-2/`), the hosted
 read-only run of 2026-09-19 against build `5826f61`, and the independent
@@ -344,6 +345,291 @@ core terms weighed above the words that merely travel with them — the first
 cut kept 26 Go release notes as web development). A topic crawl follows only
 the pages it kept. What was left out is listed by section in the answer, and
 the harvest is filed as `<name>-<topic>`, never mistaken for the whole.
+
+## Held-out accuracy
+
+`scripts/heldout.py` measures names nobody tuned for: each case and its right
+answer written down before the first run, resolution from the name alone with
+the cache off, then a 40-page harvest of what it resolved to, every stored page
+checked for what extraction left behind. Round 1 (53 names, 2026-09-24) found
+the entries below; round 2 (57 fresh names, written after round 1's fixes and
+before any of them ran) measures whether the fixes generalise. RULES 9.
+
+### G1 — a same-named package beat what the name usually means · fixed
+
+`redis` → the Python client's docs, `helm` → `docs.rs/helm`, `prometheus` → a
+Rust crate, `rails` → a stranger's repository, `hugo` → `hugo.io`, `clap` → an
+npm package, `three.js` → `docs.three.dev`, `elysia` → `elysia-lang.org`, `gin`
+→ `gin.io`. Each registry answered *a* package by that name, and each passed
+the gate, because each really was about something called that. The most-starred
+GitHub repository named exactly that — `redis/redis`, `helm/helm`,
+`rails/rails` — declares the right site for every one of them
+(`_popular_repo`, `_weigh_popularity`). It must be the search's top result
+overall, not merely the most-starred exact name: for `nestjs` the top is
+`nestjs/nest`, and a third party's `nestjs` monorepo briefly replaced
+`docs.nestjs.com` until that was required. Its site is verified like
+anything else, overrules a disagreeing answer only above 2,000 stars, and is
+never asked when the caller named a registry, over a language's own manual,
+or in place of an honest `unexamined` refusal.
+
+### G2 — a language binding beat the project's own site · fixed
+
+`docker` → `docker-py.readthedocs.io`, whose repository is `docker/docker-py`.
+`normalise` folds `docker-py` into `docker` on purpose, so the test is on the
+words the repository adds: all binding markers (`py`, `rust`, `go`, `client`,
+`sdk`…), none of them asked for (`_is_a_client`). Not `js`: `three.js` is the
+project. A binding cannot unseat a held own-domain answer.
+
+### G3 — a package index's page was taken for documentation · fixed
+
+`uv` → `pypi.org/project/uv/`. PyPI, npm, crates.io, RubyGems, Packagist and
+NuGet pages about a package are refused before they are read
+(`_is_index_listing`); docs.rs and pkg.go.dev are documentation and stay.
+
+### G4 — a front page won over its own docs host · fixed
+
+`streamlit` → `streamlit.io` with a verified `docs.streamlit.io` beside it;
+`docker` → `www.docker.com` beside `docs.docker.com`. The front page proves
+whose site it is; the docs host then stood on ownership alone and could not
+win. A settled answer that is a site's front page gives way to that site's own
+verified docs host (`_docs_behind`); an answer already on a documentation page
+stays.
+
+### G5 — the repository stood where the docs were one step away · fixed
+
+`solid-js` and `axum` stopped at their GitHub repositories. `docs.solidjs.com`
+could not be `solid-js`'s own domain (`js` is now a name suffix, as `lang` and
+`project` are: vuejs.org, nodejs.org, expressjs.com), and its `llms.txt`
+failing the gate cost the site behind it (`_with_roots` tries the directory
+next). `tokio-rs/axum` declares no homepage: crates fall back to `docs.rs`, Go
+modules to `pkg.go.dev`.
+
+### G6 — a language edition was missed where the site files it · fixed
+
+`grpc`/go, `sentry`/python, `opentelemetry`/go and `temporal`/typescript all
+came back as the whole multi-language site. The editions were in an
+`llms.txt` (Markdown links, not `href`s), under `.md` names
+(`/platforms/python.md`), one hop away on a hub (`grpc.io/docs/languages/`,
+written with unquoted `href=` by Hugo's minifier), on a sibling host
+(`docs.temporal.io`), or behind a redirect from the manifest's directory
+(`opentelemetry.io/go/`). All five read now. And `sentry.io/python/` lands on a
+login page that repeats any path: a redirect onto a login page is refused, and
+where the path is the only evidence, a control address with the language
+replaced by a nonsense word must not answer 200 (`_answers_anything`).
+
+### G7 — a section that is one page was harvested as the documentation · fixed
+
+`htmx.org/docs/` is one long page; htmx's documentation is the site
+(`/attributes/`, `/extensions/`, `/examples/`, `/reference/`). A crawl kept to
+`/docs/` stored one page. A derived section that yields fewer than three pages
+now widens one level, once, with articles and marketing held out, the stored
+pages not fetched again, and the move said in the answer (`_widen`). A section
+the caller named is never widened. 1 page → 41.
+
+### G8 — a code block in a detached main lost the page · fixed
+
+`cobra.dev`: 11 of 25 pages "unextractable". bs4 4.13 gave every tag a
+`new_tag` that raises once its tree is lifted out of the document, and
+`_soup_of` tested for the method rather than the document. Every page whose
+code block sat in a detached main was lost, on any site.
+
+### G9 — an `llms.txt` that only points elsewhere was stored as the docs · fixed
+
+`threejs.org/llms.txt` is 274 bytes naming `/docs/llms.txt` and
+`/docs/llms-full.txt` in bare text. Stored as the manifest, three.js was one
+page. A short llms file that names other llms files on the same site is
+followed one hop, the full dump first (`_signposted`): 363 KB.
+
+### G10 — an `llms-full.txt` that is a list of pages was split as text · fixed
+
+`docs.docker.com/llms-full.txt` is 465 KB of `## Title` / `URL:` /
+`Markdown:` / `Description:` — a manifest in field notation, published under
+the name that means full text. Split as a dump it stored 1,952 "pages", 1,939
+of them thin, not one line of code, and reported it complete. A heading-per-
+page file whose sections are metadata alone is an index whatever its name,
+and its entries' Markdown twins are the pages (`metadata_entries`).
+
+### G11 — round 2: what the fixes above did not reach · fixed
+
+57 fresh names, written after G1–G9 were fixed and before any ran: **47
+resolved** on the first pass. The ten misses:
+
+- **A crash.** npm's `scikit-learn` declares `git+ssh://git@github.com:owner/repo`;
+  the colon survived as a port and `urlparse().port` raised, ending the whole
+  resolution. scp remotes are read as paths (`_clean_repo`), and a malformed
+  port no longer raises in `_same_page`.
+- **A dead domain held as a pause.** `koa` and `diesel` were refused as
+  `unexamined`: an unrelated crate's and an unrelated PyPI package's homepages
+  no longer resolve in DNS, and "could not be read" outranked `koajs.com` and
+  `diesel.rs`. A name that does not resolve is a finding (`_transient`).
+- **A repository's own homepage was not evidence.** `date-fns.org` and
+  `www.gradio.app` render in the browser; judged on the repository link
+  alone they failed. The repository's declared homepage counts as a
+  registry's does, the search result's copy of it is used when the REST API
+  (sixty requests an hour without a token) is spent, and declared homepages
+  are fetched over `https` — `www.gradio.app` does not answer on port 80
+  (`_declared`).
+- **A demo as the homepage.** `pmndrs/zustand` declares `zustand-demo.pmnd.rs`;
+  only its README names `zustand.docs.pmnd.rs` (`_readme_docs`).
+- **A front page.** `mypy-lang.org`, `symfony.com`, `supabase.com` (for
+  Python), `www.elastic.co` (for Python): each links its documentation, and
+  the front page was the answer. It now gives way to a verified docs page
+  on the same site, or to its own "Docs"/"Documentation" link on the same
+  site or a host carrying the name (`_front_page_docs`) — before the
+  language step, so a language section under `/docs/` can be found.
+- **A language inside a compound.** Elastic files the Python client as
+  `/client/python-api/`, behind `/client/` and next to
+  `enterprise-search-clients/`. Words of four letters or more are read
+  inside compounds (`_segment_names`; `go-live` is still not Go), `client`
+  is a hub word, and the hub naming the project is tried first.
+
+All ten resolve now. Round 2 is no longer unseen after this, which is what
+round 3 is for.
+
+### G12 — round 3, and what re-running round 1 caught · fixed, with two left
+
+56 fresh names, written 2026-09-25 before any ran: **51 resolved (91%)** and
+43 of those 51 harvested well on the first pass. Re-running round 1 on the same
+build caught three regressions from G11's front-page rule — the reason every
+round is re-run after each change, not only the new one:
+
+- `ansible.com`'s "Documentation" link went to one product's readthedocs; the
+  site's own `docs.` host is now tried first (`_docs_host_beside`).
+- `biomejs.dev`'s "Get started" went to `/guides/getting-started` and cut the
+  harvest to one section; a same-site link must be a docs *root* (`/doc`,
+  `/docs/latest`, `/en/docs/` — `_docs_root`), at most two segments deep.
+- `event-history-typescript`, one encyclopedia page, was read as Temporal's
+  TypeScript section; a compound names a language only beside an edition word
+  (`python-api`, `golang-sdk`).
+
+Round 3's own: `www.sympy.org/en/docs.html` gives way to `docs.sympy.org`; a
+Rust or Go repository that declares no site is documented on docs.rs or
+pkg.go.dev; `phoenix.hexdocs.pm` is followed through ExDoc's refresh stub;
+a short site-root `llms.txt` (`dapr.io`'s: Home, Community, Adopters, then
+"Official docs") is a front page; a dominant meaning (above 2,000 stars) may
+answer a refusal caused by *another* project's unreadable page; a language-
+qualified popularity search that finds nothing falls back to the plain one.
+Harvest side: `document.location = …` is a redirect (`pugjs.org` stored
+nothing); a page whose whole text says "Not found" is dead, not
+documentation, and no longer teaches the plan that the site is JS shells
+(`sanic.dev` publishes a sitemap of 100 such addresses; `_plainly_not_found`
+— the reasoner used to be the only judge, and it is off by default); a small
+derived section whose crawl pointed mostly at the same site's other sections
+widens (`jasmine.github.io/pages/`).
+
+Left: **tonic** — GitHub's search does not return `hyperium/tonic` for
+"tonic" at all, so nothing names the meaning, and the ladder's top candidate
+(another project's readthedocs) was rate-limited: refused, honestly.
+**sqlx** — `jmoiron/sqlx` (Go) and `launchbadge/sqlx` (Rust) are both
+well-known; the answer is the Go one and round 3 wrote down the Rust one. A
+contested name should be asked with `language=` or `ecosystem=`.
+**selenium** for Python — Selenium documents every language as tabs on one
+set of pages, so there is no Python edition to switch to; the site's
+`llms.txt` is the answer, and the round wrote a narrower expectation.
+
+### G13 — what the final runs caught in G11–G12's own rules · fixed
+
+Every round was re-run after every change, and the post-ladder rules above
+were the source of most of what those re-runs found:
+
+- **A docs host that is not one.** `docs.helm.sh` serves Helm's front page
+  (title "Artboard", canonical `https://helm.sh/`); `docs.diesel.rs` is a
+  refresh stub back to `diesel.rs/docs`; `docs.serde.rs` refreshes to Serde's
+  rustdoc index. Each replaced the project's own guide site. A docs host is
+  now followed through its stub first (quoted or not — the refresh pattern
+  required quotes, so `content=0;url=…` was not seen), and refused when it
+  lands back on the site, names the site as canonical, or is generated from
+  the code (`generator` rustdoc/typedoc/javadoc/doxygen) — `_docs_host_candidate`.
+- **A hub with its manual on a sibling.** `rubyonrails.org/docs` and
+  `emberjs.com/docs` link out to `guides.*`, which do not carry the bare name.
+  The sibling documentation hosts a hub links to are tried after `docs.<site>`,
+  and must link the project's repository (`_sibling_docs`). The guides' own
+  "Docs" link back to the hub is not followed again. Ember's guides are a
+  client-rendered application the resolver cannot read, so Ember stays at
+  its hub.
+- **The wrong link from a front page.** jQuery's "Documentation" is its
+  contributors' guide (`contribute.*`, `/community/`, `/blog/` are refused);
+  `tokio.rs` links "Docs" to its own `/tokio/tutorial` and "API docs" to
+  `docs.rs/tokio`, and a front page that documents itself on its own host is
+  not traded for its package reference (benchmark `tokio_is_crates`).
+- **A language's reference before its guide.** From `pulumi.com/docs`,
+  `/reference/pkg/python/` outnumbers `/iac/languages-sdks/python/`; groups
+  named reference/api/pkg rank after the rest. And `redis-py` names Python
+  beside the project's own name, however short the language's word.
+- **Extraction.** `koajs.com` is one page in a `.content` block per section and
+  the first block was stored — 426 characters of 56 KB; every top-level
+  match is taken when the first holds under half of them (`_gather_sections`).
+  Lodash's API reference is `.doc-container`, which no selector named, and
+  density settled on one method group: 22 KB of 235 KB. Cloudflare's
+  `llms-full.txt` changed format to front matter per page, and four stray
+  `URL:` lines inside its pages cut it into two pages of 2.7 MB and 2.2 MB;
+  front matter is now a page boundary, its `title:` the title and the block
+  not stored (449 pages). A dump written from the rendered site keeps its
+  toolbar lines — `[Skip to content]`, "Last updated | Copy as Markdown" —
+  and those are dropped like any other chrome.
+
+### G14 — the last run's four · fixed
+
+- **GitHub's search limit.** Ten requests a minute without a token, a window
+  of a minute, and the resolver waited only when the reset was under 20
+  seconds: in a burst, popularity was skipped and `kafka` became the Rust
+  crate, `fiber` Uber's library, `ember` a renamed programming language, all
+  right again a minute later. The window is now waited out (`SEARCH_WAIT_MAX`);
+  `GITHUB_TOKEN` lifts the limit. Learning ten dependencies at once is exactly
+  such a burst.
+- **Hugo.** `gohugo.io/docs/` redirects to `/about/`; a docs path that leaves
+  itself for a page that is not documentation means the site is the manual.
+  And the harvest's widening now goes on from the page it already has, read
+  again for its links: `gohugo.io/documentation/` links every section and
+  `gohugo.io/` none of them. 5 pages → 40.
+- **A preview.** `docs.jenkins.io` redirects to `alpha.docs.jenkins.io`, a
+  preview of the next documentation; a docs host on an `alpha.`/`beta.`/
+  `preview.`/`next.` host is not the documentation of record.
+- **Requests overruled by itself.** `requests.readthedocs.io` and
+  `requests.readthedocs.io/en/latest/` were compared by first path segment —
+  the rule for `<owner>.github.io/<repo>` — so popularity replaced Requests with
+  Requests and dropped its ecosystem (benchmark `requests_is_pypi`). Only
+  owner pages are compared by segment now.
+
+**Where it stands** (final build, 2026-09-25): round 1 **52/53** resolved and
+51/52 harvested; round 2 **57/57** and 52/57; round 3 **53/56** and 50/53 — and
+round 3's first pass, the only figure from a build that had never seen its
+names, **51/56 (91%)**. Every remaining miss is named in G12 and in the
+README's known limits. The harvest figure is strict: five of its nine misses
+are sites complete in fewer than ten pages.
+
+## Found in the test lab (2026-09-25)
+
+The lab's first runs (`docsforge/lab/`, while it was being built) put a person
+beside each result. Two things no automatic check had flagged:
+
+### T1 — `fetch_docs` of a deep page returned the section's `llms.txt` · open
+
+`fetch_docs("https://docs.pydantic.dev/latest/concepts/models/")` returned
+2,816 characters: the `llms.txt` index of `/latest/concepts/`, not the Models
+page. `detect_source_type` said so — `llms_txt (resolved to
+…/concepts/llms.txt)` — and the lab's automatic check passed it as
+"substantial and clean", because nothing in the Markdown says it is the wrong
+page. Only reading it beside the live page shows it. For a harvest, the
+nearest `llms.txt` is the right first rung; for one page asked for by its
+address, it substitutes a table of contents for the page. **To fix:** a
+single-page fetch of a URL with a path should extract that page, and probe
+for `llms.txt` only at a bare origin or docs root (as the README describes).
+A regression test belongs in `tests/test_realworld.py`.
+
+### T2 — federated corpora stored the same pages several times · open
+
+`harvest_docs("https://htmx.org/docs/", max_pages=6)` federated four corpora
+(`/docs/`, `/api/`, `/attributes/`, `/events/`). Because `/docs/` is one page
+and the section widened to `/`, each corpus's crawl walked back into the same
+top pages: `htmx.org/docs/`, `/reference/`, `/`, `/extensions` and `/api/` were
+stored in three of the four sets. 27 pages stored, about 12 distinct. A reader
+of the combined technology sees the same page up to three times, and every
+coverage figure counts it each time. **To fix:** a page already stored in a
+sibling corpus of the same harvest is skipped (or linked), and the corpus
+boundary of a widened section excludes the other corpora's roots.
+
+---
 
 ## Detection
 

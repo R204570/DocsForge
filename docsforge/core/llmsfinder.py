@@ -70,6 +70,55 @@ INDEX_DENSITY = 0.5
 HYBRID_DENSITY = 0.03
 
 
+#: A metadata index: one heading per page, then nothing but `Key: value`
+#: lines naming where the page is -- `docs.docker.com/llms-full.txt`:
+#:
+#:     ## Create a Docker account
+#:     URL: https://docs.docker.com/accounts/individual/create-account/
+#:     Markdown: https://docs.docker.com/accounts/individual/create-account.md
+#:     Description: Create a Docker ID with email, Google, or GitHub...
+_META_HEADING = re.compile(r"^#{1,3}[ \t]+(\S[^\n]*)$", re.M)
+_META_LINE = re.compile(r"^[ \t]*([A-Za-z][\w -]{0,30}):[ \t]*(\S.*)?$")
+_META_URL_KEYS = ("markdown", "md", "url", "source", "link", "href")
+#: Share of a file's sections that must be metadata alone for it to be one.
+META_INDEX_SHARE = 0.8
+META_INDEX_MIN = 5
+
+
+def metadata_entries(text: str, base_url: str = "") -> list[tuple[str, str]]:
+    """`(title, url)` for each page a metadata index names, or [] if it is not one.
+
+    Published as `llms-full.txt` -- the name says full text -- and 465 KB of
+    it, but every section is a title, an address and a sentence: split as a
+    dump it was 1,952 stored "pages" of which 1,939 were thin and none held
+    a line of code (held-out re-run, 2026-09-24). It is a manifest in another
+    notation, and each entry's Markdown twin is the page.
+    """
+    heads = list(_META_HEADING.finditer(text or ""))
+    if len(heads) < META_INDEX_MIN:
+        return []
+    entries: list[tuple[str, str]] = []
+    meta_only = 0
+    for i, head in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        lines = [l for l in text[head.end():end].splitlines() if l.strip()]
+        fields = {}
+        if lines and all(_META_LINE.match(l) for l in lines):
+            meta_only += 1
+            for l in lines:
+                m = _META_LINE.match(l)
+                fields.setdefault(m.group(1).strip().lower(), (m.group(2) or "").strip())
+        url = next((fields[k] for k in _META_URL_KEYS
+                    if fields.get(k, "").startswith(("http://", "https://", "/"))
+                    and urlparse(urljoin(base_url, fields[k])).path.strip("/")
+                    not in ("", ".md")), "")
+        if url:
+            entries.append((head.group(1).strip(), urljoin(base_url, url)))
+    if meta_only < META_INDEX_SHARE * len(heads) or not entries:
+        return []
+    return list(dict.fromkeys(entries))
+
+
 def classify_llms_shape(text: str, url: str = "") -> str:
     """Classify an `llms.txt` document into Shape A (index), Shape B (dump), or Shape C (hybrid).
 
@@ -99,6 +148,11 @@ def classify_llms_shape(text: str, url: str = "") -> str:
     """
     body = (text or "").strip()
     if not body:
+        return "index"
+
+    # A list of pages in `Key: value` notation, whatever it is called: its
+    # sections carry no documentation to keep.
+    if metadata_entries(body, url):
         return "index"
 
     links = _LINK_RE.findall(body)
@@ -227,6 +281,11 @@ def parse_llms_links(text: str, base_url: str) -> list[tuple[str, str]]:
         clean_title = title.strip() or "Untitled"
         found.append((clean_title, clean_url))
 
+    # A metadata index names its pages in fields, not links; where it names
+    # more than the links do, its entries are the list.
+    listed = metadata_entries(text or "", base_url)
+    if len(listed) > len(found):
+        return listed
     return found
 
 

@@ -37,7 +37,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -108,39 +107,9 @@ SITES: list[tuple[str, str, str]] = [
 OUT = ROOT / "measurements" / "fieldtest"
 
 # ── quality, read off the Markdown ──────────────────────────────────────────
-_FENCE = re.compile(r"^(```|~~~)[^\n]*\n(.*?)^\1[ \t]*$", re.M | re.S)
-_REL_LINK = re.compile(r"\]\((?!https?://|mailto:|#|data:)([^)\s]+)\)")
-_CHROME = re.compile(
-    r"^\s*(copy|copied!?|copy code|copy to clipboard|edit this page|edit on github|"
-    r"on this page|table of contents|skip to (main )?content|was this (page )?helpful\??|"
-    r"previous|next|ask ai|search\.\.\.|toggle (navigation|sidebar|theme)|"
-    r"last updated.*|thank you for your feedback.*)\s*$",
-    re.I | re.M)
-_PERMALINK = re.compile(r"(¶|​|\[#\]\(#|\[​?\]\(#)")
-_META = re.compile(r"^<!-- source:[^\n]*-->\s*", re.M)
-
-
-def assess(markdown: str) -> dict:
-    """What a page of stored Markdown says about how it was extracted."""
-    body = _META.sub("", markdown or "")
-    fences = _FENCE.findall(body)
-    collapsed = 0
-    for _mark, code in fences:
-        lines = [l for l in code.splitlines() if l.strip()]
-        # One very long line that plainly holds several statements was several
-        # lines in the page: the line breaks lived in markup and were lost.
-        if len(lines) == 1 and len(lines[0]) > 120 and re.search(
-                r"(;\s*\S|\)\s+\w+\s*[(=]|\}\s+\w|import .* import |\s{4,}\S)", lines[0]):
-            collapsed += 1
-    return {
-        "chars": len(body),
-        "fences": len(fences),
-        "collapsed_fences": collapsed,
-        "relative_links": len(_REL_LINK.findall(body)),
-        "chrome_lines": len(_CHROME.findall(body)),
-        "permalink_marks": len(_PERMALINK.findall(body)),
-        "headings": len(re.findall(r"^#{1,6} ", body, re.M)),
-    }
+# One definition, shared with the test lab, so the two never disagree about
+# what a clean page is.
+from docsforge.lab.quality import assess  # noqa: E402
 
 
 # ── one site, in its own process ────────────────────────────────────────────
@@ -170,7 +139,8 @@ def run_one(label: str, url: str, pages: int, where: Path) -> dict:
 
     keep = ("expected", "discovered", "acquired", "fetched", "whole", "reason",
             "truncated", "remaining", "index", "current_release", "revisions",
-            "unextractable", "refused", "rate_limited", "corpora", "failed")
+            "unextractable", "refused", "rate_limited", "corpora", "failed",
+            "widened", "dead", "index_pages", "listed", "found_by_links")
     result["stats"] = {k: stats[k] for k in keep if k in stats}
     result["pages"] = per_page
     totals = {k: sum(p[k] for p in per_page) for k in

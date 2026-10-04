@@ -26,6 +26,7 @@ import re
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from typing import Iterator
 
 import nh3
@@ -38,11 +39,13 @@ from pydantic import BaseModel, Field
 
 load_dotenv(find_dotenv(usecwd=True))
 
+from docsforge import lab  # noqa: E402
 from docsforge.tools import applog  # noqa: E402
 from docsforge.tools import forge_tools  # noqa: E402  (after load_dotenv so tool config sees .env)
 from docsforge.tools import harvest_jobs  # noqa: E402
 from docsforge import providers  # noqa: E402
 from docsforge.tools import tracing  # noqa: E402
+from docsforge.lab import routes as lab_routes  # noqa: E402
 from docsforge.core.engine import enable_utf8_console  # noqa: E402
 from docsforge.store.kb_store import StoreError  # noqa: E402
 from docsforge.providers import MAX_CONTENT, MAX_HISTORY, ProviderError  # noqa: E402
@@ -207,6 +210,9 @@ def chat_stream(history: list[dict], provider_name: str | None) -> Iterator[str]
                    (time.perf_counter() - turn_started) * 1000)
         return
 
+    # The test lab's record of this turn: the question, every tool call and
+    # what it returned, the answer. A no-op unless the lab is running.
+    turn_id = lab.turn_started(provider.name, history)
     answer: list[str] = []
     #: Arguments seen at tool_start, kept until the matching tool_end, for
     #: providers whose tools this process never sees run.
@@ -242,6 +248,7 @@ def chat_stream(history: list[dict], provider_name: str | None) -> Iterator[str]
                         event["ok"])
                 if trace_id:
                     claimed.add(trace_id)
+                    lab.tool_reported(turn_id, trace_id, provider.name)
                 tool_log.append(f"{event['name']}:{'ok' if event['ok'] else 'error'}")
                 yield _sse("tool", {
                     "phase": "end",
@@ -282,6 +289,16 @@ def chat_stream(history: list[dict], provider_name: str | None) -> Iterator[str]
     finally:
         applog.turn(tool_log, outcome, (time.perf_counter() - turn_started) * 1000,
                    provider=provider_name or "")
+        lab.turn_finished(turn_id, outcome, "".join(answer).strip(),
+                          _model_of(provider), tool_log,
+                          (time.perf_counter() - turn_started) * 1000)
+
+
+def _model_of(provider) -> str:
+    try:
+        return provider.model() or ""
+    except Exception:                                   # noqa: BLE001
+        return ""
 
 
 def trace_stream(trace_id: str) -> Iterator[str]:
@@ -318,8 +335,22 @@ def trace_stream(trace_id: str) -> Iterator[str]:
 # FastAPI mounts Swagger UI at /docs by default, which silently shadows the
 # product's own documentation page. This app is not an API playground, so the
 # URL goes to the page users are sent to; the schema stays at /openapi.json.
+@asynccontextmanager
+async def _lifespan(_app):
+    # The test lab starts recording when the server starts serving, not when
+    # this module is imported -- the suite imports it constantly.
+    if lab.enabled():
+        lab_routes.install()
+    yield
+
+
 app = FastAPI(title="DocsForge Chat", version="1.3.0",
-              docs_url=None, redoc_url=None)
+              docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+# The test lab (`docsforge/lab/`): /lab and /api/lab/, loopback clients only,
+# linked from nowhere. Never part of the public server in mcp_server.py.
+if lab.enabled():
+    app.include_router(lab_routes.router)
 
 
 @app.middleware("http")
@@ -329,6 +360,10 @@ async def _log_requests(request: Request, call_next):
     this covers the requests that triggered them."""
     started = time.perf_counter()
     response = await call_next(request)
+    if request.method == "GET" and request.url.path.startswith(("/api/lab/", "/lab/assets/")):
+        # The test lab polls while a test runs; a line per poll would bury
+        # everything else. What the lab *does* is logged as `"kind": "lab"`.
+        return response
     try:
         applog.request(request.method, request.url.path, response.status_code,
                        (time.perf_counter() - started) * 1000,
@@ -669,6 +704,9 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
     print(f"DocsForge chat → http://{args.host}:{args.port}", file=sys.stderr)
+    if lab.enabled():
+        print(f"Test lab       → http://127.0.0.1:{args.port}/lab  (this machine only)",
+              file=sys.stderr)
     uvicorn.run("docsforge.server.app:app" if args.reload else app, host=args.host, port=args.port,
                 reload=args.reload)
     return 0

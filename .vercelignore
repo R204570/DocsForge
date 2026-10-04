@@ -26,3 +26,5 @@ Containerfile
 .containerignore
 *.md.bak
 shot-*.png
+lab_data/
+docsforge/lab/

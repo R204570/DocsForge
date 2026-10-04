@@ -226,8 +226,33 @@ the benchmark checks it is a commit the checkout knows.
   duration.
 - `benchmarks/bench-N/results.json` — every benchmark answer's opening lines
   and timing.
+- `/lab` (local web app) — every chat turn and tool call with its output, every
+  lab test with the tools it ran, and the verdicts testers gave; `"kind": "lab"`
+  in the log is the same activity as lines.
 
-### 4.5 Recovering
+### 4.5 Testing by hand: the lab
+
+```
+python -m docsforge.server.app               # then http://127.0.0.1:8000/lab
+python -m docsforge.lab users                # accounts, from a terminal
+python -m docsforge.lab reset NAME           # the one fix the panel cannot make
+```
+
+The first visit makes two accounts: an **admin** (the overview, the verdicts
+inbox, setup, accounts, logs) and a **tester** (the bench and the review
+queue). A tester runs one of three tests -- a name to its documentation URL
+with that page fetched, one page's extraction, or a whole harvest -- or a
+batch of them, watches the tools each ran and what they returned, and is
+asked for a verdict when it ends. Harvest tests run in a subprocess with the
+store, caches and records pointed under `lab_data/runs/test-N/`, whatever
+`.env` says. The admin moves verdicts from open to triaged to fixed, and
+exports them as Markdown, JSON, or as `scripts/heldout.py` cases.
+
+The lab answers loopback clients only (`DOCSFORGE_LAB_REMOTE=1` lifts that),
+and is off with `DOCSFORGE_LAB=0`; `DOCSFORGE_LAB_RECORD=0` keeps the panel
+but stops recording chat turns and tool calls.
+
+### 4.6 Recovering
 
 | Situation | What to do |
 |---|---|
