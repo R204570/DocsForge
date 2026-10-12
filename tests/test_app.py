@@ -169,6 +169,19 @@ def test_static_assets_are_revalidated_too():
             assert r.headers.get("etag")
 
 
+def test_every_page_shows_the_logo_and_the_favicon_it_links_resolves():
+    from starlette.testclient import TestClient
+
+    with TestClient(app.app) as client:
+        for name in ("index.html", "docs.html", "library.html"):
+            html = Path(app.STATIC, name).read_text(encoding="utf-8")
+            assert '<link rel="icon" href="/favicon.ico"' in html, name
+            assert 'src="/logo.svg"' in html, name
+        for path, kind in (("/logo.svg", "image/svg+xml"), ("/favicon.ico", "image/x-icon")):
+            r = client.get(path)
+            assert r.status_code == 200 and r.headers["content-type"].startswith(kind), path
+
+
 def test_library_index_pages_the_box(box):
     first = app.library_index(page=1)
     assert first["total"] == app.PER_PAGE + 4

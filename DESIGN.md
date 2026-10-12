@@ -205,7 +205,7 @@ Motion is playback, never decoration, and it is strictly an enhancement: with sc
 A near-black achromatic ladder (every grey sits at hue 286 with almost no chroma) carrying exactly one chromatic voice, lavender, and one status colour, red.
 
 ### Primary
-- **Lavender** (#cf9fff): the single accent. It goes on what the product prints or lights: tool names, step numbers, the figures in the figures strip, the `$` prompt sigil, the diagram node that answered, each stored page cell, the completed bar, the verified tick's dot, config keys, the active tab's border, the current nav item's underline, the wordmark square, the focus ring, text selection, and the fill of the one primary button per view.
+- **Lavender** (#cf9fff): the single accent. It goes on what the product prints or lights: tool names, step numbers, the figures in the figures strip, the `$` prompt sigil, the diagram node that answered, each stored page cell, the completed bar, the verified tick's dot, config keys, the active tab's border, the current nav item's underline, the focus ring, text selection, and the fill of the one primary button per view.
 - **Lavender Bright** (#dcb8ff): the primary button's hover fill — the only place the accent brightens.
 - **Lavender Ink** (#170b24): text on any lavender fill (9.06:1 on the accent, 11.1:1 on hover) and the stroke of the tick drawn inside a lavender dot.
 - **Lavender Tint** (rgba(207, 159, 255, 0.13)): the lit node's fill, the active tab's background, the callout's background, the verify figure's highlighted mentions. At 16% it is the radial glow behind the hero figure.
@@ -296,7 +296,7 @@ One shadow exists and it is soft, not cast: a deep diffuse drop with a 2px inset
 
 ## Shapes
 
-Corners are soft and consistent: 14px (`--r`) on anything you rest content in — cards, figures, buttons, code wells, callouts, the result box, the closing card; 8px (`--r-s`) on anything you tap or type in inline — tabs, the token input, the show/hide button; 10px on the small mono button and on diagram nodes (8px on the small nodes in the sources and architecture figures); 6px on the tiniest tags (arguments, client names); a 999px pill only for the version chip. Micro-shapes follow: 3px on the wordmark's 12px lavender square, 2px on diagram page cells and bar tracks, 4px on the focus ring.
+Corners are soft and consistent: 14px (`--r`) on anything you rest content in — cards, figures, buttons, code wells, callouts, the result box, the closing card; 8px (`--r-s`) on anything you tap or type in inline — tabs, the token input, the show/hide button; 10px on the small mono button and on diagram nodes (8px on the small nodes in the sources and architecture figures); 6px on the tiniest tags (arguments, client names); a 999px pill only for the version chip. Micro-shapes follow: 2px on diagram page cells and bar tracks, 4px on the focus ring.
 
 Every border is 1px. Surfaces take the hairline; sibling dividers take the soft hairline; the lit things take the lavender line. Chips at rest sit on a 1.5% white wash inside a hairline. Ghost buttons are a hairline that brightens to tertiary text on hover; the current nav item is a 1px lavender underline with 1px of padding beneath the text, not a pill or a fill.
 
@@ -341,7 +341,7 @@ Confident and quiet: a flat lavender slab for the one action that matters, a hai
 - **Result box:** well, hairline, 14px, 20px 22px; the first line mono 13.5px/600 in incomplete red, wrapped in tertiary `**` markers drawn by CSS; the paragraph beneath at 14.5px secondary, 14px above.
 
 ### Navigation
-- **Top bar:** sticky, 56px, soft at 86% with 12px blur, hairline beneath. Wordmark: a 12px lavender square (3px radius) and "DocsForge" at Inter 15px/600, -0.01em, 10px gap. Links: Inter 14px/500 secondary, hover to primary over 150ms; the current page in primary with a 1px lavender underline. The GitHub link carries a 10px stroked arrow (1.6px, 70% opacity) drawn inline, `aria-hidden`. Version chip at the right.
+- **Top bar:** sticky, 56px, soft at 86% with 12px blur, hairline beneath. Wordmark: the fox logo (`/logo.svg`, 24px tall) and "DocsForge" at Inter 15px/600, -0.01em, 10px gap; the footer repeats it at 18px beside "DocsForge". Every page's favicon is `/favicon.ico`. Both files are drawn in `Logo/` and copied into the site by `scripts/build_site.py`. Links: Inter 14px/500 secondary, hover to primary over 150ms; the current page in primary with a 1px lavender underline. The GitHub link carries a 10px stroked arrow (1.6px, 70% opacity) drawn inline, `aria-hidden`. Version chip at the right.
 - **Mobile:** links keep their row; the two anchor links and the chip hide below their breakpoints; no drawer.
 - **Footer:** soft ground, hairline top, one flex row wrapping at 12px 24px gaps; project links in a 22px-gap nav; hover to primary.
 
@@ -391,7 +391,7 @@ Playback of the recorded run, driven by classes and one delay property. The sing
 - **Don't** fill an area larger than a button with solid lavender; use the 13% tint bounded by the 34% line.
 - **Don't** use red for anything but incomplete coverage.
 - **Don't** introduce an icon-card feature grid or metric tiles; the figures strip is a hairline band of mono numbers, and features are rows with a drawing.
-- **Don't** use raster imagery, illustration, icon fonts or emoji; the only pictographs are the wordmark square, the inline external-link arrow, and the diagram tick.
+- **Don't** use raster imagery, illustration, icon fonts or emoji; the only pictographs are the fox logo, the inline external-link arrow, and the diagram tick. The fox is the one drawn image on the site and appears only as the wordmark.
 - **Don't** set any text in uppercase or with open letter-spacing.
 - **Don't** hide content behind motion or load an external script other than the Google tag; every page must read complete with script off and at 400px.
 - **Don't** give a surface a shadow to lift it; move it a rung on the grey ladder and edge it with a hairline.

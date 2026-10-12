@@ -19,8 +19,9 @@ Run:
   python main.py --http | --stdio       # force either
   DOCSFORGE_MCP_TOKEN=… python main.py --http --host 0.0.0.0   # hosted
 
-Over HTTP the process serves the public site (`/`, `/tools`, `/connect`),
-`/health`, and `/mcp`; only `/mcp` needs the bearer token.
+Over HTTP the process serves the public site (`/`, `/tools`, `/connect`,
+and its `/logo.svg` and `/favicon.ico`), `/health`, and `/mcp`; only `/mcp`
+needs the bearer token.
 
 Register with Claude Code:
   claude mcp add docsforge -- python E:/DocsForge/main.py
@@ -40,7 +41,7 @@ from typing import Annotated, Any, Literal
 import anyio
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -179,12 +180,16 @@ register()
 # a token requirement on every local `--http` run too.
 # ─────────────────────────────────────────────────────────────
 
-#: The public site: three self-contained HTML pages, no assets, no outside
-#: script but the Google tag, nothing from the web chat in `app.py` — that
-#: surface is for local testing and is not part of the hosted process.
-#: Package data, so it ships in the wheel.
+#: The public site: three self-contained HTML pages, no assets but the logo
+#: and the favicon, no outside script but the Google tag, nothing from the
+#: web chat in `app.py` — that surface is for local testing and is not part of
+#: the hosted process. Package data, so it ships in the wheel.
 SITE = Path(__file__).resolve().parent / "site"
 PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html"}
+#: Copied from Logo/ by scripts/build_site.py. The chat in `app.py` and the
+#: sign-in page in `oauth.py` ask for the same two paths.
+BRAND = {"/logo.svg": ("logo.svg", "image/svg+xml"),
+         "/favicon.ico": ("favicon.ico", "image/x-icon")}
 
 TOKEN_VAR = "DOCSFORGE_MCP_TOKEN"
 INSECURE_VAR = "DOCSFORGE_MCP_INSECURE"
@@ -231,6 +236,24 @@ async def tools_page(request: Request) -> Response:
 @server.custom_route("/connect", methods=["GET"], include_in_schema=False)
 async def connect_page(request: Request) -> Response:
     return page(PAGES["/connect"], request)
+
+
+def brand(path: str) -> Response:
+    """The logo or the favicon. An hour, not a day: the names carry no hash,
+    so a new logo has to be able to replace the old one."""
+    name, media_type = BRAND[path]
+    return FileResponse(SITE / name, media_type=media_type,
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+
+@server.custom_route("/logo.svg", methods=["GET"], include_in_schema=False)
+async def logo(request: Request) -> Response:
+    return brand("/logo.svg")
+
+
+@server.custom_route("/favicon.ico", methods=["GET"], include_in_schema=False)
+async def favicon(request: Request) -> Response:
+    return brand("/favicon.ico")
 
 
 @server.custom_route("/health", methods=["GET"], include_in_schema=False)

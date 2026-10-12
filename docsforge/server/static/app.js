@@ -129,7 +129,9 @@ function scrollDown(force = false) {
 function blankScreen() {
   const blank = el("div", "blank");
   const glyph = el("div", "glyph");
-  glyph.append(icon("i-forge"));
+  const logo = el("img");
+  Object.assign(logo, { src: "/logo.svg", alt: "", width: 61, height: 48 });
+  glyph.append(logo);
   blank.append(glyph);
   blank.append(el("h1", null, "DocsForge"));
   blank.append(el("p", null,

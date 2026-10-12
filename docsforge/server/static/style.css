@@ -115,6 +115,9 @@ body {
 .side-mark {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -123,6 +126,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
+.side-mark img { flex: 0 0 auto; width: auto; height: 20px; }
 
 /* Every row is the same shape whether or not its label is showing, so
    nothing jumps sideways when the panel opens. */
@@ -685,7 +689,7 @@ textarea.author:focus { outline: none; border-color: var(--accent); }
   text-align: center;
 }
 .blank .glyph { color: var(--accent); margin-bottom: 18px; }
-.blank .glyph .icon { width: 34px; height: 34px; }
+.blank .glyph img { display: block; width: auto; height: 48px; }
 .blank h1 {
   margin: 0 0 6px;
   font-size: 26px;
