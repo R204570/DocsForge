@@ -88,6 +88,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .gate-card.wide { width: min(560px, 100%); }
 .gate-mark { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: var(--accent); }
 .gate-mark b { color: var(--text); font-size: 15px; }
+.gate-mark .logo, .brand .logo { display: block; width: auto; height: 20px; }
 .gate-card h1 { font-size: 22px; font-weight: 650; margin-bottom: 6px; }
 .gate-card p { margin: 0 0 20px; color: var(--text-2); }
 .gate-note { margin: 16px 0 0; font-size: 12.5px; color: var(--text-3); }

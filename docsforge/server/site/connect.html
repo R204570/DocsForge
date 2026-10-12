@@ -14,6 +14,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DocsForge — Connect</title>
   <meta name="description" content="Connect DocsForge to Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code or Claude Desktop: one command or one config block per client.">
+  <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -77,7 +78,7 @@ code, kbd, pre { font-family: var(--mono); }
 }
 .top .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .mark { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
-.mark i { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.mark img { display: block; width: auto; height: 24px; }
 .nav { display: flex; align-items: center; gap: 16px; font-size: 14px; font-weight: 500; color: var(--text-2); }
 @media (min-width: 768px) { .nav { gap: 28px; } }
 .nav a { transition: color 150ms var(--ease); }
@@ -232,7 +233,8 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .foot { margin-top: 96px; border-top: 1px solid var(--line); background: var(--soft); }
 .foot .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-block: 28px; font-size: 13px; color: var(--text-2); }
 .foot .l { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
-.foot .l b { color: var(--text); font-weight: 500; }
+.foot .l b { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-weight: 500; }
+.foot .l b img { display: block; width: auto; height: 18px; }
 .foot .l span.note { margin: 0; color: var(--text-3); }
 .foot nav { display: flex; gap: 22px; }
 .foot nav a:hover { color: var(--text); }
@@ -325,7 +327,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 <body>
 <header class="top">
   <div class="wrap">
-    <a href="/" class="mark"><i></i>DocsForge</a>
+    <a href="/" class="mark"><img src="/logo.svg" alt="" width="31" height="24">DocsForge</a>
     <nav class="nav" aria-label="Site">
       <a href="/#how-it-works" class="wide">How it works</a>
       <a href="/tools">Tools</a>
@@ -437,7 +439,7 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
 
 <footer class="foot">
   <div class="wrap">
-    <div class="l"><b>DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <div class="l"><b><img src="/logo.svg" alt="" width="23" height="18">DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
     <nav aria-label="Project">
       <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>

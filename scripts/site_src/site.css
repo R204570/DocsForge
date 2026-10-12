@@ -57,7 +57,7 @@ code, kbd, pre { font-family: var(--mono); }
 }
 .top .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .mark { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
-.mark i { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.mark img { display: block; width: auto; height: 24px; }
 .nav { display: flex; align-items: center; gap: 16px; font-size: 14px; font-weight: 500; color: var(--text-2); }
 @media (min-width: 768px) { .nav { gap: 28px; } }
 .nav a { transition: color 150ms var(--ease); }
@@ -212,7 +212,8 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .foot { margin-top: 96px; border-top: 1px solid var(--line); background: var(--soft); }
 .foot .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-block: 28px; font-size: 13px; color: var(--text-2); }
 .foot .l { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
-.foot .l b { color: var(--text); font-weight: 500; }
+.foot .l b { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-weight: 500; }
+.foot .l b img { display: block; width: auto; height: 18px; }
 .foot .l span.note { margin: 0; color: var(--text-3); }
 .foot nav { display: flex; gap: 22px; }
 .foot nav a:hover { color: var(--text); }

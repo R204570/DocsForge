@@ -82,6 +82,22 @@ def test_site_pages_link_only_to_each_other_and_github(gated):
                 assert gated.get(h.split("#")[0]).status_code == 200, (path, h)
 
 
+@pytest.mark.parametrize("path,kind,drawn", [
+    ("/logo.svg", "image/svg+xml", "docsforge-logo.svg"),
+    ("/favicon.ico", "image/x-icon", "docsforge-logo.ico"),
+])
+def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, kind, drawn):
+    r = gated.get(path)
+    assert r.status_code == 200 and r.headers["content-type"].startswith(kind)
+    # The packaged copy is the drawn one: scripts/build_site.py was re-run.
+    logo_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Logo")
+    with open(os.path.join(logo_dir, drawn), "rb") as f:
+        assert r.content == f.read()
+    for page in ("/", "/tools", "/connect"):
+        html = gated.get(page).text
+        assert '<link rel="icon" href="/favicon.ico"' in html and 'src="/logo.svg"' in html, page
+
+
 def test_health_is_public_and_names_no_host(gated):
     r = gated.get("/health")
     assert r.status_code == 200

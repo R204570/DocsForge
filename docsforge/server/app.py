@@ -413,6 +413,23 @@ def library():
     return page("library.html")
 
 
+# The public site's copies (see scripts/build_site.py), at the paths the site
+# uses, so the chat, the lab and the site all show the same fox.
+SITE = os.path.join(HERE, "site")
+
+
+@app.get("/logo.svg", include_in_schema=False)
+def logo():
+    return FileResponse(os.path.join(SITE, "logo.svg"), media_type="image/svg+xml",
+                        headers={"Cache-Control": REVALIDATE})
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(os.path.join(SITE, "favicon.ico"), media_type="image/x-icon",
+                        headers={"Cache-Control": REVALIDATE})
+
+
 # ── DocsStore API ────────────────────────────────────────────
 # The store grows without limit, so the technology list is paged rather than
 # returned whole. Everything below reports which backend answered, because a

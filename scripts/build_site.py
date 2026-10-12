@@ -10,7 +10,9 @@ every page is self-contained (fonts still come from Google Fonts, with a
 system fallback, and the Google tag is the one outside script), and two
 placeholders left for the server to fill at
 request time — `{{VERSION}}` from the package and `{{BASE_URL}}` from the
-request.
+request. The logo and favicon are the site's only files besides the pages:
+copied from Logo/ at the repository root to site/logo.svg and
+site/favicon.ico, which every DocsForge page asks for by those two paths.
 
     python scripts/build_site.py
 
@@ -33,6 +35,13 @@ SITE = ROOT / "docsforge" / "server" / "site"
 
 PAGES = ("index", "tools", "connect")
 
+#: Logo/ holds the brand as it was drawn; the server serves these copies.
+BRAND = {"logo.svg": ROOT / "Logo" / "docsforge-logo.svg",
+         "favicon.ico": ROOT / "Logo" / "docsforge-logo.ico"}
+ICON = '<link rel="icon" href="/favicon.ico" sizes="any">'
+#: The fox is 795 x 623; width and height are set so nothing shifts as it loads.
+LOGO = '<img src="/logo.svg" alt="" width="{w}" height="{h}">'
+
 
 def nav(active: str) -> str:
     """One nav for every page. `active` is the page's file name."""
@@ -49,7 +58,7 @@ def nav(active: str) -> str:
     links.append(f'      <a href="{REPO}" class="ext" target="_blank" rel="noopener noreferrer">GitHub '
                  '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 8 L8 2 M3.5 2 H8 V6.5"/></svg></a>')
     return ('<header class="top">\n  <div class="wrap">\n'
-            '    <a href="/" class="mark"><i></i>DocsForge</a>\n'
+            '    <a href="/" class="mark">' + LOGO.format(w=31, h=24) + 'DocsForge</a>\n'
             '    <nav class="nav" aria-label="Site">\n' + "\n".join(links) + '\n    </nav>\n'
             '    <span class="chip">v{{VERSION}}</span>\n'
             '  </div>\n</header>')
@@ -57,7 +66,7 @@ def nav(active: str) -> str:
 
 FOOT = f'''<footer class="foot">
   <div class="wrap">
-    <div class="l"><b>DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <div class="l"><b>{LOGO.format(w=23, h=18)}DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
     <nav aria-label="Project">
       <a href="{REPO}" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="{REPO}/issues" target="_blank" rel="noopener noreferrer">Issues</a>
@@ -101,6 +110,7 @@ def build(page: str, css: str, js: str, picker: str) -> str:
         (page, "an external script other than the Google tag")
     assert "{{VERSION}}" in html, (page, "version chip placeholder")
     assert ("{{BASE_URL}}" in html) == (page == "connect"), (page, "base url placeholder")
+    assert html.count(ICON) == 1, (page, "the favicon link")
     assert 'href="#"' not in html, (page, "unresolved href")
     assert "YOUR-HOST" not in html, (page, "host placeholder")
     return html
@@ -111,6 +121,9 @@ def main() -> int:
     js = (SRC / "site.js").read_text(encoding="utf-8")
     picker = (SRC / "picker.html").read_text(encoding="utf-8")
     SITE.mkdir(exist_ok=True)
+    for name, source in BRAND.items():
+        (SITE / name).write_bytes(source.read_bytes())
+        print(f"{name}  {source.stat().st_size:,} bytes")
     for page in PAGES:
         html = build(page, css, js, picker)
         (SITE / f"{page}.html").write_text(html, encoding="utf-8")

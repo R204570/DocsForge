@@ -227,19 +227,20 @@ class StatelessProvider:
 # ─────────────────────────────────────────────────────────────
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>DocsForge — sign in</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
 <style>
 :root{{color-scheme:dark}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0d;color:#ececee;
 font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;padding:24px;box-sizing:border-box}}
 .card{{width:100%;max-width:440px;background:#17171b;border:1px solid #2a2a31;border-radius:14px;padding:28px}}
-.mark{{display:inline-block;width:12px;height:12px;border-radius:3px;background:#cf9fff;margin-right:10px;vertical-align:-1px}}
-h1{{font-size:18px;margin:0 0 6px}}p{{margin:0 0 18px;color:#a9a9b3;font-size:14px}}
+.mark{{display:block;width:auto;height:26px}}
+h1{{display:flex;align-items:center;gap:10px;font-size:18px;margin:0 0 6px}}p{{margin:0 0 18px;color:#a9a9b3;font-size:14px}}
 label{{display:block;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9a9b3;margin-bottom:6px}}
 input{{width:100%;box-sizing:border-box;background:#0b0b0d;border:1px solid #2a2a31;border-radius:8px;padding:10px 12px;color:#ececee;
 font:13px ui-monospace,SFMono-Regular,Menlo,monospace}}input:focus{{outline:none;border-color:#cf9fff}}
 button{{margin-top:14px;width:100%;border:0;border-radius:10px;padding:11px;background:#cf9fff;color:#170b24;font-weight:600;font-size:14px;cursor:pointer}}
 .err{{color:#ff9a9a;font-size:13px;margin:10px 0 0}}.who{{font:12px ui-monospace,Menlo,monospace;color:#7c7c88;margin-top:16px;word-break:break-all}}
 </style></head><body><form class="card" method="post" action="{action}">
-<h1><span class="mark"></span>DocsForge</h1>
+<h1><img class="mark" src="/logo.svg" alt="" width="33" height="26">DocsForge</h1>
 <p>{client} is asking to use this DocsForge server. Paste the server's token to allow it.</p>
 <label for="token">DOCSFORGE_MCP_TOKEN</label>
 <input id="token" name="token" type="password" autocomplete="off" autofocus required>

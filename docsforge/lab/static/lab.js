@@ -62,6 +62,10 @@
     el.append(use);
     return el;
   }
+  /** The DocsForge fox, served by the chat at /logo.svg; 795 x 623 drawn. */
+  function logo() {
+    return h("img", { class: "logo", src: "/logo.svg", alt: "", width: 26, height: 20 });
+  }
   // Addresses come from scraped pages and registries: only http(s) becomes a link.
   const ext = (href, label, cls) => /^https?:\/\//i.test(href || "")
     ? h("a", { href, target: "_blank", rel: "noopener noreferrer", class: cls }, label || href, " ", icon("out", "icon sm"))
@@ -201,7 +205,7 @@
 
   function gateCard(title, lead, body, wide) {
     return h("div", { class: "gate" }, h("div", { class: "gate-card" + (wide ? " wide" : "") },
-      h("div", { class: "gate-mark" }, icon("flask"), h("b", { text: "DocsForge lab" })),
+      h("div", { class: "gate-mark" }, logo(), h("b", { text: "DocsForge lab" })),
       h("h1", { text: title }), lead ? h("p", { text: lead }) : null, body));
   }
 
@@ -306,7 +310,7 @@
     const top = h("header", { class: "top" },
       h("button", { class: "btn sm ghost menu-btn", type: "button", "aria-label": "Menu",
         onclick: () => nav.classList.toggle("open") }, icon("list")),
-      h("a", { class: "brand", href: "#/" + (role === "admin" ? "overview" : "bench") }, icon("flask"), "DocsForge", h("span", { class: "chip brand-chip", text: "lab" })),
+      h("a", { class: "brand", href: "#/" + (role === "admin" ? "overview" : "bench") }, logo(), "DocsForge", h("span", { class: "chip brand-chip", text: "lab" })),
       h("span", { class: "chip" + (role === "admin" ? " lit" : ""), text: role }),
       h("span", { class: "spacer" }),
       h("a", { class: "btn sm ghost", href: "/", title: "The chat this lab watches" }, icon("chat", "icon sm"), h("span", { class: "lbl", text: "Chat" })),
