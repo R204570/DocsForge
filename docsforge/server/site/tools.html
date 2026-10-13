@@ -12,8 +12,28 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DocsForge — Tools</title>
-  <meta name="description" content="The thirteen DocsForge tools, defined once and served identically over MCP: arguments, what each does, what it returns.">
+  <title>DocsForge MCP tools — learn, harvest and search docs</title>
+  <meta name="description" content="The thirteen DocsForge MCP tools for AI agents: learn a technology by name, harvest and search its documentation, scan a project. Arguments and returns for each.">
+  <link rel="canonical" href="https://docsforge.vercel.app/tools">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="author" content="Raj Patel">
+  <meta name="theme-color" content="#0b0b0d">
+  {{SITE_VERIFICATION}}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="DocsForge">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="DocsForge MCP tools — learn, harvest and search docs">
+  <meta property="og:description" content="The thirteen DocsForge MCP tools for AI agents: learn a technology by name, harvest and search its documentation, scan a project. Arguments and returns for each.">
+  <meta property="og:url" content="https://docsforge.vercel.app/tools">
+  <meta property="og:image" content="https://docsforge.vercel.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="DocsForge — documentation for technologies your model was never trained on.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DocsForge MCP tools — learn, harvest and search docs">
+  <meta name="twitter:description" content="The thirteen DocsForge MCP tools for AI agents: learn a technology by name, harvest and search its documentation, scan a project. Arguments and returns for each.">
+  <meta name="twitter:image" content="https://docsforge.vercel.app/og.png">
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://docsforge.vercel.app/#website","url":"https://docsforge.vercel.app/","name":"DocsForge","inLanguage":"en","publisher":{"@id":"https://docsforge.vercel.app/#developer"}},{"@type":"Person","@id":"https://docsforge.vercel.app/#developer","name":"Raj Patel","url":"https://portfolio-raj-25.netlify.app/","sameAs":["https://portfolio-raj-25.netlify.app/","https://www.linkedin.com/in/raj-patel5/","https://github.com/R204570"]},{"@type":"SoftwareApplication","@id":"https://docsforge.vercel.app/#software","name":"DocsForge","url":"https://docsforge.vercel.app/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","description":"An open-source MCP server that finds a library's official documentation from its name, verifies it, harvests it and serves it to AI agents and coding assistants.","license":"https://opensource.org/licenses/MIT","codeRepository":"https://github.com/R204570/DocsForge","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@id":"https://docsforge.vercel.app/#developer"},"image":"https://docsforge.vercel.app/og.png"},{"@type":"WebPage","@id":"https://docsforge.vercel.app/tools","url":"https://docsforge.vercel.app/tools","name":"DocsForge MCP tools — learn, harvest and search docs","description":"The thirteen DocsForge MCP tools for AI agents: learn a technology by name, harvest and search its documentation, scan a project. Arguments and returns for each.","isPartOf":{"@id":"https://docsforge.vercel.app/#website"},"about":{"@id":"https://docsforge.vercel.app/#software"},"primaryImageOfPage":{"@type":"ImageObject","url":"https://docsforge.vercel.app/og.png"},"breadcrumb":{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"DocsForge","item":"https://docsforge.vercel.app/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://docsforge.vercel.app/tools"}]}}]}</script>
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -322,6 +342,15 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
   html { scroll-behavior: auto; }
 }
 
+/* ── built by ─────────────────────────────────────────── */
+.dev { display: grid; gap: 24px; align-items: center; padding-top: 40px; border-top: 1px solid var(--line-soft); }
+@media (min-width: 900px) { .dev { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 56px; } }
+.dev-links { display: flex; flex-direction: column; gap: 10px; }
+.dev-links .btn { justify-content: space-between; gap: 16px; width: 100%; }
+.dev-links .btn span { font-family: var(--mono); font-size: 12.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foot .l > a:hover { color: var(--text); }
+.foot .r { display: flex; flex-wrap: wrap; gap: 12px 40px; }
+
   </style>
 </head>
 <body>
@@ -341,7 +370,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 
 <main class="wrap doc">
   <header class="lede">
-    <h1>Twelve tools, defined once.</h1>
+    <h1>Thirteen tools, defined once.</h1>
     <p class="lead">Every tool is defined exactly once and served identically over MCP. Results handed to a model are capped at 60k characters with an explicit truncation marker.</p>
   </header>
 
@@ -425,12 +454,19 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 
 <footer class="foot">
   <div class="wrap">
-    <div class="l"><b><img src="/logo.svg" alt="" width="23" height="18">DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
-    <nav aria-label="Project">
-      <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
-      <a href="https://github.com/R204570/DocsForge#readme" target="_blank" rel="noopener noreferrer">Contribute</a>
-    </nav>
+    <div class="l"><b><img src="/logo.svg" alt="" width="23" height="18">DocsForge</b><span>MIT License</span><a href="/#developer">Built by Raj Patel</a><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <div class="r">
+      <nav aria-label="Project">
+        <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="https://github.com/R204570/DocsForge#readme" target="_blank" rel="noopener noreferrer">Contribute</a>
+      </nav>
+      <nav aria-label="Developer">
+        <a href="https://portfolio-raj-25.netlify.app/" target="_blank" rel="me noopener noreferrer">Portfolio</a>
+        <a href="https://www.linkedin.com/in/raj-patel5/" target="_blank" rel="me noopener noreferrer">LinkedIn</a>
+        <a href="https://github.com/R204570" target="_blank" rel="me noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
   </div>
 </footer>
 <script>

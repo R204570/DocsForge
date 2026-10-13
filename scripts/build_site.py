@@ -12,7 +12,16 @@ placeholders left for the server to fill at
 request time — `{{VERSION}}` from the package and `{{BASE_URL}}` from the
 request. The logo and favicon are the site's only files besides the pages:
 copied from Logo/ at the repository root to site/logo.svg and
-site/favicon.ico, which every DocsForge page asks for by those two paths.
+site/favicon.ico, which every DocsForge page asks for by those two paths,
+and the social-sharing card, Logo/docsforge-og.png, copied to site/og.png.
+
+Search metadata is stamped here too, from each page's own <title> and meta
+description so the two can never disagree: the canonical URL, Open Graph and
+Twitter card tags, and Schema.org JSON-LD. The developer's links live in
+DEVELOPER below and nowhere else; the footer and the home page's "Built by"
+section are both drawn from them. A third placeholder,
+`{{SITE_VERIFICATION}}`, is filled by the server from the environment — see
+"System Files/SEO.md".
 
     python scripts/build_site.py
 
@@ -21,23 +30,42 @@ No toolchain: plain files in, plain files out. Re-run after any edit.
 
 from __future__ import annotations
 
+import html as htmllib
+import json
 import pathlib
 import re
 import sys
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "site_src"))
+sys.path.insert(0, str(ROOT))
 from diagrams import DIAGRAMS  # noqa: E402
 
+from docsforge import SITE_URL  # noqa: E402
+
 REPO = "https://github.com/R204570/DocsForge"
-ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "scripts" / "site_src"
 SITE = ROOT / "docsforge" / "server" / "site"
 
 PAGES = ("index", "tools", "connect")
+#: Where each page is served, for its canonical URL.
+PATHS = {"index": "/", "tools": "/tools", "connect": "/connect"}
+
+#: The person behind DocsForge. `rel="me"` on these links, and `sameAs` in the
+#: structured data, tie the three profiles to the site.
+DEVELOPER = {
+    "name": "Raj Patel",
+    "links": (("Portfolio", "https://portfolio-raj-25.netlify.app/"),
+              ("LinkedIn", "https://www.linkedin.com/in/raj-patel5/"),
+              ("GitHub", "https://github.com/R204570")),
+}
 
 #: Logo/ holds the brand as it was drawn; the server serves these copies.
 BRAND = {"logo.svg": ROOT / "Logo" / "docsforge-logo.svg",
-         "favicon.ico": ROOT / "Logo" / "docsforge-logo.ico"}
+         "favicon.ico": ROOT / "Logo" / "docsforge-logo.ico",
+         "og.png": ROOT / "Logo" / "docsforge-og.png"}
+#: The social card is 1200 x 630, the size every platform crops to.
+OG_IMAGE = (f"{SITE_URL}/og.png", 1200, 630)
 ICON = '<link rel="icon" href="/favicon.ico" sizes="any">'
 #: The fox is 795 x 623; width and height are set so nothing shifts as it loads.
 LOGO = '<img src="/logo.svg" alt="" width="{w}" height="{h}">'
@@ -64,16 +92,52 @@ def nav(active: str) -> str:
             '  </div>\n</header>')
 
 
+def external(label: str, href: str, rel: str = "noopener noreferrer") -> str:
+    return f'<a href="{href}" target="_blank" rel="{rel}">{label}</a>'
+
+
+def shown(href: str) -> str:
+    """A profile URL as a person reads it: no scheme, no www, no trailing slash."""
+    return re.sub(r"^https://(www\.)?|/$", "", href)
+
+
+ME = "me noopener noreferrer"
+DEV_NAV = "\n        ".join(external(label, href, ME) for label, href in DEVELOPER["links"])
+
 FOOT = f'''<footer class="foot">
   <div class="wrap">
-    <div class="l"><b>{LOGO.format(w=23, h=18)}DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
-    <nav aria-label="Project">
-      <a href="{REPO}" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a href="{REPO}/issues" target="_blank" rel="noopener noreferrer">Issues</a>
-      <a href="{REPO}#readme" target="_blank" rel="noopener noreferrer">Contribute</a>
-    </nav>
+    <div class="l"><b>{LOGO.format(w=23, h=18)}DocsForge</b><span>MIT License</span><a href="/#developer">Built by {DEVELOPER["name"]}</a><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <div class="r">
+      <nav aria-label="Project">
+        {external("GitHub", REPO)}
+        {external("Issues", REPO + "/issues")}
+        {external("Contribute", REPO + "#readme")}
+      </nav>
+      <nav aria-label="Developer">
+        {DEV_NAV}
+      </nav>
+    </div>
   </div>
 </footer>'''
+
+
+def developer() -> str:
+    """The home page's "Built by" section."""
+    links = "\n".join(
+        f'        <a class="btn btn-ghost" href="{href}" target="_blank" rel="{ME}">'
+        f'{label}<span>{htmllib.escape(shown(href))}</span></a>'
+        for label, href in DEVELOPER["links"])
+    return f'''<section class="band" id="developer" style="padding-top:0">
+    <div class="dev rv">
+      <div>
+        <h2>Built by {DEVELOPER["name"]}</h2>
+        <p class="prose" style="margin-top:12px">DocsForge is designed, built and maintained by {DEVELOPER["name"]}. Found a bug or a bad extraction, have an idea, or want to contribute? Open an issue on GitHub, or reach out directly.</p>
+      </div>
+      <div class="dev-links">
+{links}
+      </div>
+    </div>
+  </section>'''
 
 
 #: The Google tag, stamped first in every <head>: the one script a page fetches
@@ -91,8 +155,81 @@ GTAG = f'''<!-- Google tag (gtag.js) -->
   </script>'''
 
 
+def structured_data(page: str, title: str, description: str) -> dict:
+    """Schema.org JSON-LD: the site, its author, the software, and this page.
+
+    A Person, not an Organization: DocsForge is one developer's project, and
+    the structured data says only what the page itself says.
+    """
+    url = SITE_URL + PATHS[page]
+    person = {"@type": "Person", "@id": f"{SITE_URL}/#developer", "name": DEVELOPER["name"],
+              "url": DEVELOPER["links"][0][1], "sameAs": [h for _, h in DEVELOPER["links"]]}
+    website = {"@type": "WebSite", "@id": f"{SITE_URL}/#website", "url": SITE_URL + "/",
+               "name": "DocsForge", "inLanguage": "en",
+               "publisher": {"@id": person["@id"]}}
+    software = {"@type": "SoftwareApplication", "@id": f"{SITE_URL}/#software",
+                "name": "DocsForge", "url": SITE_URL + "/",
+                "applicationCategory": "DeveloperApplication",
+                "operatingSystem": "Windows, macOS, Linux",
+                "description": "An open-source MCP server that finds a library's official "
+                               "documentation from its name, verifies it, harvests it and "
+                               "serves it to AI agents and coding assistants.",
+                "license": "https://opensource.org/licenses/MIT",
+                "codeRepository": REPO, "isAccessibleForFree": True,
+                "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+                "author": {"@id": person["@id"]}, "image": OG_IMAGE[0]}
+    webpage = {"@type": "WebPage", "@id": url, "url": url, "name": title,
+               "description": description, "isPartOf": {"@id": website["@id"]},
+               "about": {"@id": software["@id"]},
+               "primaryImageOfPage": {"@type": "ImageObject", "url": OG_IMAGE[0]}}
+    if page != "index":
+        webpage["breadcrumb"] = {"@type": "BreadcrumbList", "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "DocsForge", "item": SITE_URL + "/"},
+            {"@type": "ListItem", "position": 2, "name": page.capitalize(), "item": url}]}
+    return {"@context": "https://schema.org", "@graph": [website, person, software, webpage]}
+
+
+def seo(page: str, html: str) -> str:
+    """Canonical, social and structured metadata, from the page's own title
+    and description."""
+    title = htmllib.unescape(re.search(r"<title>(.*?)</title>", html).group(1))
+    description = htmllib.unescape(
+        re.search(r'<meta name="description" content="([^"]*)">', html).group(1))
+    url = SITE_URL + PATHS[page]
+    image, w, h = OG_IMAGE
+    # double-quoted attributes: `"` must be escaped, an apostrophe need not be
+    q = lambda v: htmllib.escape(str(v), quote=False).replace('"', "&quot;")  # noqa: E731
+    ld = json.dumps(structured_data(page, title, description), ensure_ascii=False,
+                    separators=(",", ":")).replace("</", "<\\/")
+    return "\n  ".join([
+        f'<link rel="canonical" href="{q(url)}">',
+        '<meta name="robots" content="index, follow, max-image-preview:large">',
+        f'<meta name="author" content="{q(DEVELOPER["name"])}">',
+        '<meta name="theme-color" content="#0b0b0d">',
+        "{{SITE_VERIFICATION}}",
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="DocsForge">',
+        '<meta property="og:locale" content="en_US">',
+        f'<meta property="og:title" content="{q(title)}">',
+        f'<meta property="og:description" content="{q(description)}">',
+        f'<meta property="og:url" content="{q(url)}">',
+        f'<meta property="og:image" content="{q(image)}">',
+        f'<meta property="og:image:width" content="{w}">',
+        f'<meta property="og:image:height" content="{h}">',
+        '<meta property="og:image:alt" content="DocsForge — documentation for technologies '
+        'your model was never trained on.">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:title" content="{q(title)}">',
+        f'<meta name="twitter:description" content="{q(description)}">',
+        f'<meta name="twitter:image" content="{q(image)}">',
+        f'<script type="application/ld+json">{ld}</script>',
+    ])
+
+
 def build(page: str, css: str, js: str, picker: str) -> str:
     html = (SRC / f"{page}.html").read_text(encoding="utf-8")
+    html = html.replace("<!--SEO-->", seo(page, html))
+    html = html.replace("<!--DEVELOPER-->", developer() if page == "index" else "")
     for name, draw in DIAGRAMS.items():
         html = html.replace(f"<!--SVG:{name}-->", draw())
     assert "<!--SVG:" not in html, (page, "an unknown diagram marker")
@@ -111,6 +248,13 @@ def build(page: str, css: str, js: str, picker: str) -> str:
     assert "{{VERSION}}" in html, (page, "version chip placeholder")
     assert ("{{BASE_URL}}" in html) == (page == "connect"), (page, "base url placeholder")
     assert html.count(ICON) == 1, (page, "the favicon link")
+    assert html.count('<link rel="canonical"') == 1, (page, "the canonical link")
+    assert html.count("{{SITE_VERIFICATION}}") == 1, (page, "site verification placeholder")
+    assert ('id="developer"' in html) == (page == "index"), (page, "the developer section")
+    title = re.search(r"<title>(.*?)</title>", html).group(1)
+    description = re.search(r'<meta name="description" content="([^"]*)">', html).group(1)
+    assert 10 <= len(title) <= 65, (page, "title length", len(title))
+    assert 70 <= len(description) <= 170, (page, "description length", len(description))
     assert 'href="#"' not in html, (page, "unresolved href")
     assert "YOUR-HOST" not in html, (page, "host placeholder")
     return html

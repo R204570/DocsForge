@@ -300,3 +300,12 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+
+/* ── built by ─────────────────────────────────────────── */
+.dev { display: grid; gap: 24px; align-items: center; padding-top: 40px; border-top: 1px solid var(--line-soft); }
+@media (min-width: 900px) { .dev { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 56px; } }
+.dev-links { display: flex; flex-direction: column; gap: 10px; }
+.dev-links .btn { justify-content: space-between; gap: 16px; width: 100%; }
+.dev-links .btn span { font-family: var(--mono); font-size: 12.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foot .l > a:hover { color: var(--text); }
+.foot .r { display: flex; flex-wrap: wrap; gap: 12px 40px; }

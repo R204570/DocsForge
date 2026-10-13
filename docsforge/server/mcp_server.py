@@ -20,8 +20,9 @@ Run:
   DOCSFORGE_MCP_TOKEN=… python main.py --http --host 0.0.0.0   # hosted
 
 Over HTTP the process serves the public site (`/`, `/tools`, `/connect`,
-and its `/logo.svg` and `/favicon.ico`), `/health`, and `/mcp`; only `/mcp`
-needs the bearer token.
+its `/logo.svg`, `/favicon.ico` and `/og.png`, and `/robots.txt` and
+`/sitemap.xml` for search engines), `/health`, and `/mcp`; only `/mcp` needs
+the bearer token.
 
 Register with Claude Code:
   claude mcp add docsforge -- python E:/DocsForge/main.py
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import html
 import inspect
 import ipaddress
 import os
@@ -48,7 +50,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from docsforge.tools import forge_tools
 from docsforge.tools import harvest_jobs
-from docsforge import __version__
+from docsforge import SITE_URL, __version__
 from docsforge.core.engine import enable_utf8_console
 
 server = MCPServer(
@@ -189,7 +191,15 @@ PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html"}
 #: Copied from Logo/ by scripts/build_site.py. The chat in `app.py` and the
 #: sign-in page in `oauth.py` ask for the same two paths.
 BRAND = {"/logo.svg": ("logo.svg", "image/svg+xml"),
-         "/favicon.ico": ("favicon.ico", "image/x-icon")}
+         "/favicon.ico": ("favicon.ico", "image/x-icon"),
+         "/og.png": ("og.png", "image/png")}
+
+#: Search-engine ownership checks, by meta tag, so verifying the site needs no
+#: DNS record on a domain the project does not own. Each value is the token
+#: the engine hands out (the `content` of the tag it shows), set in the
+#: platform's environment; unset, no tag is written.
+VERIFICATION = {"DOCSFORGE_GOOGLE_SITE_VERIFICATION": "google-site-verification",
+                "DOCSFORGE_BING_SITE_VERIFICATION": "msvalidate.01"}
 
 TOKEN_VAR = "DOCSFORGE_MCP_TOKEN"
 INSECURE_VAR = "DOCSFORGE_MCP_INSECURE"
@@ -211,6 +221,16 @@ def public_url(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
+def site_verification(env=os.environ) -> str:
+    """The verification meta tags whose tokens are configured, else nothing."""
+    tags = []
+    for var, name in VERIFICATION.items():
+        token = (env.get(var) or "").strip()
+        if token:
+            tags.append(f'<meta name="{name}" content="{html.escape(token, quote=True)}">')
+    return "\n  ".join(tags)
+
+
 def page(name: str, request: Request) -> Response:
     """One site page, with the version chip and the server's own URL filled in."""
     path = SITE / name
@@ -218,7 +238,8 @@ def page(name: str, request: Request) -> Response:
         return JSONResponse({"name": "docsforge", "version": __version__, "mcp": "/mcp"})
     body = (path.read_text(encoding="utf-8")
             .replace("{{VERSION}}", __version__)
-            .replace("{{BASE_URL}}", public_url(request)))
+            .replace("{{BASE_URL}}", public_url(request))
+            .replace("{{SITE_VERIFICATION}}", site_verification()))
     return Response(body, media_type="text/html; charset=utf-8",
                     headers={"Cache-Control": "public, max-age=300"})
 
@@ -254,6 +275,45 @@ async def logo(request: Request) -> Response:
 @server.custom_route("/favicon.ico", methods=["GET"], include_in_schema=False)
 async def favicon(request: Request) -> Response:
     return brand("/favicon.ico")
+
+
+@server.custom_route("/og.png", methods=["GET"], include_in_schema=False)
+async def og_image(request: Request) -> Response:
+    return brand("/og.png")
+
+
+def robots_txt() -> str:
+    """Everything public may be crawled; the tool surface and its sign-in may
+    not — they answer only to a token and carry nothing to index."""
+    return ("User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /mcp\n"
+            "Disallow: /oauth/\n"
+            "Disallow: /authorize\n"
+            "Disallow: /token\n"
+            "Disallow: /register\n"
+            f"\nSitemap: {SITE_URL}/sitemap.xml\n")
+
+
+def sitemap_xml() -> str:
+    """The site's pages at their canonical addresses — the same three the
+    pages themselves name as canonical."""
+    urls = "".join(f"  <url><loc>{SITE_URL}{path}</loc></url>\n" for path in PAGES)
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f"{urls}</urlset>\n")
+
+
+@server.custom_route("/robots.txt", methods=["GET"], include_in_schema=False)
+async def robots(request: Request) -> Response:
+    return Response(robots_txt(), media_type="text/plain; charset=utf-8",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@server.custom_route("/sitemap.xml", methods=["GET"], include_in_schema=False)
+async def sitemap(request: Request) -> Response:
+    return Response(sitemap_xml(), media_type="application/xml",
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 
 @server.custom_route("/health", methods=["GET"], include_in_schema=False)

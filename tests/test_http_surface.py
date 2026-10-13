@@ -18,6 +18,7 @@ from starlette.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from docsforge import SITE_URL
 from docsforge.server import mcp_server
 
 TOKEN = "s3cret-token"
@@ -49,7 +50,7 @@ def open_app():
 # ── the public half ──────────────────────────────────────
 @pytest.mark.parametrize("path,marker", [
     ("/", "Documentation for technologies"),
-    ("/tools", "Twelve tools, defined once."),
+    ("/tools", "Thirteen tools, defined once."),
     ("/connect", "Connect your MCP client."),
 ])
 def test_site_pages_are_public_and_self_contained(gated, path, marker):
@@ -69,13 +70,19 @@ def test_site_pages_are_public_and_self_contained(gated, path, marker):
     assert "/api/" not in r.text and "app.js" not in r.text and "/static/" not in r.text
 
 
-def test_site_pages_link_only_to_each_other_and_github(gated):
+DEVELOPER_LINKS = ("https://portfolio-raj-25.netlify.app/",
+                   "https://www.linkedin.com/in/raj-patel5/",
+                   "https://github.com/R204570")
+
+
+def test_site_pages_link_only_to_each_other_github_and_the_developer(gated):
     import re
     for path in ("/", "/tools", "/connect"):
         hrefs = set(re.findall(r'href="([^"]+)"', gated.get(path).text))
         for h in hrefs:
             assert (h.startswith(("/", "https://github.com/R204570/DocsForge",
-                                  "https://fonts.g"))), (path, h)
+                                  "https://fonts.g", SITE_URL + "/"))
+                    or h in DEVELOPER_LINKS), (path, h)
         # every internal page link resolves
         for h in hrefs:
             if h.startswith("/"):
@@ -85,6 +92,7 @@ def test_site_pages_link_only_to_each_other_and_github(gated):
 @pytest.mark.parametrize("path,kind,drawn", [
     ("/logo.svg", "image/svg+xml", "docsforge-logo.svg"),
     ("/favicon.ico", "image/x-icon", "docsforge-logo.ico"),
+    ("/og.png", "image/png", "docsforge-og.png"),
 ])
 def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, kind, drawn):
     r = gated.get(path)
@@ -96,6 +104,95 @@ def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, k
     for page in ("/", "/tools", "/connect"):
         html = gated.get(page).text
         assert '<link rel="icon" href="/favicon.ico"' in html and 'src="/logo.svg"' in html, page
+
+
+# ── search engines ───────────────────────────────────────
+PUBLIC = ("/", "/tools", "/connect")
+
+
+@pytest.mark.parametrize("path", PUBLIC)
+def test_every_page_names_its_canonical_url_and_carries_share_metadata(gated, path):
+    text = gated.get(path).text
+    canonical = SITE_URL + path
+    assert re.findall(r'<link rel="canonical" href="([^"]+)"', text) == [canonical]
+    assert re.findall(r'<meta property="og:url" content="([^"]+)"', text) == [canonical]
+    assert f'<meta property="og:image" content="{SITE_URL}/og.png">' in text
+    assert '<meta name="twitter:card" content="summary_large_image">' in text
+    assert "noindex" not in text
+    # One title and one description, and the share cards repeat them exactly.
+    title = re.findall(r"<title>(.*?)</title>", text)
+    description = re.findall(r'<meta name="description" content="([^"]*)">', text)
+    assert len(title) == len(description) == 1
+    assert f'<meta property="og:title" content="{title[0]}">' in text
+    assert f'<meta property="og:description" content="{description[0]}">' in text
+
+
+def test_titles_and_descriptions_are_not_shared_between_pages(gated):
+    pages = [gated.get(p).text for p in PUBLIC]
+    titles = {re.search(r"<title>(.*?)</title>", t).group(1) for t in pages}
+    descriptions = {re.search(r'<meta name="description" content="([^"]*)">', t).group(1)
+                    for t in pages}
+    assert len(titles) == len(descriptions) == len(PUBLIC)
+
+
+@pytest.mark.parametrize("path", PUBLIC)
+def test_structured_data_parses_and_names_the_developer(gated, path):
+    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>',
+                        gated.get(path).text, re.S)
+    assert len(blocks) == 1
+    graph = {node["@type"]: node for node in json.loads(blocks[0])["@graph"]}
+    assert {"WebSite", "Person", "SoftwareApplication", "WebPage"} <= set(graph)
+    assert graph["Person"]["name"] == "Raj Patel"
+    assert graph["Person"]["sameAs"] == list(DEVELOPER_LINKS)
+    assert graph["SoftwareApplication"]["codeRepository"] == "https://github.com/R204570/DocsForge"
+    assert graph["WebPage"]["url"] == SITE_URL + path
+
+
+def test_the_home_page_shows_who_built_it(gated):
+    text = gated.get("/").text
+    section = text[text.index('id="developer"'):]
+    section = section[:section.index("</section>")]
+    assert "Built by Raj Patel" in section
+    for href in DEVELOPER_LINKS:
+        assert f'href="{href}"' in section, href
+    # and every page's footer leads there
+    for path in PUBLIC:
+        assert 'href="/#developer"' in gated.get(path).text, path
+
+
+def test_robots_allows_the_site_points_at_the_sitemap_and_keeps_mcp_out(gated):
+    r = gated.get("/robots.txt")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    lines = r.text.splitlines()
+    assert "User-agent: *" in lines and "Allow: /" in lines and "Disallow: /" not in lines
+    assert "Disallow: /mcp" in lines
+    assert f"Sitemap: {SITE_URL}/sitemap.xml" in lines
+
+
+def test_sitemap_lists_exactly_the_canonical_pages(gated):
+    import xml.etree.ElementTree as ET
+    r = gated.get("/sitemap.xml")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/xml")
+    ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    locs = [e.text for e in ET.fromstring(r.content).findall("s:url/s:loc", ns)]
+    assert locs == [SITE_URL + p for p in PUBLIC]
+    for loc in locs:  # each one is served, publicly, with no token
+        assert gated.get(loc.removeprefix(SITE_URL)).status_code == 200, loc
+
+
+def test_verification_tags_come_from_the_environment_only(gated, monkeypatch):
+    for var in mcp_server.VERIFICATION:
+        monkeypatch.delenv(var, raising=False)
+    text = gated.get("/").text
+    assert "google-site-verification" not in text and "msvalidate.01" not in text
+    assert "{{SITE_VERIFICATION}}" not in text
+    monkeypatch.setenv("DOCSFORGE_GOOGLE_SITE_VERIFICATION", "abc123")
+    monkeypatch.setenv("DOCSFORGE_BING_SITE_VERIFICATION", '"><script>x</script>')
+    for path in PUBLIC:
+        text = gated.get(path).text
+        assert '<meta name="google-site-verification" content="abc123">' in text, path
+        assert ('<meta name="msvalidate.01" content="&quot;&gt;&lt;script&gt;x&lt;/script&gt;">'
+                in text), path
 
 
 def test_health_is_public_and_names_no_host(gated):
