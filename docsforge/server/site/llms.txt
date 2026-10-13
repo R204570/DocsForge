@@ -1,0 +1,18 @@
+# DocsForge
+
+> An open-source documentation MCP server. Given the name of a library, framework or tool, DocsForge finds its official documentation through the package registries, verifies that the page really documents it, harvests the whole set as Markdown, and serves it to AI agents and coding assistants over the Model Context Protocol, with a coverage figure that says when a harvest is incomplete.
+
+Built by Raj Patel (https://portfolio-raj-25.netlify.app/). MIT licensed. Install with `pipx install docsforge`.
+
+Its 13 MCP tools: learn_technology, harvest_docs, harvest_status, find_docs, scan_project, fetch_docs, save_docs, detect_source_type, search_knowledge_base, read_knowledge_base, list_knowledge_base, forget_resolution, forget_selection.
+
+## Site
+
+- [Home](https://docsforge.vercel.app/): how a name is resolved, verified and harvested, coverage reporting, and a FAQ
+- [Tools](https://docsforge.vercel.app/tools): every MCP tool, its arguments and what it returns
+- [Connect](https://docsforge.vercel.app/connect): one command or config block per MCP client (Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code, Claude Desktop), running it yourself, and storage
+
+## Source
+
+- [README](https://github.com/R204570/DocsForge#readme): installation, the CLI, the MCP server, the web chat, and deployment
+- [Contributing](https://github.com/R204570/DocsForge/blob/main/CONTRIBUTING.md): how to report a problem or propose a change

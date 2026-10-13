@@ -20,9 +20,9 @@ Run:
   DOCSFORGE_MCP_TOKEN=… python main.py --http --host 0.0.0.0   # hosted
 
 Over HTTP the process serves the public site (`/`, `/tools`, `/connect`,
-its `/logo.svg`, `/favicon.ico` and `/og.png`, and `/robots.txt` and
+its icons, `/og.png`, `/site.webmanifest`, `/llms.txt`, and `/robots.txt` and
 `/sitemap.xml` for search engines), `/health`, and `/mcp`; only `/mcp` needs
-the bearer token.
+the bearer token. Any other address a browser asks for gets the site's 404.
 
 Register with Claude Code:
   claude mcp add docsforge -- python E:/DocsForge/main.py
@@ -36,6 +36,7 @@ import html
 import inspect
 import ipaddress
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -43,14 +44,16 @@ from typing import Annotated, Any, Literal
 import anyio
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.exceptions import HTTPException
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from docsforge.tools import forge_tools
 from docsforge.tools import harvest_jobs
-from docsforge import SITE_URL, __version__
+from docsforge import __version__
 from docsforge.core.engine import enable_utf8_console
 
 server = MCPServer(
@@ -182,17 +185,28 @@ register()
 # a token requirement on every local `--http` run too.
 # ─────────────────────────────────────────────────────────────
 
-#: The public site: three self-contained HTML pages, no assets but the logo
-#: and the favicon, no outside script but the Google tag, nothing from the
-#: web chat in `app.py` — that surface is for local testing and is not part of
-#: the hosted process. Package data, so it ships in the wheel.
+#: The public site: three self-contained HTML pages, no outside script but the
+#: Google tag, nothing from the web chat in `app.py` — that surface is for
+#: local testing and is not part of the hosted process. Package data, so it
+#: ships in the wheel. Every file here is written by scripts/build_site.py.
 SITE = Path(__file__).resolve().parent / "site"
 PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html"}
-#: Copied from Logo/ by scripts/build_site.py. The chat in `app.py` and the
-#: sign-in page in `oauth.py` ask for the same two paths.
-BRAND = {"/logo.svg": ("logo.svg", "image/svg+xml"),
+#: What any other address a browser asks for gets, with a 404 and noindex.
+NOT_FOUND = "404.html"
+#: Everything else the site serves, at the path it is asked for by. The logo
+#: and favicon are also what the chat in `app.py` and the sign-in page in
+#: `oauth.py` ask for; the rest are for search engines (`robots.txt`,
+#: `sitemap.xml`), social cards, home screens and language models (`llms.txt`).
+FILES = {"/logo.svg": ("logo.svg", "image/svg+xml"),
          "/favicon.ico": ("favicon.ico", "image/x-icon"),
-         "/og.png": ("og.png", "image/png")}
+         "/og.png": ("og.png", "image/png"),
+         "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+         "/icon-192.png": ("icon-192.png", "image/png"),
+         "/icon-512.png": ("icon-512.png", "image/png"),
+         "/site.webmanifest": ("site.webmanifest", "application/manifest+json"),
+         "/llms.txt": ("llms.txt", "text/plain; charset=utf-8"),
+         "/robots.txt": ("robots.txt", "text/plain; charset=utf-8"),
+         "/sitemap.xml": ("sitemap.xml", "application/xml")}
 
 #: Search-engine ownership checks, by meta tag, so verifying the site needs no
 #: DNS record on a domain the project does not own. Each value is the token
@@ -200,6 +214,12 @@ BRAND = {"/logo.svg": ("logo.svg", "image/svg+xml"),
 #: platform's environment; unset, no tag is written.
 VERIFICATION = {"DOCSFORGE_GOOGLE_SITE_VERIFICATION": "google-site-verification",
                 "DOCSFORGE_BING_SITE_VERIFICATION": "msvalidate.01"}
+
+#: IndexNow (Bing, Yandex, Seznam, Naver) takes a site's word that a page
+#: changed, instead of waiting for a crawl. The key is any 8-128 letters,
+#: digits or dashes; the site proves it owns it by serving `/<key>.txt`.
+#: Unset, nothing is served. `scripts/indexnow.py` submits the sitemap.
+INDEXNOW_VAR = "DOCSFORGE_INDEXNOW_KEY"
 
 TOKEN_VAR = "DOCSFORGE_MCP_TOKEN"
 INSECURE_VAR = "DOCSFORGE_MCP_INSECURE"
@@ -231,17 +251,34 @@ def site_verification(env=os.environ) -> str:
     return "\n  ".join(tags)
 
 
-def page(name: str, request: Request) -> Response:
+def page(name: str, request: Request, status: int = 200) -> Response:
     """One site page, with the version chip and the server's own URL filled in."""
     path = SITE / name
     if not path.exists():
+        if status != 200:
+            return PlainTextResponse("Not Found", status_code=status)
         return JSONResponse({"name": "docsforge", "version": __version__, "mcp": "/mcp"})
     body = (path.read_text(encoding="utf-8")
             .replace("{{VERSION}}", __version__)
             .replace("{{BASE_URL}}", public_url(request))
             .replace("{{SITE_VERIFICATION}}", site_verification()))
-    return Response(body, media_type="text/html; charset=utf-8",
-                    headers={"Cache-Control": "public, max-age=300"})
+    headers = ({"Cache-Control": "public, max-age=300"} if status == 200 else
+               {"Cache-Control": "no-cache", "X-Robots-Tag": "noindex"})
+    return Response(body, status_code=status, media_type="text/html; charset=utf-8",
+                    headers=headers)
+
+
+async def not_found(request: Request, exc: Exception) -> Response:
+    """A 404 a person can do something with: the site's own page, still a 404
+    and marked noindex. Anything that is not a browser asking for a page —
+    an MCP client, an OAuth discovery probe, a script — keeps the plain one."""
+    browser = (request.method in ("GET", "HEAD")
+               and "text/html" in request.headers.get("accept", "")
+               and not request.url.path.startswith(("/mcp", "/.well-known")))
+    if browser:
+        return page(NOT_FOUND, request, status=404)
+    return PlainTextResponse("Not Found", status_code=404,
+                             headers=getattr(exc, "headers", None))
 
 
 @server.custom_route("/", methods=["GET"], include_in_schema=False)
@@ -259,60 +296,37 @@ async def connect_page(request: Request) -> Response:
     return page(PAGES["/connect"], request)
 
 
-def brand(path: str) -> Response:
-    """The logo or the favicon. An hour, not a day: the names carry no hash,
-    so a new logo has to be able to replace the old one."""
-    name, media_type = BRAND[path]
+def site_file(path: str) -> Response:
+    """One of FILES. An hour, not a day: the names carry no hash, so a new
+    logo has to be able to replace the old one."""
+    name, media_type = FILES[path]
     return FileResponse(SITE / name, media_type=media_type,
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
-@server.custom_route("/logo.svg", methods=["GET"], include_in_schema=False)
-async def logo(request: Request) -> Response:
-    return brand("/logo.svg")
+def _serves(path: str):
+    async def endpoint(request: Request) -> Response:
+        return site_file(path)
+    return endpoint
 
 
-@server.custom_route("/favicon.ico", methods=["GET"], include_in_schema=False)
-async def favicon(request: Request) -> Response:
-    return brand("/favicon.ico")
+for _path in FILES:
+    server.custom_route(_path, methods=["GET"], include_in_schema=False)(_serves(_path))
 
 
-@server.custom_route("/og.png", methods=["GET"], include_in_schema=False)
-async def og_image(request: Request) -> Response:
-    return brand("/og.png")
+def indexnow_key(env=os.environ) -> str:
+    """The configured IndexNow key, or "" when unset or not a valid key."""
+    key = (env.get(INDEXNOW_VAR) or "").strip()
+    return key if re.fullmatch(r"[A-Za-z0-9-]{8,128}", key) else ""
 
 
-def robots_txt() -> str:
-    """Everything public may be crawled; the tool surface and its sign-in may
-    not — they answer only to a token and carry nothing to index."""
-    return ("User-agent: *\n"
-            "Allow: /\n"
-            "Disallow: /mcp\n"
-            "Disallow: /oauth/\n"
-            "Disallow: /authorize\n"
-            "Disallow: /token\n"
-            "Disallow: /register\n"
-            f"\nSitemap: {SITE_URL}/sitemap.xml\n")
-
-
-def sitemap_xml() -> str:
-    """The site's pages at their canonical addresses — the same three the
-    pages themselves name as canonical."""
-    urls = "".join(f"  <url><loc>{SITE_URL}{path}</loc></url>\n" for path in PAGES)
-    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            f"{urls}</urlset>\n")
-
-
-@server.custom_route("/robots.txt", methods=["GET"], include_in_schema=False)
-async def robots(request: Request) -> Response:
-    return Response(robots_txt(), media_type="text/plain; charset=utf-8",
-                    headers={"Cache-Control": "public, max-age=3600"})
-
-
-@server.custom_route("/sitemap.xml", methods=["GET"], include_in_schema=False)
-async def sitemap(request: Request) -> Response:
-    return Response(sitemap_xml(), media_type="application/xml",
+# Registered after every other `.txt` route, so it only sees what they did not.
+@server.custom_route("/{key}.txt", methods=["GET"], include_in_schema=False)
+async def indexnow_key_file(request: Request) -> Response:
+    key = indexnow_key()
+    if not key or request.path_params["key"] != key:
+        raise HTTPException(status_code=404)
+    return Response(key, media_type="text/plain; charset=utf-8",
                     headers={"Cache-Control": "public, max-age=3600"})
 
 
@@ -367,6 +381,25 @@ class BearerGate:
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+class CompressSite:
+    """gzip the site — its pages are 40-140 KB of inline HTML, CSS and SVG —
+    and leave `/mcp` exactly as the SDK sends it, event stream included."""
+
+    def __init__(self, app, protect: str = "/mcp"):
+        self.app, self.protect = app, protect
+        self.gzip = GZipMiddleware(app, minimum_size=1024)
+
+    @property
+    def routes(self):
+        return getattr(self.app, "routes", [])
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and not scope["path"].startswith(self.protect):
+            await self.gzip(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
 
 
 def is_loopback(host: str) -> bool:
@@ -436,8 +469,9 @@ def build_http_app(host: str = "127.0.0.1", token: str | None = None,
     """
     app = server.streamable_http_app(host=host, stateless_http=stateless,
                                      json_response=stateless)
+    app.add_exception_handler(404, not_found)
     if not token:
-        return app
+        return CompressSite(app)
     from docsforge.server import oauth
     base = configured_public_url(public_url or f"http://{host}:8765")
     provider = oauth.StatelessProvider(token, base)
@@ -452,9 +486,9 @@ def build_http_app(host: str = "127.0.0.1", token: str | None = None,
         # say where it lives keeps the bearer token and loses only OAuth.
         print(f"DocsForge: OAuth not offered ({why}; public URL is {base}) — "
               f"set DOCSFORGE_PUBLIC_URL to an https address to enable it", file=sys.stderr)
-        return BearerGate(app, token)
+        return BearerGate(CompressSite(app), token)
     app.router.routes.extend(oauth_routes)
-    return BearerGate(app, token, verifier=provider.verify_access,
+    return BearerGate(CompressSite(app), token, verifier=provider.verify_access,
                       resource_metadata=oauth.resource_metadata_url(base))
 
 

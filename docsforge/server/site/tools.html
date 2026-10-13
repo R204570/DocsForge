@@ -18,6 +18,8 @@
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="author" content="Raj Patel">
   <meta name="theme-color" content="#0b0b0d">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
   {{SITE_VERIFICATION}}
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="DocsForge">
@@ -37,7 +39,8 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
   <style>
 /* DocsForge public site — one stylesheet, inlined into every page by
    scripts/build_site.py. The world is the web chat's: near-black ground,
@@ -351,6 +354,19 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .foot .l > a:hover { color: var(--text); }
 .foot .r { display: flex; flex-wrap: wrap; gap: 12px 40px; }
 
+/* ── faq ──────────────────────────────────────────────── */
+.faq { display: grid; gap: 0 56px; margin-top: 28px; }
+@media (min-width: 900px) { .faq { grid-template-columns: 1fr 1fr; } }
+.faq .qa { padding: 22px 0; border-top: 1px solid var(--line-soft); }
+.faq h3 { font-size: 17px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+.faq p { margin: 0; color: var(--text-2); font-size: 15.5px; line-height: 1.65; text-wrap: pretty; }
+.faq code { font-size: 13.5px; color: var(--text); }
+
+/* ── not found ────────────────────────────────────────── */
+.notfound { padding-block: 48px 24px; }
+.notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
+.notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
   </style>
 </head>
 <body>
@@ -371,7 +387,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 <main class="wrap doc">
   <header class="lede">
     <h1>Thirteen tools, defined once.</h1>
-    <p class="lead">Every tool is defined exactly once and served identically over MCP. Results handed to a model are capped at 60k characters with an explicit truncation marker.</p>
+    <p class="lead">The MCP tools an AI coding assistant calls to learn a library by name, harvest and search its documentation, and check a project's dependencies. Every tool is defined exactly once and served identically over MCP. Results handed to a model are capped at 60k characters with an explicit truncation marker.</p>
   </header>
 
   <h2 class="group rv">Learn</h2>
@@ -459,7 +475,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
       <nav aria-label="Project">
         <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
-        <a href="https://github.com/R204570/DocsForge#readme" target="_blank" rel="noopener noreferrer">Contribute</a>
+        <a href="https://github.com/R204570/DocsForge/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contribute</a>
       </nav>
       <nav aria-label="Developer">
         <a href="https://portfolio-raj-25.netlify.app/" target="_blank" rel="me noopener noreferrer">Portfolio</a>

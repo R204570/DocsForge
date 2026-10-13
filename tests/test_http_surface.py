@@ -93,6 +93,9 @@ def test_site_pages_link_only_to_each_other_github_and_the_developer(gated):
     ("/logo.svg", "image/svg+xml", "docsforge-logo.svg"),
     ("/favicon.ico", "image/x-icon", "docsforge-logo.ico"),
     ("/og.png", "image/png", "docsforge-og.png"),
+    ("/apple-touch-icon.png", "image/png", "docsforge-icon-180.png"),
+    ("/icon-192.png", "image/png", "docsforge-icon-192.png"),
+    ("/icon-512.png", "image/png", "docsforge-icon-512.png"),
 ])
 def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, kind, drawn):
     r = gated.get(path)
@@ -178,6 +181,122 @@ def test_sitemap_lists_exactly_the_canonical_pages(gated):
     assert locs == [SITE_URL + p for p in PUBLIC]
     for loc in locs:  # each one is served, publicly, with no token
         assert gated.get(loc.removeprefix(SITE_URL)).status_code == 200, loc
+
+
+def test_sitemap_dates_each_page_and_robots_and_sitemap_are_real_files(gated):
+    import datetime
+    import xml.etree.ElementTree as ET
+    ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    served = gated.get("/sitemap.xml").content
+    today = datetime.date.today().isoformat()
+    for url in ET.fromstring(served).findall("s:url", ns):
+        lastmod = url.find("s:lastmod", ns).text
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", lastmod) and lastmod <= today, lastmod
+    # Served exactly as committed: what is in the repository is what crawlers get.
+    assert served == (mcp_server.SITE / "sitemap.xml").read_bytes()
+    assert gated.get("/robots.txt").content == (mcp_server.SITE / "robots.txt").read_bytes()
+
+
+def test_the_home_page_faq_is_visible_and_its_markup_says_the_same(gated):
+    text = gated.get("/").text
+    section = text[text.index('id="faq"'):]
+    section = section[:section.index("</section>")]
+    shown = [(re.sub(r"<[^>]+>", "", q), re.sub(r"<[^>]+>", "", a)) for q, a in
+             re.findall(r"<h3>(.*?)</h3>\s*<p>(.*?)</p>", section, re.S)]
+    block = re.search(r'<script type="application/ld\+json">(.*?)</script>', text, re.S).group(1)
+    faq = next(n for n in json.loads(block)["@graph"] if n["@type"] == "FAQPage")
+    marked = [(q["name"], q["acceptedAnswer"]["text"]) for q in faq["mainEntity"]]
+    import html as htmllib
+    assert len(shown) >= 5
+    assert [(htmllib.unescape(q), htmllib.unescape(a)) for q, a in shown] == marked
+
+
+def test_llms_txt_describes_the_site_for_language_models(gated):
+    r = gated.get("/llms.txt")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    lines = r.text.splitlines()
+    assert lines[0] == "# DocsForge" and any(l.startswith("> ") for l in lines)
+    # every tool the tools page documents, and only those
+    tools = re.findall(r'class="name">([a-z_]+)<', gated.get("/tools").text)
+    listed = re.search(r"MCP tools: (.*)\.", r.text).group(1).split(", ")
+    assert listed == tools and len(tools) == 13
+    # every site link in it is a page that is served
+    for url in re.findall(r"\((https://[^)]+)\)", r.text):
+        if url.startswith(SITE_URL):
+            assert gated.get(url.removeprefix(SITE_URL)).status_code == 200, url
+
+
+def test_the_web_manifest_names_icons_that_are_served(gated):
+    r = gated.get("/site.webmanifest")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/manifest+json")
+    manifest = r.json()
+    assert manifest["name"] == "DocsForge" and manifest["start_url"] == "/"
+    for icon in manifest["icons"]:
+        got = gated.get(icon["src"])
+        assert got.status_code == 200 and got.headers["content-type"] == icon["type"]
+    for path in PUBLIC:
+        text = gated.get(path).text
+        assert '<link rel="manifest" href="/site.webmanifest">' in text
+        assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' in text
+
+
+def test_an_unknown_page_is_a_404_a_person_can_use_and_no_engine_indexes(gated):
+    r = gated.get("/no-such-page", headers={"Accept": "text/html"})
+    assert r.status_code == 404 and r.headers["content-type"].startswith("text/html")
+    assert r.headers["x-robots-tag"] == "noindex"
+    assert '<meta name="robots" content="noindex">' in r.text
+    assert '<link rel="canonical"' not in r.text
+    assert 'href="/"' in r.text and "{{" not in r.text
+    # Not a browser, or the tool surface: the plain answer, unchanged.
+    assert gated.get("/no-such-page").text == "Not Found"
+    assert gated.get("/mcp/elsewhere", headers={"Accept": "text/html"}).text == "Not Found"
+    # and /mcp itself still answers with its own gate, not a page
+    assert gated.post("/mcp", json=INIT, headers=MCP_HEADERS).status_code == 401
+
+
+def test_the_indexnow_key_file_is_served_only_for_the_configured_key(gated, monkeypatch):
+    monkeypatch.delenv(mcp_server.INDEXNOW_VAR, raising=False)
+    assert gated.get("/abcdef0123456789.txt").status_code == 404
+    monkeypatch.setenv(mcp_server.INDEXNOW_VAR, "abcdef0123456789")
+    r = gated.get("/abcdef0123456789.txt")
+    assert r.status_code == 200 and r.text == "abcdef0123456789"
+    assert gated.get("/0123456789abcdef.txt").status_code == 404
+    # the site's other .txt files are not shadowed by it
+    assert gated.get("/robots.txt").text.startswith("User-agent")
+    assert gated.get("/llms.txt").text.startswith("# DocsForge")
+    monkeypatch.setenv(mcp_server.INDEXNOW_VAR, "short")      # not a valid key
+    assert gated.get("/short.txt").status_code == 404
+
+
+def test_the_site_is_compressed_and_mcp_is_left_as_the_sdk_sends_it(gated):
+    r = gated.get("/", headers={"Accept-Encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip" and "Documentation for" in r.text
+    assert gated.get("/sitemap.xml", headers={"Accept-Encoding": "gzip"}).status_code == 200
+    m = gated.post("/mcp", json=INIT, headers={**MCP_HEADERS, "Accept-Encoding": "gzip",
+                                               "Authorization": f"Bearer {TOKEN}"})
+    assert m.status_code == 200 and "content-encoding" not in m.headers
+
+
+def test_the_committed_site_is_what_build_site_builds():
+    """Edit scripts/site_src/ and forget to rebuild, and this fails."""
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "build_site", os.path.join(root, "scripts", "build_site.py"))
+    build_site = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build_site)
+    css = (build_site.SRC / "site.css").read_text(encoding="utf-8")
+    js = (build_site.SRC / "site.js").read_text(encoding="utf-8")
+    picker = (build_site.SRC / "picker.html").read_text(encoding="utf-8")
+    for page in build_site.PAGES + build_site.UNLISTED:
+        committed = (build_site.SITE / f"{page}.html").read_text(encoding="utf-8")
+        assert committed == build_site.build(page, css, js, picker), page
+    assert (build_site.SITE / "llms.txt").read_text(encoding="utf-8") == build_site.llms_txt()
+    assert (build_site.SITE / "site.webmanifest").read_text(encoding="utf-8") == build_site.manifest()
+    assert (build_site.SITE / "robots.txt").read_text(encoding="utf-8") == build_site.ROBOTS
+    dates = build_site.recorded_lastmods()
+    assert set(dates) == set(build_site.PATHS.values())
+    assert (build_site.SITE / "sitemap.xml").read_text(encoding="utf-8") == build_site.sitemap(dates)
 
 
 def test_verification_tags_come_from_the_environment_only(gated, monkeypatch):

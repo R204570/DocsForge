@@ -10,7 +10,8 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
   <!--STYLE-->
 </head>
 <body>
@@ -19,7 +20,7 @@
 <main class="wrap doc">
   <header class="lede">
     <h1>Thirteen tools, defined once.</h1>
-    <p class="lead">Every tool is defined exactly once and served identically over MCP. Results handed to a model are capped at 60k characters with an explicit truncation marker.</p>
+    <p class="lead">The MCP tools an AI coding assistant calls to learn a library by name, harvest and search its documentation, and check a project's dependencies. Every tool is defined exactly once and served identically over MCP. Results handed to a model are capped at 60k characters with an explicit truncation marker.</p>
   </header>
 
   <h2 class="group rv">Learn</h2>

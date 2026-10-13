@@ -13,13 +13,31 @@ Whether it ranks is measured afterwards, in Search Console.
 
 ## 1. What the site serves
 
-| Path | What | Where it comes from |
+Every file below is a real file in `docsforge/server/site/`, written by
+`python scripts/build_site.py` and served unchanged (`FILES` in
+`docsforge/server/mcp_server.py`). What is in the repository is exactly what
+a crawler gets.
+
+| Path | What | Source |
 |---|---|---|
-| `/`, `/tools`, `/connect` | the three public pages | `scripts/site_src/*.html` → `scripts/build_site.py` → `docsforge/server/site/` |
-| `/robots.txt` | allow everything public; keep `/mcp` and the OAuth endpoints out; name the sitemap | `robots_txt()` in `docsforge/server/mcp_server.py` |
-| `/sitemap.xml` | the three pages at their canonical URLs | `sitemap_xml()` in `docsforge/server/mcp_server.py` |
-| `/og.png` | the 1200 × 630 social-sharing card | `Logo/docsforge-og.png`, copied by the build |
+| `/`, `/tools`, `/connect` | the three public pages | `scripts/site_src/*.html` |
+| `/robots.txt` | allow everything public; keep `/mcp` and the OAuth endpoints out; name the sitemap | `ROBOTS` in `build_site.py` |
+| `/sitemap.xml` | the three pages at their canonical URLs, each with a `<lastmod>` that moves only when that page's built HTML changes | `sitemap()` in `build_site.py` |
+| `/llms.txt` | the site described for language models ([llmstxt.org](https://llmstxt.org/)): what DocsForge is, its tools, where each part is documented | `llms_txt()` in `build_site.py` |
+| `/og.png` | the 1200 × 630 social-sharing card | `Logo/docsforge-og.png` |
+| `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`, `/site.webmanifest` | home-screen icons and the manifest naming them | `Logo/docsforge-icon-*.png`, `manifest()` |
 | `/logo.svg`, `/favicon.ico` | the fox | `Logo/` |
+| any other address | the site's 404 page — a real `404`, `noindex` (meta tag and `X-Robots-Tag`), links back to the three pages | `scripts/site_src/404.html` |
+| `/<key>.txt` | the IndexNow key file, only when `DOCSFORGE_INDEXNOW_KEY` is set | `indexnow_key_file()` in `mcp_server.py` |
+
+The site's responses are gzip-compressed (the home page goes from 137 KB to
+21 KB); `/mcp` is left exactly as the SDK sends it.
+
+**Why production shows none of this before the merge:** Vercel builds
+`docsforge.vercel.app` from `main`. Until this work is merged, `/robots.txt`
+and `/sitemap.xml` there answer 404. Pull-request previews sit behind Vercel's
+login (Deployment Protection) and are `noindex` by Vercel itself, so search
+engines only ever see production.
 
 Every page carries, stamped in by `scripts/build_site.py`:
 
@@ -38,6 +56,15 @@ Every page carries, stamped in by `scripts/build_site.py`:
   `/tools` and `/connect`. A `Person` rather than an `Organization`:
   DocsForge is one developer's project, and the markup says only what the
   page says.
+
+The home page has a **Frequently asked questions** section (`#faq`): what
+DocsForge is, who it is for, what an MCP server is and which tools it
+provides, which clients it works with, how it avoids wrong documentation,
+API keys, and licence. The questions are written once, in `FAQ` in
+`build_site.py`, and rendered both as the visible section and as `FAQPage`
+structured data, so the two cannot disagree. (Google shows FAQ rich results
+only for a few authoritative sites now; the section is there for readers,
+for on-page relevance, and for AI answer engines that quote it.)
 
 The home page also has a **Built by Raj Patel** section (`#developer`) with
 links to the portfolio, LinkedIn and GitHub (`rel="me"`), and every page's
@@ -90,6 +117,25 @@ the property too, if the same Google account owns it.
 
 Bing also feeds DuckDuckGo, Yahoo and several AI search products.
 
+## 3a. IndexNow (instant Bing indexing)
+
+IndexNow lets the site tell Bing (and Yandex, Seznam, Naver) that a page
+changed, instead of waiting for the next crawl.
+
+1. Pick a key: 8–128 letters, digits or dashes — e.g. the output of
+   `python -c "import uuid; print(uuid.uuid4().hex)"`.
+2. Set `DOCSFORGE_INDEXNOW_KEY` to it in Vercel (Production) and redeploy.
+   The site now answers `https://docsforge.vercel.app/<key>.txt` with the
+   key, which is how IndexNow checks the submission is the owner's.
+3. After any deploy that changes a page:
+
+   ```
+   DOCSFORGE_INDEXNOW_KEY=<key> python scripts/indexnow.py
+   ```
+
+   It checks the key file is live, then submits every URL in the live
+   sitemap. `--dry-run` lists them without submitting.
+
 ## 4. Checking indexing and fixing crawl errors
 
 - **Search Console → Pages** lists what is indexed and why anything is not.
@@ -114,8 +160,38 @@ Automated, on every push (`tests/test_http_surface.py`):
 - titles and descriptions are unique across pages; no page says `noindex`;
 - the JSON-LD parses and names the developer and the repository;
 - `/robots.txt` allows `/`, keeps `/mcp` out and names the sitemap;
-- `/sitemap.xml` is valid and lists exactly the canonical pages, each serving `200`;
+- `/sitemap.xml` is valid and lists exactly the canonical pages, each serving
+  `200` with a valid `<lastmod>`; `robots.txt` and `sitemap.xml` are served
+  byte-for-byte as committed;
+- the FAQ section and its `FAQPage` markup say the same thing;
+- `/llms.txt` lists exactly the tools the tools page documents, and its links resolve;
+- the manifest's icons are served; an unknown page is a `noindex` 404 while
+  `/mcp` keeps its own answers; the IndexNow key file is served only for the
+  configured key;
+- the site is gzip-compressed and `/mcp` is not;
+- the committed site is exactly what `build_site.py` builds — editing
+  `scripts/site_src/` without rebuilding fails CI;
 - verification tags appear only when configured, and are escaped.
+
+The build itself refuses a page with no canonical, more or less than one
+`<h1>`, a title over 65 characters or a description outside 70–170.
+
+**Lighthouse** (v12, mobile emulation, throttled), run against a local
+server before this was merged:
+
+| Page | Performance | Accessibility | Best practices | SEO |
+|---|---|---|---|---|
+| `/` | 96 | 100 | 96* | 100 |
+| `/tools` | 100 | 100 | 96* | 100 |
+| `/connect` | 100 | 100 | 96* | 100 |
+
+\* The one deduction was a console error from the Google tag failing to load
+in the sandbox the audit ran in, which had no route to googletagmanager.com.
+It does not occur on the live site. Two changes earned the performance
+figures: gzip (above), and loading the Google Fonts stylesheet without
+blocking render (`rel="preload"` + `onload`, with a `<noscript>` fallback) —
+first paint on throttled mobile went from 3.2 s to 1.0 s, with no layout
+shift.
 
 By hand, after a deploy:
 
@@ -184,8 +260,10 @@ preview deployment URL.
 
 ## 8. Next steps
 
-- Set the two verification variables in Vercel and submit the sitemap
-  (sections 2–3). This is the one step code cannot do.
+- Merge, then confirm `https://docsforge.vercel.app/robots.txt`,
+  `/sitemap.xml` and `/llms.txt` answer 200.
+- Set the verification variables (and the IndexNow key) in Vercel and submit
+  the sitemap (sections 2–3a). This is the one step code cannot do.
 - Set the GitHub description, website and topics (section 6).
 - Re-run Lighthouse after each design change; keep the SEO score at 100.
 - Watch Search Console → *Performance* for the queries the site actually

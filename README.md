@@ -8,7 +8,9 @@ coding assistants — Claude Code, Cursor, Codex and any other MCP client.
 
 **Website:** [docsforge.vercel.app](https://docsforge.vercel.app/) ·
 [Tools](https://docsforge.vercel.app/tools) ·
-[Connect your client](https://docsforge.vercel.app/connect)
+[Connect your client](https://docsforge.vercel.app/connect) ·
+[Installation](#installation) ·
+[Contributing](CONTRIBUTING.md)
 
 ## 🚀 In production — feedback and contributors can support
 
@@ -16,7 +18,7 @@ coding assistants — Claude Code, Cursor, Codex and any other MCP client.
 [Open an issue](https://github.com/R204570/DocsForge/issues) with as much detail
 as you can. Every report makes it more reliable.
 
-**Want to contribute?** Email **rajpatel9408019@gmail.com** with the subject
+**Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md), or email **rajpatel9408019@gmail.com** with the subject
 **DocsForge Contribution Proposal**, and include:
 
 - Your **GitHub** — this is what I read to get a picture of your work

@@ -20,13 +20,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "docsforge"
 dynamic = ["version"]                      # single source: docsforge.__version__
-description = "Gives a model documentation for technologies it was not trained on — with a coverage figure you can gate on."
+description = "Open-source documentation MCP server: gives AI agents and coding assistants the official docs for technologies they were not trained on — with a coverage figure you can gate on."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Raj Patel" }]
-keywords = ["documentation", "mcp", "llm", "scraping", "knowledge-base"]
+keywords = ["documentation", "mcp", "mcp-server", "model-context-protocol", "llm", "ai-agents",
+            "claude-code", "cursor", "llms-txt", "rag", "scraping", "knowledge-base"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -87,7 +88,9 @@ docsforge = "docsforge.core.engine:main"
 docsforge-mcp = "docsforge.server.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/R204570/DocsForge"
+Homepage = "https://docsforge.vercel.app/"
+Documentation = "https://docsforge.vercel.app/tools"
+Repository = "https://github.com/R204570/DocsForge"
 Issues = "https://github.com/R204570/DocsForge/issues"
 
 [tool.setuptools.dynamic]
