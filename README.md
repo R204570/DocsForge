@@ -2,13 +2,23 @@
 
 **Universal software documentation → clean Markdown for LLMs.**
 
+An open-source **MCP server** that finds a library's official documentation
+from its name alone, verifies it, harvests it, and serves it to AI agents and
+coding assistants — Claude Code, Cursor, Codex and any other MCP client.
+
+**Website:** [docsforge.vercel.app](https://docsforge.vercel.app/) ·
+[Tools](https://docsforge.vercel.app/tools) ·
+[Connect your client](https://docsforge.vercel.app/connect) ·
+[Installation](#installation) ·
+[Contributing](CONTRIBUTING.md)
+
 ## 🚀 In production — feedback and contributors can support
 
 **Found a bug, a bad extraction, or something that could work better?**
 [Open an issue](https://github.com/R204570/DocsForge/issues) with as much detail
 as you can. Every report makes it more reliable.
 
-**Want to contribute?** Email **rajpatel9408019@gmail.com** with the subject
+**Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md), or email **rajpatel9408019@gmail.com** with the subject
 **DocsForge Contribution Proposal**, and include:
 
 - Your **GitHub** — this is what I read to get a picture of your work
@@ -19,7 +29,10 @@ Useful ground: crawling and scraping, documentation extraction, MCP tools, AI
 agents, backend and developer tooling. Bug fixes and documentation count as much
 as new crawling strategies.
 
-— **Raj Patel**, creator and maintainer
+— **Raj Patel**, creator and maintainer ·
+[Portfolio](https://portfolio-raj-25.netlify.app/) ·
+[LinkedIn](https://www.linkedin.com/in/raj-patel5/) ·
+[GitHub](https://github.com/R204570)
 
 ---
 

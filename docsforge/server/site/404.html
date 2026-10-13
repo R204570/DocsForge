@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-KTBKMGZM75"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-KTBKMGZM75');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page not found — DocsForge</title>
+  <meta name="description" content="This page does not exist on the DocsForge site.">
+  <meta name="robots" content="noindex">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+  <style>
+/* DocsForge public site — one stylesheet, inlined into every page by
+   scripts/build_site.py. The world is the web chat's: near-black ground,
+   one lavender, hairlines, 14px radii, Inter for words and JetBrains Mono
+   for code, names and figures. There is no light mode. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0d;
+  --soft: #121215;
+  --surface: #17171b;
+  --deep: #0e0e11;
+  --line: #2a2a31;
+  --line-soft: #202027;
+  --text: #ececee;
+  --text-2: #a9a9b3;
+  --text-3: #858591;
+  --accent: #cf9fff;
+  --accent-ink: #170b24;
+  --accent-dim: rgba(207, 159, 255, 0.13);
+  --accent-line: rgba(207, 159, 255, 0.34);
+  --danger: #ff9a9a;
+  --wire: #55555f;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r: 14px;
+  --r-s: 8px;
+  --nav: 56px;
+  --rail: 44px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.85), 0 2px 0 0 rgba(255, 255, 255, 0.02) inset;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { overflow-x: clip; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: var(--accent); color: var(--accent-ink); }
+a { color: inherit; text-decoration: none; }
+code, kbd, pre { font-family: var(--mono); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+.wrap { max-width: 1100px; margin-inline: auto; padding-inline: 24px; }
+@media (max-width: 640px) { .wrap { padding-inline: 16px; } }
+
+/* ── header ───────────────────────────────────────────── */
+.top {
+  position: sticky; top: 0; z-index: 40; height: var(--nav);
+  background: rgba(18, 18, 21, 0.86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.top .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.mark { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+.mark img { display: block; width: auto; height: 24px; }
+.nav { display: flex; align-items: center; gap: 16px; font-size: 14px; font-weight: 500; color: var(--text-2); }
+@media (min-width: 768px) { .nav { gap: 28px; } }
+.nav a { transition: color 150ms var(--ease); }
+.nav a:hover { color: var(--text); }
+.nav a[aria-current="page"] { color: var(--text); border-bottom: 1px solid var(--accent); padding-bottom: 1px; }
+.nav .wide { display: none; }
+@media (min-width: 768px) { .nav .wide { display: inline; } }
+.nav .ext { display: inline-flex; align-items: center; gap: 4px; }
+.nav .ext svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.7; }
+.chip { display: none; font-family: var(--mono); font-size: 11px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-2); background: var(--surface); }
+@media (min-width: 640px) { .chip { display: inline-block; } }
+
+/* ── type ─────────────────────────────────────────────── */
+h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: -0.02em; line-height: 1.1; }
+.display { font-size: clamp(38px, 5.4vw, 62px); font-weight: 700; letter-spacing: -0.03em; }
+h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 700; }
+h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.lead { color: var(--text-2); font-size: clamp(17px, 1.7vw, 20px); line-height: 1.55; max-width: 62ch; text-wrap: pretty; }
+.prose { max-width: 66ch; color: var(--text-2); font-size: 16px; line-height: 1.65; text-wrap: pretty; }
+.prose strong { color: var(--text); font-weight: 600; }
+
+/* ── buttons ──────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 22px; border-radius: var(--r); font-weight: 500; font-size: 15px;
+  border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+  transition: transform 150ms var(--ease), background 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease);
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { background: #dcb8ff; }
+.btn-ghost { border-color: var(--line); color: var(--text); background: transparent; }
+.btn-ghost:hover { border-color: var(--text-3); }
+.btn-sm { height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; font-family: var(--mono); }
+
+/* ── the store's own page format ─────────────────────── */
+/* A harvested corpus is a file of pages, each opening with `## Title` and
+   `Source: <url>`. The site borrows that header exactly. */
+
+/* ── code and terminal ────────────────────────────────── */
+
+
+/* ── chips ────────────────────────────────────────────── */
+
+/* ── the landing ──────────────────────────────────────── */
+.hero { padding-block: clamp(40px, 6vw, 72px) 0; display: grid; gap: 44px; justify-items: center; text-align: center; }
+.hero > div { min-width: 0; }
+.hero .copy { max-width: 820px; }
+.hero .copy .lead { margin-inline: auto; }
+.hero .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+.hero .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 10px; margin-top: 24px; font-size: 13px; color: var(--text-3); }
+.hero .facts span + span::before { content: "·"; margin-right: 10px; }
+.hero .hero-figure { width: 100%; max-width: 900px; text-align: left; }
+@media (min-width: 1024px) {
+  .hero { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; align-items: center; justify-items: stretch; text-align: left; padding-block: clamp(40px, 5vw, 64px) 0; }
+  .hero .copy { max-width: none; }
+  .hero .copy .display { font-size: clamp(40px, 3.6vw, 52px); }
+  .hero .copy .lead { margin-inline: 0; font-size: 18px; }
+  .hero .cta, .hero .facts { justify-content: flex-start; }
+  .hero .hero-figure { max-width: none; }
+}
+.figure { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; box-shadow: var(--shadow); }
+.figure.deep { background: var(--deep); }
+.figure .diagram { display: block; width: 100%; height: auto; max-width: 860px; margin-inline: auto; }
+.row .figure .diagram { max-width: 520px; }
+.hero-figure .diagram.wide { max-width: 620px; }
+/* the parked variant takes the figure's box exactly: a replaced element left at
+   height:auto keeps its intrinsic height and stretches the page past the footer */
+.diagram.narrow { visibility: hidden; position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+@media (max-width: 640px) {
+  .diagram.wide { visibility: hidden; position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+  .diagram.narrow { visibility: visible; position: static; width: 100%; height: auto; max-width: 360px; }
+}
+.figure .cap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 12px; font-size: 12.5px; color: var(--text-3); }
+.figure .cap code { font-size: 11.5px; color: var(--text-2); }
+.hero-figure { isolation: isolate; }
+.hero-figure::before { content: ""; position: absolute; inset: -60px 0 auto; height: 60%; background: radial-gradient(closest-side, rgba(207, 159, 255, 0.16), transparent 72%); pointer-events: none; z-index: -1; }
+
+.figures { display: flex; flex-wrap: wrap; gap: 10px 32px; margin: 56px 0 0; padding: 22px 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 13px; color: var(--text-2); }
+.figures b { color: var(--accent); font-weight: 600; margin-right: 6px; }
+
+.band { padding-block: clamp(72px, 9vw, 120px); }
+.band > h2 { margin-bottom: 14px; }
+.band > .lead { margin-bottom: 44px; }
+.row { display: grid; gap: 28px; align-items: center; padding-block: 28px; }
+@media (min-width: 900px) { .row { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; } .row.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); } .row.flip > .figure { order: -1; } }
+.row .n { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--accent); margin-right: 12px; vertical-align: 3px; }
+.row h3 { font-size: 24px; margin-bottom: 10px; }
+.row p { margin: 0; color: var(--text-2); font-size: 16px; line-height: 1.6; text-wrap: pretty; max-width: 48ch; }
+.row + .row { border-top: 1px solid var(--line-soft); }
+
+.coverage { display: grid; gap: 28px; align-items: start; }
+@media (min-width: 900px) { .coverage { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; } }
+.result { background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); padding: 20px 22px; margin-top: 22px; }
+.result .line { font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--danger); line-height: 1.6; }
+.result .line::before, .result .line::after { content: "**"; color: var(--text-3); font-weight: 400; }
+.result p { margin: 14px 0 0; color: var(--text-2); font-size: 14.5px; line-height: 1.6; }
+
+.close { padding: clamp(48px, 6vw, 72px) clamp(24px, 5vw, 56px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); display: grid; gap: 24px; box-shadow: var(--shadow); }
+@media (min-width: 900px) { .close { grid-template-columns: 1.2fr 1fr; align-items: center; } }
+.close .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.close .clients { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.close .clients span { font-family: var(--mono); font-size: 11.5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-2); }
+
+/* ── diagrams ─────────────────────────────────────────── */
+.diagram text { fill: var(--text); }
+.diagram .nt { fill: var(--text); }
+.diagram .ns { fill: var(--text-3); }
+.diagram .hi { fill: var(--accent); }
+.diagram .danger { fill: var(--danger); }
+.diagram .dim { opacity: 0.45; }
+.diagram .nd { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+.diagram .nd-call { fill: var(--deep); stroke: var(--accent-line); }
+.diagram .d-hi .nd { stroke: var(--accent); fill: var(--accent-dim); }
+.diagram .d-hi .mark { fill: var(--accent-dim); stroke: var(--accent-line); stroke-width: 1; }
+.diagram .wire { fill: none; stroke: var(--wire); stroke-width: 1.5; stroke-linecap: round; }
+.diagram .wire-lit { stroke: var(--accent-line); }
+.diagram .cell { fill: var(--accent); }
+.diagram .cell-empty { fill: none; stroke: #3a3a44; stroke-width: 1; }
+.diagram .tl { fill: var(--line); }
+.diagram .bar-track { fill: var(--line-soft); }
+.diagram .bar-fill { fill: var(--accent); transform-box: fill-box; transform-origin: 0 50%; transform: scaleX(var(--to, 1)); }
+.diagram .bar-danger { fill: var(--danger); }
+.diagram .ok-dot { fill: var(--accent); }
+.diagram .ok-tick { fill: none; stroke: var(--accent-ink); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* before its figure enters, every animated part waits at rest */
+  .js .rv .d-in { opacity: 0; transform: translateY(6px); }
+  .js .rv .d-draw { stroke-dasharray: 1; stroke-dashoffset: 1; }
+  .js .rv .d-fill { opacity: 0; transform: scale(0.4); transform-box: fill-box; transform-origin: center; }
+  .js .rv .d-bar { transform: scaleX(0); }
+  .js .rv .d-hi .nd { stroke: var(--line); fill: var(--surface); }
+  .js .rv .d-hi .mark { fill: transparent; stroke: transparent; }
+  .js .rv.in .d-in { animation: d-in 700ms var(--ease) both; animation-delay: var(--d, 0ms); }
+  .js .rv.in .d-draw { animation: d-draw var(--dur, 800ms) var(--ease) both; animation-delay: var(--d, 0ms); }
+  .js .rv.in .d-fill { animation: d-fill 420ms var(--ease) both; animation-delay: var(--d, 0ms); }
+  .js .rv.in .d-bar { animation: d-bar 900ms var(--ease) both; animation-delay: var(--d, 0ms); }
+  .js .rv.in .d-hi .nd { animation: d-hi 500ms var(--ease) both; animation-delay: var(--d, 0ms); }
+  .js .rv.in .d-hi .mark { animation: d-mark 400ms var(--ease) both; animation-delay: var(--d, 0ms); }
+  .js .rv.in .d-flow { stroke-dasharray: 0.06 0.05; animation: d-draw 800ms var(--ease) both, d-flow 1.6s linear 3; animation-delay: var(--d, 0ms), calc(var(--d, 0ms) + 800ms); }
+  @keyframes d-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes d-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+  @keyframes d-fill { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: none; } }
+  @keyframes d-bar { from { transform: scaleX(0); } to { transform: scaleX(var(--to, 1)); } }
+  @keyframes d-hi { from { stroke: var(--line); fill: var(--surface); } to { stroke: var(--accent); fill: var(--accent-dim); } }
+  @keyframes d-mark { from { fill: transparent; stroke: transparent; } to { fill: var(--accent-dim); stroke: var(--accent-line); } }
+  @keyframes d-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -0.11; } }
+}
+
+/* ── footer ───────────────────────────────────────────── */
+.foot { margin-top: 96px; border-top: 1px solid var(--line); background: var(--soft); }
+.foot .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-block: 28px; font-size: 13px; color: var(--text-2); }
+.foot .l { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
+.foot .l b { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-weight: 500; }
+.foot .l b img { display: block; width: auto; height: 18px; }
+.foot .l span.note { margin: 0; color: var(--text-3); }
+.foot nav { display: flex; gap: 22px; }
+.foot nav a:hover { color: var(--text); }
+
+/* ── reading pages (tools, connect) ──────────────────── */
+.doc { padding-block: 64px 0; }
+.doc .lede { max-width: 768px; margin-bottom: 56px; }
+.doc .lede h1 { font-size: clamp(32px, 4.4vw, 46px); font-weight: 700; letter-spacing: -0.03em; margin-bottom: 14px; }
+.section { margin-top: 64px; }
+.section > h2 { font-size: 20px; margin-bottom: 18px; }
+.section > .prose { margin-bottom: 18px; }
+.group { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 44px 0 6px; }
+.tool { display: grid; gap: 8px; padding: 20px 0; border-top: 1px solid var(--line-soft); }
+@media (min-width: 820px) { .tool { grid-template-columns: 300px 1fr; gap: 28px; } }
+.tool .name { font-family: var(--mono); color: var(--accent); font-size: 15px; font-weight: 600; }
+.tool .args { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tool .args span { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-2); }
+.tool p { margin: 0; color: var(--text); font-size: 15px; line-height: 1.55; }
+.tool .ret { margin-top: 6px; font-size: 13.5px; color: var(--text-2); }
+.tool .ret b { color: var(--text-3); font-weight: 500; }
+.tools-list { border-bottom: 1px solid var(--line-soft); }
+.callout { display: grid; gap: 8px; padding: 20px 22px; border: 1px solid var(--accent-line); background: var(--accent-dim); border-radius: var(--r); margin-top: 32px; }
+.callout p { margin: 0; color: var(--text); font-size: 15px; line-height: 1.6; }
+.callout code { font-size: 13px; color: var(--accent); }
+.codeblock { background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.codeblock .bar { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.codeblock pre { margin: 0; padding: 16px 18px; font-size: 13px; line-height: 1.7; overflow-x: auto; color: var(--text); }
+.codeblock.wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.codeblock pre .c { color: var(--text-3); }
+
+/* connect */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab { font-family: var(--mono); font-size: 12.5px; padding: 7px 13px; border: 1px solid var(--line); border-radius: var(--r-s); color: var(--text-2); background: transparent; cursor: pointer; transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease); }
+.tab:hover { color: var(--text); }
+.tab.is-active, .tab[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.tokenrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 18px 0; }
+.tokenrow label { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.tokenrow input { flex: 1 1 auto; min-width: 0; background: var(--deep); border: 1px solid var(--line); border-radius: var(--r-s); padding: 9px 12px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.tokenrow input::placeholder { color: var(--text-3); }
+.tokenrow input:focus { outline: none; border-color: var(--accent); }
+.tokenrow .eye { flex: none; font-family: var(--mono); font-size: 12px; color: var(--text-2); background: transparent; border: 1px solid var(--line); border-radius: var(--r-s); padding: 9px 12px; cursor: pointer; }
+.tokenrow .eye:hover { color: var(--text); }
+.snippet { background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.snippet .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); }
+.snippet .bar .t { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.snippet .bar .k { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+.snippet pre { margin: 0; padding: 18px 20px; font-size: 13px; line-height: 1.7; overflow-x: auto; white-space: pre; color: var(--text); min-height: 96px; }
+.note { margin: 12px 0 0; font-size: 13px; color: var(--text-2); line-height: 1.6; }
+.stepsv { display: grid; gap: 18px; }
+.stepsv .st { display: grid; gap: 10px; }
+.stepsv .st .n { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.stepsv .st .n b { color: var(--text); font-weight: 600; font-family: var(--sans); font-size: 15px; margin-left: 10px; }
+.transcript { background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; font-family: var(--mono); font-size: 13px; line-height: 1.9; display: grid; gap: 2px; }
+.transcript .who { color: var(--text-3); display: inline-block; width: 5.5ch; }
+.transcript .call { color: var(--accent); }
+.twocol { display: grid; gap: 16px; }
+@media (min-width: 820px) { .twocol { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 22px 24px; }
+.card h3 { margin-bottom: 8px; }
+.card p { margin: 0; color: var(--text-2); font-size: 14.5px; line-height: 1.6; }
+.card code { font-size: 13px; color: var(--text); }
+.kv { display: grid; gap: 0; border-top: 1px solid var(--line-soft); }
+.kv > div { display: grid; grid-template-columns: minmax(200px, 320px) 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+@media (max-width: 640px) { .kv > div { grid-template-columns: 1fr; gap: 2px; } }
+.kv code { color: var(--accent); font-size: 13px; }
+.kv span { color: var(--text-2); }
+
+/* ── reveals ──────────────────────────────────────────── */
+/* Content is visible by default. `.rv` becomes a reveal only once the
+   script marks the document `.js`, and then only when motion is allowed:
+   a failed script hides nothing, and reduced-motion users get the page at
+   rest. Inside a list, children stagger; a list appearing as a list. */
+@media (prefers-reduced-motion: no-preference) {
+  .js .rv { opacity: 0; transform: translateY(14px); filter: blur(6px); transition: opacity 700ms var(--ease), transform 700ms var(--ease), filter 700ms var(--ease); }
+  .js .rv.in { opacity: 1; transform: none; filter: none; }
+  .js .rv-list > * { opacity: 0; transform: translateY(10px); transition: opacity 600ms var(--ease), transform 600ms var(--ease); }
+  .js .rv-list.in > * { opacity: 1; transform: none; }
+  .js .rv-list.in > :nth-child(2) { transition-delay: 70ms; }
+  .js .rv-list.in > :nth-child(3) { transition-delay: 140ms; }
+  .js .rv-list.in > :nth-child(4) { transition-delay: 210ms; }
+  .js .rv-list.in > :nth-child(5) { transition-delay: 280ms; }
+  .js .rv-list.in > :nth-child(n+6) { transition-delay: 340ms; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* ── built by ─────────────────────────────────────────── */
+.dev { display: grid; gap: 24px; align-items: center; padding-top: 40px; border-top: 1px solid var(--line-soft); }
+@media (min-width: 900px) { .dev { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 56px; } }
+.dev-links { display: flex; flex-direction: column; gap: 10px; }
+.dev-links .btn { justify-content: space-between; gap: 16px; width: 100%; }
+.dev-links .btn span { font-family: var(--mono); font-size: 12.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foot .l > a:hover { color: var(--text); }
+.foot .r { display: flex; flex-wrap: wrap; gap: 12px 40px; }
+
+/* ── faq ──────────────────────────────────────────────── */
+.faq { display: grid; gap: 0 56px; margin-top: 28px; }
+@media (min-width: 900px) { .faq { grid-template-columns: 1fr 1fr; } }
+.faq .qa { padding: 22px 0; border-top: 1px solid var(--line-soft); }
+.faq h3 { font-size: 17px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+.faq p { margin: 0; color: var(--text-2); font-size: 15.5px; line-height: 1.65; text-wrap: pretty; }
+.faq code { font-size: 13.5px; color: var(--text); }
+
+/* ── not found ────────────────────────────────────────── */
+.notfound { padding-block: 48px 24px; }
+.notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
+.notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
+  </style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a href="/" class="mark"><img src="/logo.svg" alt="" width="31" height="24">DocsForge</a>
+    <nav class="nav" aria-label="Site">
+      <a href="/#how-it-works" class="wide">How it works</a>
+      <a href="/tools">Tools</a>
+      <a href="/connect">Connect</a>
+      <a href="/connect#storage" class="wide">Storage</a>
+      <a href="https://github.com/R204570/DocsForge" class="ext" target="_blank" rel="noopener noreferrer">GitHub <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 8 L8 2 M3.5 2 H8 V6.5"/></svg></a>
+    </nav>
+    <span class="chip">v{{VERSION}}</span>
+  </div>
+</header>
+
+<main class="wrap doc">
+  <header class="lede notfound">
+    <p class="code">404</p>
+    <h1>This page does not exist.</h1>
+    <p class="lead">The address may be mistyped, or the page may have moved. Everything on the site is one of three pages.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/">DocsForge home</a>
+      <a class="btn btn-ghost" href="/tools">The MCP tools</a>
+      <a class="btn btn-ghost" href="/connect">Connect your client</a>
+    </div>
+  </header>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="l"><b><img src="/logo.svg" alt="" width="23" height="18">DocsForge</b><span>MIT License</span><a href="/#developer">Built by Raj Patel</a><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <div class="r">
+      <nav aria-label="Project">
+        <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="https://github.com/R204570/DocsForge/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contribute</a>
+      </nav>
+      <nav aria-label="Developer">
+        <a href="https://portfolio-raj-25.netlify.app/" target="_blank" rel="me noopener noreferrer">Portfolio</a>
+        <a href="https://www.linkedin.com/in/raj-patel5/" target="_blank" rel="me noopener noreferrer">LinkedIn</a>
+        <a href="https://github.com/R204570" target="_blank" rel="me noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+<script>
+/* Shared behaviour for the public site. Everything here is enhancement:
+   the pages read fully with this script never running. */
+(function () {
+  var root = document.documentElement;
+  root.classList.add("js");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  // ── reveals: once, when a block enters the viewport ──
+  var targets = document.querySelectorAll(".rv, .rv-list");
+  if (reduce.matches || !("IntersectionObserver" in window)) {
+    targets.forEach(function (el) { el.classList.add("in"); });
+  } else {
+    var seen = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add("in"); seen.unobserve(e.target); }
+      });
+    }, { rootMargin: "0px 0px -12% 0px", threshold: 0.12 });
+    targets.forEach(function (el) { seen.observe(el); });
+  }
+
+  // ── wide/narrow diagrams: assistive tech reads the one that is showing ──
+  var narrowQuery = window.matchMedia("(max-width: 640px)");
+  function labelVariants() {
+    document.querySelectorAll(".diagram.wide, .diagram.narrow").forEach(function (svg) {
+      var showing = svg.classList.contains("narrow") === narrowQuery.matches;
+      svg.setAttribute("aria-hidden", showing ? "false" : "true");
+    });
+  }
+  labelVariants();
+  if (narrowQuery.addEventListener) narrowQuery.addEventListener("change", labelVariants);
+
+  // ── figures that count up when their diagram plays ──
+  var counters = document.querySelectorAll(".count[data-to]");
+  if (counters.length && !reduce.matches && "IntersectionObserver" in window) {
+    var tick = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        tick.unobserve(e.target);
+        var el = e.target, to = parseInt(el.getAttribute("data-to"), 10) || 0;
+        var delay = parseFloat((el.closest("[style*='--d']") || el).style.getPropertyValue("--d")) || 0;
+        var t0 = null, dur = 900;
+        setTimeout(function () {
+          requestAnimationFrame(function step(ts) {
+            if (t0 === null) t0 = ts;
+            var k = Math.min(1, (ts - t0) / dur), eased = 1 - Math.pow(1 - k, 3);
+            el.textContent = String(Math.round(to * eased));
+            if (k < 1) requestAnimationFrame(step);
+          });
+        }, delay);
+      });
+    }, { threshold: 0.4 });
+    counters.forEach(function (el) { tick.observe(el); });
+  }
+})();
+
+</script>
+</body>
+</html>

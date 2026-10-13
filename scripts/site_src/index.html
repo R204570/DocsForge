@@ -4,12 +4,14 @@
   <!--GTAG-->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DocsForge — MCP server</title>
-  <meta name="description" content="DocsForge gives a model documentation for technologies it was not trained on — with a coverage figure you can gate on. Connect it to any MCP client.">
+  <title>DocsForge — open-source documentation MCP server for AI agents</title>
+  <meta name="description" content="Open-source documentation MCP server: name a library and DocsForge finds, verifies and harvests its official, version-specific docs for Claude Code, Cursor and AI agents.">
+  <!--SEO-->
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
   <!--STYLE-->
 </head>
 <body>
@@ -27,7 +29,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <section class="hero" id="top">
     <div class="copy">
       <h1 class="display">Documentation for technologies your model was never trained on.</h1>
-      <p class="lead" style="margin-top:22px">DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — with a coverage figure you can gate on.</p>
+      <p class="lead" style="margin-top:22px">DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — Claude Code, Cursor, Codex and other AI coding assistants — with a coverage figure you can gate on.</p>
       <div class="cta">
         <a class="btn btn-primary" href="/connect">Connect your client</a>
         <a class="btn btn-ghost" href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">View on GitHub</a>
@@ -96,6 +98,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <p class="lead rv">One extraction engine backs every surface, so an MCP client and the chat panel return byte-identical results. Several DocsForge instances can share one store.</p>
     <div class="figure rv"><!--SVG:architecture--></div>
   </section>
+
+  <!--FAQ-->
+
+  <!--DEVELOPER-->
 
   <section class="close rv" id="connect">
     <div>

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /mcp
+Disallow: /oauth/
+Disallow: /authorize
+Disallow: /token
+Disallow: /register
+
+Sitemap: https://docsforge.vercel.app/sitemap.xml

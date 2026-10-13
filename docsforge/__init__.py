@@ -28,3 +28,8 @@ __version__ = "1.1.0"
 #: path to "the module's own folder" when the modules sat in the repository
 #: root anchors to this instead, so moving the modules moved none of the data.
 ROOT = Path(__file__).resolve().parent.parent
+
+#: The public site's one canonical address. Every page names it as its
+#: canonical URL, and robots.txt and sitemap.xml point search engines at it,
+#: so a self-hosted copy or a preview deployment never competes with it.
+SITE_URL = "https://docsforge.vercel.app"

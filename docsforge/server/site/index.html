@@ -12,12 +12,35 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DocsForge — MCP server</title>
-  <meta name="description" content="DocsForge gives a model documentation for technologies it was not trained on — with a coverage figure you can gate on. Connect it to any MCP client.">
+  <title>DocsForge — open-source documentation MCP server for AI agents</title>
+  <meta name="description" content="Open-source documentation MCP server: name a library and DocsForge finds, verifies and harvests its official, version-specific docs for Claude Code, Cursor and AI agents.">
+  <link rel="canonical" href="https://docsforge.vercel.app/">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="author" content="Raj Patel">
+  <meta name="theme-color" content="#0b0b0d">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  {{SITE_VERIFICATION}}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="DocsForge">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="DocsForge — open-source documentation MCP server for AI agents">
+  <meta property="og:description" content="Open-source documentation MCP server: name a library and DocsForge finds, verifies and harvests its official, version-specific docs for Claude Code, Cursor and AI agents.">
+  <meta property="og:url" content="https://docsforge.vercel.app/">
+  <meta property="og:image" content="https://docsforge.vercel.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="DocsForge — documentation for technologies your model was never trained on.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DocsForge — open-source documentation MCP server for AI agents">
+  <meta name="twitter:description" content="Open-source documentation MCP server: name a library and DocsForge finds, verifies and harvests its official, version-specific docs for Claude Code, Cursor and AI agents.">
+  <meta name="twitter:image" content="https://docsforge.vercel.app/og.png">
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://docsforge.vercel.app/#website","url":"https://docsforge.vercel.app/","name":"DocsForge","inLanguage":"en","publisher":{"@id":"https://docsforge.vercel.app/#developer"}},{"@type":"Person","@id":"https://docsforge.vercel.app/#developer","name":"Raj Patel","url":"https://portfolio-raj-25.netlify.app/","sameAs":["https://portfolio-raj-25.netlify.app/","https://www.linkedin.com/in/raj-patel5/","https://github.com/R204570"]},{"@type":"SoftwareApplication","@id":"https://docsforge.vercel.app/#software","name":"DocsForge","url":"https://docsforge.vercel.app/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","description":"An open-source MCP server that finds a library's official documentation from its name, verifies it, harvests it and serves it to AI agents and coding assistants.","license":"https://opensource.org/licenses/MIT","codeRepository":"https://github.com/R204570/DocsForge","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@id":"https://docsforge.vercel.app/#developer"},"image":"https://docsforge.vercel.app/og.png"},{"@type":"WebPage","@id":"https://docsforge.vercel.app/","url":"https://docsforge.vercel.app/","name":"DocsForge — open-source documentation MCP server for AI agents","description":"Open-source documentation MCP server: name a library and DocsForge finds, verifies and harvests its official, version-specific docs for Claude Code, Cursor and AI agents.","isPartOf":{"@id":"https://docsforge.vercel.app/#website"},"about":{"@id":"https://docsforge.vercel.app/#software"},"primaryImageOfPage":{"@type":"ImageObject","url":"https://docsforge.vercel.app/og.png"}},{"@type":"FAQPage","@id":"https://docsforge.vercel.app/#faq","isPartOf":{"@id":"https://docsforge.vercel.app/"},"mainEntity":[{"@type":"Question","name":"What is DocsForge?","acceptedAnswer":{"@type":"Answer","text":"DocsForge is an open-source documentation MCP server. Give it the name of a library, framework or tool and it finds the official documentation through the package registries, verifies that the page really documents that library, harvests the whole set as Markdown, and serves it to your AI coding assistant through MCP tools."}},{"@type":"Question","name":"Who is it for?","acceptedAnswer":{"@type":"Answer","text":"Developers whose AI coding assistant writes code against libraries newer than its training data, or mixes up their versions; AI engineers building agents that must answer from real documentation rather than from memory; and teams that want one shared, searchable store of the docs their projects depend on."}},{"@type":"Question","name":"What is an MCP server, and which tools does DocsForge provide?","acceptedAnswer":{"@type":"Answer","text":"The Model Context Protocol (MCP) is an open standard that lets an AI assistant call tools on a server. DocsForge provides thirteen: learn_technology learns a library from its name alone, search_knowledge_base and read_knowledge_base answer from what is stored, scan_project reports a project's dependencies and which are already documented, and the rest fetch, harvest and manage documentation. They are served over Streamable HTTP or stdio."}},{"@type":"Question","name":"Which AI coding assistants does it work with?","acceptedAnswer":{"@type":"Answer","text":"Any MCP client. The connect page has a ready command or config block for Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code and Claude Desktop."}},{"@type":"Question","name":"How does it avoid handing the model the wrong documentation?","acceptedAnswer":{"@type":"Answer","text":"A page must name the package repeatedly before it is trusted; if nothing verifies, DocsForge says so and asks for a URL instead of guessing. Versions are stored apart, so v2 and v3 are never mixed, and a harvest that stopped early is marked incomplete every time it is read."}},{"@type":"Question","name":"Does it need an API key?","acceptedAnswer":{"@type":"Answer","text":"Not to resolve a name: npm, PyPI and crates.io are asked without a key. A hosted DocsForge asks clients for a bearer token; running it yourself on your own machine needs none."}},{"@type":"Question","name":"Is DocsForge free and open source?","acceptedAnswer":{"@type":"Answer","text":"Yes. DocsForge is MIT-licensed. Install it with pipx install docsforge, run it on your own machine or host it yourself, and keep harvested documentation as Markdown files or in PostgreSQL."}}]}]}</script>
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
   <style>
 /* DocsForge public site — one stylesheet, inlined into every page by
    scripts/build_site.py. The world is the web chat's: near-black ground,
@@ -322,6 +345,28 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
   html { scroll-behavior: auto; }
 }
 
+/* ── built by ─────────────────────────────────────────── */
+.dev { display: grid; gap: 24px; align-items: center; padding-top: 40px; border-top: 1px solid var(--line-soft); }
+@media (min-width: 900px) { .dev { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 56px; } }
+.dev-links { display: flex; flex-direction: column; gap: 10px; }
+.dev-links .btn { justify-content: space-between; gap: 16px; width: 100%; }
+.dev-links .btn span { font-family: var(--mono); font-size: 12.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foot .l > a:hover { color: var(--text); }
+.foot .r { display: flex; flex-wrap: wrap; gap: 12px 40px; }
+
+/* ── faq ──────────────────────────────────────────────── */
+.faq { display: grid; gap: 0 56px; margin-top: 28px; }
+@media (min-width: 900px) { .faq { grid-template-columns: 1fr 1fr; } }
+.faq .qa { padding: 22px 0; border-top: 1px solid var(--line-soft); }
+.faq h3 { font-size: 17px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+.faq p { margin: 0; color: var(--text-2); font-size: 15.5px; line-height: 1.65; text-wrap: pretty; }
+.faq code { font-size: 13.5px; color: var(--text); }
+
+/* ── not found ────────────────────────────────────────── */
+.notfound { padding-block: 48px 24px; }
+.notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
+.notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
   </style>
 </head>
 <body>
@@ -351,7 +396,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <section class="hero" id="top">
     <div class="copy">
       <h1 class="display">Documentation for technologies your model was never trained on.</h1>
-      <p class="lead" style="margin-top:22px">DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — with a coverage figure you can gate on.</p>
+      <p class="lead" style="margin-top:22px">DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — Claude Code, Cursor, Codex and other AI coding assistants — with a coverage figure you can gate on.</p>
       <div class="cta">
         <a class="btn btn-primary" href="/connect">Connect your client</a>
         <a class="btn btn-ghost" href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">View on GitHub</a>
@@ -421,6 +466,54 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <div class="figure rv"><svg viewBox="0 0 680 300" class="diagram wide" role="img" aria-label="MCP clients call one endpoint, /mcp, which reads and writes one Postgres store; a long-lived DocsForge on your machine writes the same store"><g class="d-in " style="--d:0ms"><rect x="14" y="14" width="130" height="30" rx="8" class="nd"/><text x="28" y="34.0" font-family="var(--mono)" font-size="13" class="nt">Claude Code</text></g><path d="M144 29 C 200 29, 200 106, 258 106" pathLength="1" class="wire d-draw d-flow" style="--d:400ms"/><g class="d-in " style="--d:60ms"><rect x="14" y="54" width="130" height="30" rx="8" class="nd"/><text x="28" y="74.0" font-family="var(--mono)" font-size="13" class="nt">Cursor</text></g><path d="M144 69 C 200 69, 200 106, 258 106" pathLength="1" class="wire d-draw d-flow" style="--d:460ms"/><g class="d-in " style="--d:120ms"><rect x="14" y="94" width="130" height="30" rx="8" class="nd"/><text x="28" y="114.0" font-family="var(--mono)" font-size="13" class="nt">ChatGPT</text></g><path d="M144 109 C 200 109, 200 106, 258 106" pathLength="1" class="wire d-draw d-flow" style="--d:520ms"/><g class="d-in " style="--d:180ms"><rect x="14" y="134" width="130" height="30" rx="8" class="nd"/><text x="28" y="154.0" font-family="var(--mono)" font-size="13" class="nt">Codex</text></g><path d="M144 149 C 200 149, 200 106, 258 106" pathLength="1" class="wire d-draw d-flow" style="--d:580ms"/><g class="d-in " style="--d:240ms"><rect x="14" y="174" width="130" height="30" rx="8" class="nd"/><text x="28" y="194.0" font-family="var(--mono)" font-size="13" class="nt">Windsurf</text></g><path d="M144 189 C 200 189, 200 106, 258 106" pathLength="1" class="wire d-draw d-flow" style="--d:640ms"/><g class="d-in " style="--d:300ms"><rect x="14" y="214" width="130" height="30" rx="8" class="nd"/><text x="28" y="234.0" font-family="var(--mono)" font-size="13" class="nt">Gemini CLI</text></g><path d="M144 229 C 200 229, 200 106, 258 106" pathLength="1" class="wire d-draw d-flow" style="--d:700ms"/><g class="d-in d-hi" style="--d:900ms"><rect x="258" y="66" width="196" height="80" rx="10" class="nd"/><text x="272" y="103.0" font-family="var(--mono)" font-size="13" class="nt">DocsForge  /mcp</text><text x="272" y="121.0" font-family="var(--mono)" font-size="11" class="ns">13 tools · streamable HTTP</text></g><text x="258" y="166" font-family="var(--mono)" font-size="10.5" class="ns d-in" style="--d:1000ms">one engine, every surface</text><path d="M454 106 L 500 106" pathLength="1" class="wire d-draw wire-lit d-flow" style="--d:1200ms"/><g class="d-in" style="--d:1350ms"><ellipse cx="560" cy="66" rx="60" ry="12" class="nd"/><path d="M500 66 v80 a60 12 0 0 0 120 0 v-80" class="nd"/><text x="560" y="112" font-family="var(--mono)" font-size="12.5" text-anchor="middle" class="nt">PostgreSQL</text><text x="560" y="130" font-family="var(--mono)" font-size="10.5" text-anchor="middle" class="ns">a row per page</text></g><g class="d-in " style="--d:1600ms"><rect x="258" y="214" width="196" height="56" rx="10" class="nd"/><text x="272" y="239.0" font-family="var(--mono)" font-size="13" class="nt">python main.py</text><text x="272" y="257.0" font-family="var(--mono)" font-size="11" class="ns">your machine, long-lived</text></g><path d="M454 242 C 490 242, 505 220, 522 158" pathLength="1" class="wire d-draw wire-lit d-flow" style="--d:1800ms"/><text x="258" y="290" font-family="var(--mono)" font-size="10.5" class="ns d-in" style="--d:1900ms">large harvests happen here · readable everywhere at once</text></svg><svg viewBox="0 0 340 470" class="diagram narrow" role="img" aria-label="MCP clients call one endpoint, /mcp, which reads and writes one Postgres store; a long-lived DocsForge on your machine writes the same store" aria-hidden="true"><g class="d-in " style="--d:0ms"><rect x="10" y="10" width="152" height="30" rx="8" class="nd"/><text x="24" y="30.0" font-family="var(--mono)" font-size="12" class="nt">Claude Code</text></g><path d="M86 40 C 86 70, 170 150, 170 170" pathLength="1" class="wire d-draw d-flow" style="--d:400ms"/><g class="d-in " style="--d:60ms"><rect x="178" y="10" width="152" height="30" rx="8" class="nd"/><text x="192" y="30.0" font-family="var(--mono)" font-size="12" class="nt">Cursor</text></g><path d="M254 40 C 254 70, 170 150, 170 170" pathLength="1" class="wire d-draw d-flow" style="--d:460ms"/><g class="d-in " style="--d:120ms"><rect x="10" y="48" width="152" height="30" rx="8" class="nd"/><text x="24" y="68.0" font-family="var(--mono)" font-size="12" class="nt">ChatGPT</text></g><path d="M86 78 C 86 108, 170 150, 170 170" pathLength="1" class="wire d-draw d-flow" style="--d:520ms"/><g class="d-in " style="--d:180ms"><rect x="178" y="48" width="152" height="30" rx="8" class="nd"/><text x="192" y="68.0" font-family="var(--mono)" font-size="12" class="nt">Codex</text></g><path d="M254 78 C 254 108, 170 150, 170 170" pathLength="1" class="wire d-draw d-flow" style="--d:580ms"/><g class="d-in " style="--d:240ms"><rect x="10" y="86" width="152" height="30" rx="8" class="nd"/><text x="24" y="106.0" font-family="var(--mono)" font-size="12" class="nt">Windsurf</text></g><path d="M86 116 C 86 146, 170 150, 170 170" pathLength="1" class="wire d-draw d-flow" style="--d:640ms"/><g class="d-in " style="--d:300ms"><rect x="178" y="86" width="152" height="30" rx="8" class="nd"/><text x="192" y="106.0" font-family="var(--mono)" font-size="12" class="nt">Gemini CLI</text></g><path d="M254 116 C 254 146, 170 150, 170 170" pathLength="1" class="wire d-draw d-flow" style="--d:700ms"/><g class="d-in d-hi" style="--d:900ms"><rect x="60" y="170" width="220" height="70" rx="10" class="nd"/><text x="74" y="202.0" font-family="var(--mono)" font-size="13" class="nt">DocsForge  /mcp</text><text x="74" y="220.0" font-family="var(--mono)" font-size="11" class="ns">13 tools · streamable HTTP</text></g><path d="M170 240 L 170 274" pathLength="1" class="wire d-draw wire-lit d-flow" style="--d:1200ms"/><g class="d-in" style="--d:1350ms"><ellipse cx="170" cy="286" rx="60" ry="12" class="nd"/><path d="M110 286 v66 a60 12 0 0 0 120 0 v-66" class="nd"/><text x="170" y="324" font-family="var(--mono)" font-size="12.5" text-anchor="middle" class="nt">PostgreSQL</text><text x="170" y="342" font-family="var(--mono)" font-size="10.5" text-anchor="middle" class="ns">a row per page</text></g><path d="M170 396 L 170 366" pathLength="1" class="wire d-draw wire-lit d-flow" style="--d:1800ms"/><g class="d-in " style="--d:1600ms"><rect x="60" y="396" width="220" height="56" rx="10" class="nd"/><text x="74" y="421.0" font-family="var(--mono)" font-size="13" class="nt">python main.py</text><text x="74" y="439.0" font-family="var(--mono)" font-size="11" class="ns">your machine, long-lived</text></g></svg></div>
   </section>
 
+  <section class="band" id="faq" style="padding-top:0">
+    <h2 class="rv">Frequently asked questions</h2>
+    <div class="faq rv-list">
+      <div class="qa">
+        <h3>What is DocsForge?</h3>
+        <p>DocsForge is an open-source documentation MCP server. Give it the name of a library, framework or tool and it finds the official documentation through the package registries, verifies that the page really documents that library, harvests the whole set as Markdown, and serves it to your AI coding assistant through MCP tools.</p>
+      </div>
+      <div class="qa">
+        <h3>Who is it for?</h3>
+        <p>Developers whose AI coding assistant writes code against libraries newer than its training data, or mixes up their versions; AI engineers building agents that must answer from real documentation rather than from memory; and teams that want one shared, searchable store of the docs their projects depend on.</p>
+      </div>
+      <div class="qa">
+        <h3>What is an MCP server, and which tools does DocsForge provide?</h3>
+        <p>The Model Context Protocol (MCP) is an open standard that lets an AI assistant call tools on a server. DocsForge provides thirteen: <code>learn_technology</code> learns a library from its name alone, <code>search_knowledge_base</code> and <code>read_knowledge_base</code> answer from what is stored, <code>scan_project</code> reports a project&#x27;s dependencies and which are already documented, and the rest fetch, harvest and manage documentation. They are served over Streamable HTTP or stdio.</p>
+      </div>
+      <div class="qa">
+        <h3>Which AI coding assistants does it work with?</h3>
+        <p>Any MCP client. The connect page has a ready command or config block for Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code and Claude Desktop.</p>
+      </div>
+      <div class="qa">
+        <h3>How does it avoid handing the model the wrong documentation?</h3>
+        <p>A page must name the package repeatedly before it is trusted; if nothing verifies, DocsForge says so and asks for a URL instead of guessing. Versions are stored apart, so v2 and v3 are never mixed, and a harvest that stopped early is marked incomplete every time it is read.</p>
+      </div>
+      <div class="qa">
+        <h3>Does it need an API key?</h3>
+        <p>Not to resolve a name: npm, PyPI and crates.io are asked without a key. A hosted DocsForge asks clients for a bearer token; running it yourself on your own machine needs none.</p>
+      </div>
+      <div class="qa">
+        <h3>Is DocsForge free and open source?</h3>
+        <p>Yes. DocsForge is MIT-licensed. Install it with <code>pipx install docsforge</code>, run it on your own machine or host it yourself, and keep harvested documentation as Markdown files or in PostgreSQL.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="developer" style="padding-top:0">
+    <div class="dev rv">
+      <div>
+        <h2>Built by Raj Patel</h2>
+        <p class="prose" style="margin-top:12px">DocsForge is designed, built and maintained by Raj Patel. Found a bug or a bad extraction, have an idea, or want to contribute? Open an issue on GitHub, or reach out directly.</p>
+      </div>
+      <div class="dev-links">
+        <a class="btn btn-ghost" href="https://portfolio-raj-25.netlify.app/" target="_blank" rel="me noopener noreferrer">Portfolio<span>portfolio-raj-25.netlify.app</span></a>
+        <a class="btn btn-ghost" href="https://www.linkedin.com/in/raj-patel5/" target="_blank" rel="me noopener noreferrer">LinkedIn<span>linkedin.com/in/raj-patel5</span></a>
+        <a class="btn btn-ghost" href="https://github.com/R204570" target="_blank" rel="me noopener noreferrer">GitHub<span>github.com/R204570</span></a>
+      </div>
+    </div>
+  </section>
+
   <section class="close rv" id="connect">
     <div>
       <h2>Connect your MCP client.</h2>
@@ -436,12 +529,19 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 <footer class="foot">
   <div class="wrap">
-    <div class="l"><b><img src="/logo.svg" alt="" width="23" height="18">DocsForge</b><span>MIT License</span><span>Built by Raj Patel</span><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
-    <nav aria-label="Project">
-      <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
-      <a href="https://github.com/R204570/DocsForge#readme" target="_blank" rel="noopener noreferrer">Contribute</a>
-    </nav>
+    <div class="l"><b><img src="/logo.svg" alt="" width="23" height="18">DocsForge</b><span>MIT License</span><a href="/#developer">Built by Raj Patel</a><span class="note">Bugs, bad extractions, ideas — open an issue.</span></div>
+    <div class="r">
+      <nav aria-label="Project">
+        <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="https://github.com/R204570/DocsForge/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contribute</a>
+      </nav>
+      <nav aria-label="Developer">
+        <a href="https://portfolio-raj-25.netlify.app/" target="_blank" rel="me noopener noreferrer">Portfolio</a>
+        <a href="https://www.linkedin.com/in/raj-patel5/" target="_blank" rel="me noopener noreferrer">LinkedIn</a>
+        <a href="https://github.com/R204570" target="_blank" rel="me noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
   </div>
 </footer>
 <script>
