@@ -20,7 +20,7 @@ Run:
   DOCSFORGE_MCP_TOKEN=… python main.py --http --host 0.0.0.0   # hosted
 
 Over HTTP the process serves the public site (`/`, `/tools`, `/connect`,
-its icons, `/og.png`, `/site.webmanifest`, `/llms.txt`, and `/robots.txt` and
+`/contributors`, its icons, `/og.png`, `/site.webmanifest`, `/llms.txt`, and `/robots.txt` and
 `/sitemap.xml` for search engines), `/health`, and `/mcp`; only `/mcp` needs
 the bearer token. Any other address a browser asks for gets the site's 404.
 
@@ -190,7 +190,8 @@ register()
 #: local testing and is not part of the hosted process. Package data, so it
 #: ships in the wheel. Every file here is written by scripts/build_site.py.
 SITE = Path(__file__).resolve().parent / "site"
-PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html"}
+PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html",
+         "/contributors": "contributors.html"}
 #: What any other address a browser asks for gets, with a 404 and noindex.
 NOT_FOUND = "404.html"
 #: Everything else the site serves, at the path it is asked for by. The logo
@@ -296,6 +297,11 @@ async def tools_page(request: Request) -> Response:
 @server.custom_route("/connect", methods=["GET"], include_in_schema=False)
 async def connect_page(request: Request) -> Response:
     return page(PAGES["/connect"], request)
+
+
+@server.custom_route("/contributors", methods=["GET"], include_in_schema=False)
+async def contributors_page(request: Request) -> Response:
+    return page(PAGES["/contributors"], request)
 
 
 def site_file(path: str) -> Response:

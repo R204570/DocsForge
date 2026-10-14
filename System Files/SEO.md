@@ -20,14 +20,14 @@ a crawler gets.
 
 | Path | What | Source |
 |---|---|---|
-| `/`, `/tools`, `/connect` | the three public pages | `scripts/site_src/*.html` |
+| `/`, `/tools`, `/connect`, `/contributors` | the four public pages | `scripts/site_src/*.html` (contributors from `contributors.json`, below) |
 | `/robots.txt` | allow everything public; keep `/mcp` and the OAuth endpoints out; name the sitemap | `ROBOTS` in `build_site.py` |
-| `/sitemap.xml` | the three pages at their canonical URLs, each with a `<lastmod>` that moves only when that page's built HTML changes | `sitemap()` in `build_site.py` |
+| `/sitemap.xml` | the four pages at their canonical URLs, each with a `<lastmod>` that moves only when that page's built HTML changes | `sitemap()` in `build_site.py` |
 | `/llms.txt` | the site described for language models ([llmstxt.org](https://llmstxt.org/)): what DocsForge is, its tools, where each part is documented | `llms_txt()` in `build_site.py` |
 | `/og.png` | the 1200 × 630 social-sharing card | `Logo/docsforge-og.png` |
 | `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`, `/site.webmanifest` | home-screen icons and the manifest naming them | `Logo/docsforge-icon-*.png`, `manifest()` |
 | `/logo.svg`, `/favicon.ico` | the fox | `Logo/` |
-| any other address | the site's 404 page — a real `404`, `noindex` (meta tag and `X-Robots-Tag`), links back to the three pages | `scripts/site_src/404.html` |
+| any other address | the site's 404 page — a real `404`, `noindex` (meta tag and `X-Robots-Tag`), links back to the main pages | `scripts/site_src/404.html` |
 | `/<key>.txt` | the IndexNow key file, only when `DOCSFORGE_INDEXNOW_KEY` is set | `indexnow_key_file()` in `mcp_server.py` |
 
 The site's responses are gzip-compressed (the home page goes from 137 KB to
@@ -53,7 +53,8 @@ Every page carries, stamped in by `scripts/build_site.py`:
 - **Schema.org JSON-LD**: `WebSite`, `Person` (the developer, with
   `sameAs` → portfolio, LinkedIn, GitHub), `SoftwareApplication` (free, MIT,
   the repository), and a `WebPage` for the page itself, with breadcrumbs on
-  `/tools` and `/connect`. A `Person` rather than an `Organization`:
+  the other pages, and on `/contributors` an `ItemList` of the people on it.
+  A `Person` rather than an `Organization`:
   DocsForge is one developer's project, and the markup says only what the
   page says.
 
@@ -81,6 +82,18 @@ and commit the rebuilt files under `docsforge/server/site/`.
 
 ---
 
+### The contributors page
+
+`/contributors` is built from `scripts/site_src/contributors.json`, which
+`python scripts/update_contributors.py` writes from GitHub's contributors API
+(commit counts and avatars); rebuild the site afterwards. It is never fetched
+when someone visits: no request to GitHub per page view, and the list is plain
+HTML a search engine reads. The maintainer card comes from `DEVELOPER` in
+`build_site.py`. Accounts in the file's `exclude` list are left off; it holds
+`claude`, the account GitHub attributes Claude Code's commits to, which is not
+a person working on the project. Avatars load from GitHub's avatar CDN — the
+one image on the site that is not served by the site itself.
+
 ## 2. Google Search Console
 
 Use a **URL-prefix property** — a Domain property needs a DNS record on
@@ -100,7 +113,7 @@ Use a **URL-prefix property** — a Domain property needs a DNS record on
    re-checks periodically and drops the property if the tag disappears.
 5. *Sitemaps* → submit `https://docsforge.vercel.app/sitemap.xml`.
 6. *URL inspection* → enter `https://docsforge.vercel.app/` → **Request
-   indexing**. Repeat for `/tools` and `/connect`.
+   indexing**. Repeat for `/tools`, `/connect` and `/contributors`.
 
 Google Analytics (the `G-KTBKMGZM75` tag already on every page) can verify
 the property too, if the same Google account owns it.

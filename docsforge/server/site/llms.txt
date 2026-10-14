@@ -11,6 +11,7 @@ Its 13 MCP tools: learn_technology, harvest_docs, harvest_status, find_docs, sca
 - [Home](https://docsforge.vercel.app/): how a name is resolved, verified and harvested, coverage reporting, and a FAQ
 - [Tools](https://docsforge.vercel.app/tools): every MCP tool, its arguments and what it returns
 - [Connect](https://docsforge.vercel.app/connect): one command or config block per MCP client (Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code, Claude Desktop), running it yourself, and storage
+- [Contributors](https://docsforge.vercel.app/contributors): the maintainer, everyone who has contributed code, and how to become a contributor
 
 ## Source
 

@@ -1,0 +1,15 @@
+{
+  "_about": "Written by scripts/update_contributors.py from GitHub's contributors API; edit `exclude` by hand. Rebuild the site after updating.",
+  "updated": "2026-10-14",
+  "exclude": [
+    "claude"
+  ],
+  "contributors": [
+    {
+      "login": "R204570",
+      "contributions": 105,
+      "avatar": "https://avatars.githubusercontent.com/u/164243574?v=4",
+      "profile": "https://github.com/R204570"
+    }
+  ]
+}

@@ -75,14 +75,21 @@ DEVELOPER_LINKS = ("https://portfolio-raj-25.netlify.app/",
                    "https://github.com/R204570")
 
 
+def _contributors():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "scripts", "site_src", "contributors.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
 def test_site_pages_link_only_to_each_other_github_and_the_developer(gated):
     import re
-    for path in ("/", "/tools", "/connect"):
+    profiles = {c["profile"] for c in _contributors()["contributors"]}
+    for path in ("/", "/tools", "/connect", "/contributors"):
         hrefs = set(re.findall(r'href="([^"]+)"', gated.get(path).text))
         for h in hrefs:
             assert (h.startswith(("/", "https://github.com/R204570/DocsForge",
                                   "https://fonts.g", SITE_URL + "/"))
-                    or h in DEVELOPER_LINKS), (path, h)
+                    or h in DEVELOPER_LINKS or h in profiles), (path, h)
         # every internal page link resolves
         for h in hrefs:
             if h.startswith("/"):
@@ -112,7 +119,7 @@ def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, k
 
 
 # ── search engines ───────────────────────────────────────
-PUBLIC = ("/", "/tools", "/connect")
+PUBLIC = ("/", "/tools", "/connect", "/contributors")
 
 
 @pytest.mark.parametrize("path", PUBLIC)
@@ -285,6 +292,71 @@ def test_the_fox_is_on_the_home_page_and_the_404_and_sized_so_nothing_shifts(gat
     assert 'class="lost-fox" src="/mascot.webp"' in lost
     for path in ("/tools", "/connect"):
         assert "/mascot.webp" not in gated.get(path).text, path
+
+
+def test_the_contributors_page_lists_the_maintainer_and_everyone_else(gated):
+    data = _contributors()
+    r = gated.get("/contributors")
+    assert r.status_code == 200
+    text = r.text
+    assert "<h1>The people behind DocsForge.</h1>" in text
+    maintainer = text[text.index('id="maintainer"'):text.index('id="contributors"')]
+    assert "<h3>Raj Patel</h3>" in maintainer and "Creator and maintainer" in maintainer
+    for href in DEVELOPER_LINKS:
+        assert f'href="{href}"' in maintainer, href
+    lead = next(c for c in data["contributors"] if c["login"] == "R204570")
+    assert f'{lead["contributions"]:,} commit' in maintainer
+    grid = text[text.index('class="people'):text.index('class="updated"')]
+    others = [c for c in data["contributors"] if c["login"] != "R204570"]
+    assert grid.count('class="person"') == len(others)
+    for c in others:
+        assert f'href="{c["profile"]}"' in grid, c["login"]
+    # The card for whoever is next is always there, and leads to the guide.
+    assert 'class="person join"' in grid and "CONTRIBUTING.md" in grid
+    # Excluded accounts are nowhere on the page.
+    for login in data["exclude"]:
+        assert f"github.com/{login}\"" not in text and f">{login}<" not in text, login
+    assert f'as of {data["updated"]}' in text
+    # and its structured data lists the same people, maintainer first
+    blocks = [json.loads(b) for b in re.findall(
+        r'<script type="application/ld\+json">(.*?)</script>', text, re.S)]
+    graph = next(b["@graph"] for b in blocks if "@graph" in b)
+    page = next(n for n in graph if n["@type"] == "WebPage")
+    items = page["mainEntity"]["itemListElement"]
+    assert items[0]["item"] == {"@id": f"{SITE_URL}/#developer"}
+    assert [i["item"]["url"] for i in items[1:]] == [c["profile"] for c in others]
+
+
+def test_every_page_leads_to_the_contributors_page(gated):
+    for path in PUBLIC:
+        text = gated.get(path).text
+        assert 'href="/contributors"' in text, path
+    assert 'aria-current="page">Contributors' in gated.get("/contributors").text
+    assert 'href="/contributors">Meet everyone who has contributed' in gated.get("/").text
+
+
+def test_update_contributors_leaves_off_bots_and_excluded_accounts(tmp_path, monkeypatch):
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "update_contributors", os.path.join(root, "scripts", "update_contributors.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = tmp_path / "contributors.json"
+    out.write_text(json.dumps({"exclude": ["claude", "Someone-Excluded"]}), encoding="utf-8")
+    monkeypatch.setattr(mod, "OUT", out)
+
+    def person(login, n, kind="User"):
+        return {"login": login, "contributions": n, "type": kind,
+                "avatar_url": f"https://avatars.example/{login}", "html_url": f"https://github.com/{login}"}
+    monkeypatch.setattr(mod, "fetch", lambda token: [
+        person("R204570", 105), person("claude", 2), person("dependabot[bot]", 9, "Bot"),
+        person("someone-excluded", 3), person("zed", 4), person("amy", 4)])
+    assert mod.main() == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert [c["login"] for c in data["contributors"]] == ["R204570", "amy", "zed"]
+    assert data["exclude"] == ["claude", "Someone-Excluded"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["updated"])
 
 
 def test_the_web_manifest_names_icons_that_are_served(gated):

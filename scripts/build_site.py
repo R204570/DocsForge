@@ -55,18 +55,25 @@ REPO = "https://github.com/R204570/DocsForge"
 SRC = ROOT / "scripts" / "site_src"
 SITE = ROOT / "docsforge" / "server" / "site"
 
-PAGES = ("index", "tools", "connect")
+PAGES = ("index", "tools", "connect", "contributors")
 #: Where each page is served, for its canonical URL.
-PATHS = {"index": "/", "tools": "/tools", "connect": "/connect"}
+PATHS = {"index": "/", "tools": "/tools", "connect": "/connect", "contributors": "/contributors"}
 
 #: The person behind DocsForge. `rel="me"` on these links, and `sameAs` in the
 #: structured data, tie the three profiles to the site.
 DEVELOPER = {
     "name": "Raj Patel",
+    "github": "R204570",
+    "role": "Creator and maintainer",
     "links": (("Portfolio", "https://portfolio-raj-25.netlify.app/"),
               ("LinkedIn", "https://www.linkedin.com/in/raj-patel5/"),
               ("GitHub", "https://github.com/R204570")),
 }
+
+#: Who has committed to the repository, as scripts/update_contributors.py last
+#: read it from GitHub. Built into /contributors, never fetched per visit.
+CONTRIBUTORS = SRC / "contributors.json"
+GUIDE = REPO + "/blob/main/CONTRIBUTING.md"
 
 #: The home page's questions and answers, shown on the page and repeated as
 #: FAQPage structured data, so the markup can never say what the page does
@@ -154,7 +161,8 @@ def nav(active: str) -> str:
     items = [("How it works", "/#how-it-works", "wide", ""),
              ("Tools", "/tools", "", "tools"),
              ("Connect", "/connect", "", "connect"),
-             ("Storage", "/connect#storage", "wide", "")]
+             ("Storage", "/connect#storage", "wide", ""),
+             ("Contributors", "/contributors", "wide", "contributors")]
     links = []
     for label, href, cls, page in items:
         on = page == active
@@ -189,7 +197,8 @@ FOOT = f'''<footer class="foot">
       <nav aria-label="Project">
         {external("GitHub", REPO)}
         {external("Issues", REPO + "/issues")}
-        {external("Contribute", REPO + "/blob/main/CONTRIBUTING.md")}
+        <a href="/contributors">Contributors</a>
+        {external("Contribute", GUIDE)}
       </nav>
       <nav aria-label="Developer">
         {DEV_NAV}
@@ -209,13 +218,84 @@ def developer() -> str:
     <div class="dev rv">
       <div>
         <h2>Built by {DEVELOPER["name"]}</h2>
-        <p class="prose" style="margin-top:12px">DocsForge is designed, built and maintained by {DEVELOPER["name"]}. Found a bug or a bad extraction, have an idea, or want to contribute? Open an issue on GitHub, or reach out directly.</p>
+        <p class="prose" style="margin-top:12px">DocsForge is designed, built and maintained by {DEVELOPER["name"]}. Found a bug or a bad extraction, have an idea, or want to contribute? Open an issue on GitHub, or reach out directly. <a class="inline" href="/contributors">Meet everyone who has contributed</a>.</p>
       </div>
       <div class="dev-links">
 {links}
       </div>
     </div>
   </section>'''
+
+
+def contributors_data() -> dict:
+    return json.loads(CONTRIBUTORS.read_text(encoding="utf-8"))
+
+
+def avatar(url: str, size: int) -> str:
+    """A GitHub avatar at twice the size it is shown."""
+    return htmllib.escape(f"{url}{'&' if '?' in url else '?'}s={size * 2}")
+
+
+def commits(n: int) -> str:
+    return f"{n:,} commit{'' if n == 1 else 's'}"
+
+
+def split_contributors(data: dict) -> tuple[dict | None, list[dict]]:
+    """The maintainer's own entry, and everyone else in commit order."""
+    login = DEVELOPER["github"].lower()
+    lead = next((c for c in data["contributors"] if c["login"].lower() == login), None)
+    return lead, [c for c in data["contributors"] if c is not lead]
+
+
+def contributors() -> str:
+    """/contributors: the maintainer, everyone else, and a card for whoever is next."""
+    data = contributors_data()
+    lead, others = split_contributors(data)
+    name, login = DEVELOPER["name"], DEVELOPER["github"]
+    links = "\n".join(
+        f'          <a class="btn btn-ghost btn-sm" href="{href}" target="_blank" rel="{ME}">{label}</a>'
+        for label, href in DEVELOPER["links"])
+    lead_avatar = avatar(lead["avatar"], 88) if lead else f"https://github.com/{login}.png"
+    lead_commits = (f' · <a class="inline" href="{REPO}/commits?author={login}" target="_blank" '
+                    f'rel="noopener noreferrer">{commits(lead["contributions"])}</a>') if lead else ""
+    cards = [
+        f"""      <a class="person" href="{htmllib.escape(c["profile"])}" target="_blank" rel="noopener noreferrer">
+        <img src="{avatar(c["avatar"], 56)}" alt="" width="56" height="56" loading="lazy" decoding="async">
+        <span class="who">{htmllib.escape(c["login"])}</span>
+        <span class="n">{commits(c["contributions"])}</span>
+      </a>""" for c in others]
+    cards.append(f"""      <a class="person join" href="{GUIDE}" target="_blank" rel="noopener noreferrer">
+        <span class="plus" aria-hidden="true">+</span>
+        <span class="who">Your name here</span>
+        <span class="n">Read the contributing guide</span>
+      </a>""")
+    count = (f"{len(others)} {'person has' if len(others) == 1 else 'people have'} contributed "
+             "code alongside the maintainer so far." if others else
+             "No one besides the maintainer has contributed code yet. The first card could be yours.")
+    grid = "\n".join(cards)
+    return f"""<section class="section" id="maintainer" style="margin-top:0">
+    <h2 class="rv">Maintainer</h2>
+    <div class="maintainer rv">
+      <img class="avatar" src="{lead_avatar}" alt="{htmllib.escape(name)}" width="88" height="88">
+      <div>
+        <h3>{htmllib.escape(name)}</h3>
+        <p class="role">{htmllib.escape(DEVELOPER["role"])}{lead_commits}</p>
+        <p class="prose">Designed DocsForge, wrote most of it, and reviews every change. Reach out about anything: a bug, a bad extraction, an idea, or a contribution you would like to make.</p>
+        <div class="links">
+{links}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="contributors">
+    <h2 class="rv">Contributors</h2>
+    <p class="prose rv">{count}</p>
+    <div class="people rv-list">
+{grid}
+    </div>
+    <p class="updated">From the repository's commit history on GitHub, as of {htmllib.escape(data["updated"])}.</p>
+  </section>"""
 
 
 def code_html(text: str) -> str:
@@ -283,6 +363,13 @@ def structured_data(page: str, title: str, description: str) -> dict:
                "description": description, "isPartOf": {"@id": website["@id"]},
                "about": {"@id": software["@id"]},
                "primaryImageOfPage": {"@type": "ImageObject", "url": OG_IMAGE[0]}}
+    if page == "contributors":
+        lead, others = split_contributors(contributors_data())
+        people = [{"@id": person["@id"]}] + [
+            {"@type": "Person", "name": c["login"], "url": c["profile"]} for c in others]
+        webpage["mainEntity"] = {"@type": "ItemList", "name": "DocsForge contributors",
+                                 "itemListElement": [{"@type": "ListItem", "position": i, "item": p}
+                                                     for i, p in enumerate(people, 1)]}
     graph = [website, person, software, webpage]
     if page == "index":
         graph.append({"@type": "FAQPage", "@id": f"{url}#faq", "isPartOf": {"@id": url},
@@ -349,6 +436,7 @@ def build(page: str, css: str, js: str, picker: str) -> str:
     html = html.replace("<!--SEO-->", seo(page, html) if listed else f"{NOINDEX}\n  {HOME_ICONS}")
     html = html.replace("<!--DEVELOPER-->", developer() if page == "index" else "")
     html = html.replace("<!--FAQ-->", faq() if page == "index" else "")
+    html = html.replace("<!--CONTRIBUTORS-->", contributors() if page == "contributors" else "")
     # The fox: `<!--MASCOT:class-->` for a decorative one, `<!--MASCOT:class:alt-->`
     # for the one a page should name.
     html = re.sub(r"<!--MASCOT:([a-z-]+)(?::([^>]*?))?-->",
@@ -422,6 +510,7 @@ Its {len(tools)} MCP tools: {", ".join(tools)}.
 - [Home]({SITE_URL}/): how a name is resolved, verified and harvested, coverage reporting, and a FAQ
 - [Tools]({SITE_URL}/tools): every MCP tool, its arguments and what it returns
 - [Connect]({SITE_URL}/connect): one command or config block per MCP client (Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code, Claude Desktop), running it yourself, and storage
+- [Contributors]({SITE_URL}/contributors): the maintainer, everyone who has contributed code, and how to become a contributor
 
 ## Source
 
