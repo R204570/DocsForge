@@ -15,8 +15,11 @@
   <title>Page not found — DocsForge</title>
   <meta name="description" content="This page does not exist on the DocsForge site.">
   <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
+  <meta name="application-name" content="DocsForge">
+  <meta name="apple-mobile-web-app-title" content="DocsForge">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -85,11 +88,12 @@ code, kbd, pre { font-family: var(--mono); }
 .mark img { display: block; width: auto; height: 24px; }
 .nav { display: flex; align-items: center; gap: 16px; font-size: 14px; font-weight: 500; color: var(--text-2); }
 @media (min-width: 768px) { .nav { gap: 28px; } }
-.nav a { transition: color 150ms var(--ease); }
+.nav a { transition: color 150ms var(--ease); white-space: nowrap; }
 .nav a:hover { color: var(--text); }
 .nav a[aria-current="page"] { color: var(--text); border-bottom: 1px solid var(--accent); padding-bottom: 1px; }
 .nav .wide { display: none; }
-@media (min-width: 768px) { .nav .wide { display: inline; } }
+/* Five links and GitHub fit from 820px; below that the nav keeps Tools, Connect and GitHub. */
+@media (min-width: 820px) { .nav .wide { display: inline; } }
 .nav .ext { display: inline-flex; align-items: center; gap: 4px; }
 .nav .ext svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.7; }
 .chip { display: none; font-family: var(--mono); font-size: 11px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-2); background: var(--surface); }
@@ -348,6 +352,54 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
 .notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 
+/* ── the fox ──────────────────────────────────────────── */
+/* Perched on the hero's recorded run: paws on the card's top edge. */
+.hero .hero-figure { margin-top: 84px; }
+.perch { position: absolute; bottom: calc(100% - 7px); right: 24px; width: auto; height: 96px; pointer-events: none; }
+@media (min-width: 1024px) { .hero .hero-figure { margin-top: 56px; } }
+@media (max-width: 640px) { .hero .hero-figure { margin-top: 72px; } .perch { height: 80px; right: 16px; } }
+/* Presenting the two ways in, at the bottom of the home page. */
+.close-side { display: grid; justify-items: start; gap: 18px; }
+@media (min-width: 900px) { .close-side { justify-items: center; } }
+.close-fox { width: auto; height: 132px; }
+/* Lost, on the 404. */
+.notfound { display: grid; }
+.lost-fox { width: auto; height: 170px; margin-bottom: 18px; justify-self: start; }
+
+/* ── contributors ─────────────────────────────────────── */
+a.inline { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+a.inline:hover { text-decoration-color: var(--accent); }
+.maintainer { display: grid; gap: 20px; align-items: start; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+@media (min-width: 640px) { .maintainer { grid-template-columns: 88px 1fr; gap: 24px; } }
+.maintainer .avatar { width: 88px; height: 88px; border-radius: 50%; border: 2px solid var(--accent-line); background: var(--deep); }
+.maintainer h3 { font-size: 22px; margin: 0 0 4px; }
+.maintainer .role { margin: 0 0 12px; color: var(--text-2); font-size: 14.5px; }
+.maintainer .prose { margin: 0 0 16px; }
+.maintainer .links { display: flex; flex-wrap: wrap; gap: 8px; }
+.people { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.person { display: grid; justify-items: center; gap: 6px; padding: 20px 14px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); transition: border-color 150ms var(--ease); }
+.person:hover { border-color: var(--text-3); }
+.person img { width: 56px; height: 56px; border-radius: 50%; background: var(--deep); }
+.person .who { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.person .n { font-family: var(--mono); font-size: 12px; color: var(--text-3); }
+.person.join { border-style: dashed; border-color: var(--accent-line); background: transparent; }
+.person.join:hover { border-color: var(--accent); }
+.person.join .plus { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--accent-dim); color: var(--accent); font-size: 28px; font-weight: 500; }
+.person.join .n { color: var(--accent); }
+.updated { margin-top: 14px; font-size: 13px; color: var(--text-3); }
+.join-us { display: grid; gap: 28px; align-items: center; }
+@media (min-width: 900px) { .join-us { grid-template-columns: 1fr auto; gap: 48px; } }
+.join-us .ways { display: grid; gap: 12px; margin: 18px 0 24px; }
+@media (min-width: 820px) { .join-us .ways { grid-template-columns: repeat(3, 1fr); } }
+.join-us .way { padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.join-us .way h3 { font-size: 16px; margin: 0 0 6px; }
+.join-us .way p { margin: 0; color: var(--text-2); font-size: 14.5px; line-height: 1.6; }
+.join-us .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.join-fox { width: auto; height: 180px; justify-self: center; }
+@media (max-width: 899px) { .join-fox { order: -1; justify-self: start; height: 140px; } }
+/* If an avatar cannot load, its alt text stays for screen readers but does not spill out. */
+.maintainer .avatar, .person img { overflow: hidden; color: transparent; font-size: 0; }
+
   </style>
 </head>
 <body>
@@ -359,6 +411,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
       <a href="/tools">Tools</a>
       <a href="/connect">Connect</a>
       <a href="/connect#storage" class="wide">Storage</a>
+      <a href="/contributors" class="wide">Contributors</a>
       <a href="https://github.com/R204570/DocsForge" class="ext" target="_blank" rel="noopener noreferrer">GitHub <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 8 L8 2 M3.5 2 H8 V6.5"/></svg></a>
     </nav>
     <span class="chip">v{{VERSION}}</span>
@@ -367,9 +420,10 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 
 <main class="wrap doc">
   <header class="lede notfound">
+    <img class="lost-fox" src="/mascot.webp" alt="The DocsForge fox, looking for the page" width="564" height="480" decoding="async">
     <p class="code">404</p>
     <h1>This page does not exist.</h1>
-    <p class="lead">The address may be mistyped, or the page may have moved. Everything on the site is one of three pages.</p>
+    <p class="lead">The address may be mistyped, or the page may have moved. Everything on the site is one of four pages.</p>
     <div class="cta">
       <a class="btn btn-primary" href="/">DocsForge home</a>
       <a class="btn btn-ghost" href="/tools">The MCP tools</a>
@@ -385,6 +439,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
       <nav aria-label="Project">
         <a href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="/contributors">Contributors</a>
         <a href="https://github.com/R204570/DocsForge/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contribute</a>
       </nav>
       <nav aria-label="Developer">

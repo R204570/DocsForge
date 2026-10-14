@@ -1,3 +1,5 @@
+<p align="center"><img src="Logo/docsforge-mascot.webp" alt="The DocsForge fox" width="220"></p>
+
 # DocsForge
 
 **Universal software documentation → clean Markdown for LLMs.**

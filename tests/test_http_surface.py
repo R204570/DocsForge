@@ -75,14 +75,21 @@ DEVELOPER_LINKS = ("https://portfolio-raj-25.netlify.app/",
                    "https://github.com/R204570")
 
 
+def _contributors():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "scripts", "site_src", "contributors.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
 def test_site_pages_link_only_to_each_other_github_and_the_developer(gated):
     import re
-    for path in ("/", "/tools", "/connect"):
+    profiles = {c["profile"] for c in _contributors()["contributors"]}
+    for path in ("/", "/tools", "/connect", "/contributors"):
         hrefs = set(re.findall(r'href="([^"]+)"', gated.get(path).text))
         for h in hrefs:
             assert (h.startswith(("/", "https://github.com/R204570/DocsForge",
                                   "https://fonts.g", SITE_URL + "/"))
-                    or h in DEVELOPER_LINKS), (path, h)
+                    or h in DEVELOPER_LINKS or h in profiles), (path, h)
         # every internal page link resolves
         for h in hrefs:
             if h.startswith("/"):
@@ -96,6 +103,8 @@ def test_site_pages_link_only_to_each_other_github_and_the_developer(gated):
     ("/apple-touch-icon.png", "image/png", "docsforge-icon-180.png"),
     ("/icon-192.png", "image/png", "docsforge-icon-192.png"),
     ("/icon-512.png", "image/png", "docsforge-icon-512.png"),
+    ("/favicon-192.png", "image/png", "docsforge-favicon-192.png"),
+    ("/mascot.webp", "image/webp", "docsforge-mascot.webp"),
 ])
 def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, kind, drawn):
     r = gated.get(path)
@@ -110,7 +119,7 @@ def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, k
 
 
 # ── search engines ───────────────────────────────────────
-PUBLIC = ("/", "/tools", "/connect")
+PUBLIC = ("/", "/tools", "/connect", "/contributors")
 
 
 @pytest.mark.parametrize("path", PUBLIC)
@@ -140,10 +149,11 @@ def test_titles_and_descriptions_are_not_shared_between_pages(gated):
 
 @pytest.mark.parametrize("path", PUBLIC)
 def test_structured_data_parses_and_names_the_developer(gated, path):
-    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>',
-                        gated.get(path).text, re.S)
-    assert len(blocks) == 1
-    graph = {node["@type"]: node for node in json.loads(blocks[0])["@graph"]}
+    blocks = [json.loads(b) for b in re.findall(
+        r'<script type="application/ld\+json">(.*?)</script>', gated.get(path).text, re.S)]
+    graphs = [b for b in blocks if "@graph" in b]
+    assert len(graphs) == 1
+    graph = {node["@type"]: node for node in graphs[0]["@graph"]}
     assert {"WebSite", "Person", "SoftwareApplication", "WebPage"} <= set(graph)
     assert graph["Person"]["name"] == "Raj Patel"
     assert graph["Person"]["sameAs"] == list(DEVELOPER_LINKS)
@@ -203,8 +213,10 @@ def test_the_home_page_faq_is_visible_and_its_markup_says_the_same(gated):
     section = section[:section.index("</section>")]
     shown = [(re.sub(r"<[^>]+>", "", q), re.sub(r"<[^>]+>", "", a)) for q, a in
              re.findall(r"<h3>(.*?)</h3>\s*<p>(.*?)</p>", section, re.S)]
-    block = re.search(r'<script type="application/ld\+json">(.*?)</script>', text, re.S).group(1)
-    faq = next(n for n in json.loads(block)["@graph"] if n["@type"] == "FAQPage")
+    blocks = [json.loads(b) for b in
+              re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, re.S)]
+    graph = next(b["@graph"] for b in blocks if "@graph" in b)
+    faq = next(n for n in graph if n["@type"] == "FAQPage")
     marked = [(q["name"], q["acceptedAnswer"]["text"]) for q in faq["mainEntity"]]
     import html as htmllib
     assert len(shown) >= 5
@@ -224,6 +236,127 @@ def test_llms_txt_describes_the_site_for_language_models(gated):
     for url in re.findall(r"\((https://[^)]+)\)", r.text):
         if url.startswith(SITE_URL):
             assert gated.get(url.removeprefix(SITE_URL)).status_code == 200, url
+
+
+def test_the_home_page_tells_google_the_site_is_called_docsforge(gated):
+    """Without it Google falls back to the parent domain: "Vercel"."""
+    text = gated.get("/").text
+    blocks = [json.loads(b) for b in
+              re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, re.S)]
+    # On its own, in the form Google's site-name documentation shows ...
+    alone = [b for b in blocks if b.get("@type") == "WebSite"]
+    assert len(alone) == 1
+    site = alone[0]
+    assert site["@context"] == "https://schema.org"
+    assert site["name"] == "DocsForge" and site["url"] == SITE_URL + "/"
+    # ... the hostname, lowercase, as the last fallback instead of the parent's name
+    assert site["alternateName"][-1] == SITE_URL.removeprefix("https://")
+    # ... and the same entity as the WebSite in the graph, saying the same thing
+    graph = next(b["@graph"] for b in blocks if "@graph" in b)
+    in_graph = next(n for n in graph if n["@type"] == "WebSite")
+    assert in_graph["@id"] == site["@id"]
+    assert (in_graph["name"], in_graph["alternateName"]) == (site["name"], site["alternateName"])
+    assert '<meta property="og:site_name" content="DocsForge">' in text
+    assert '<meta name="application-name" content="DocsForge">' in text
+    assert re.search(r"<title>DocsForge\b", text)
+    # Only the home page carries the standalone block.
+    for path in ("/tools", "/connect"):
+        assert '"@type":"WebSite","@id"' not in gated.get(path).text.split('"@graph"')[0], path
+
+
+def test_every_page_offers_google_a_large_square_favicon(gated):
+    import struct
+    for path in PUBLIC:
+        assert ('<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">'
+                in gated.get(path).text), path
+    # A PNG's size is in its IHDR chunk, right after the 8-byte signature.
+    png = gated.get("/favicon-192.png").content
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height = struct.unpack(">II", png[16:24])
+    assert width == height == 192 and width % 48 == 0
+    # The .ico every browser asks for: a directory of 16-byte entries after a
+    # 6-byte header, each starting with width and height (0 meaning 256).
+    ico = gated.get("/favicon.ico").content
+    count = struct.unpack("<H", ico[4:6])[0]
+    sizes = {(ico[6 + 16 * i] or 256, ico[7 + 16 * i] or 256) for i in range(count)}
+    assert {(48, 48), (256, 256)} <= sizes
+
+
+def test_the_fox_is_on_the_home_page_and_the_404_and_sized_so_nothing_shifts(gated):
+    home = gated.get("/").text
+    foxes = re.findall(r'<img class="([a-z-]+)" src="/mascot.webp" alt="([^"]*)" width="564" '
+                       r'height="480"', home)
+    assert [c for c, _ in foxes] == ["perch", "close-fox"]
+    assert foxes[0][1] == "The DocsForge fox"          # the first one is named
+    lost = gated.get("/no-such-page", headers={"Accept": "text/html"}).text
+    assert 'class="lost-fox" src="/mascot.webp"' in lost
+    for path in ("/tools", "/connect"):
+        assert "/mascot.webp" not in gated.get(path).text, path
+
+
+def test_the_contributors_page_lists_the_maintainer_and_everyone_else(gated):
+    data = _contributors()
+    r = gated.get("/contributors")
+    assert r.status_code == 200
+    text = r.text
+    assert "<h1>The people behind DocsForge.</h1>" in text
+    maintainer = text[text.index('id="maintainer"'):text.index('id="contributors"')]
+    assert "<h3>Raj Patel</h3>" in maintainer and "Creator and maintainer" in maintainer
+    for href in DEVELOPER_LINKS:
+        assert f'href="{href}"' in maintainer, href
+    lead = next(c for c in data["contributors"] if c["login"] == "R204570")
+    assert f'{lead["contributions"]:,} commit' in maintainer
+    grid = text[text.index('class="people'):text.index('class="updated"')]
+    others = [c for c in data["contributors"] if c["login"] != "R204570"]
+    assert grid.count('class="person"') == len(others)
+    for c in others:
+        assert f'href="{c["profile"]}"' in grid, c["login"]
+    # The card for whoever is next is always there, and leads to the guide.
+    assert 'class="person join"' in grid and "CONTRIBUTING.md" in grid
+    # Excluded accounts are nowhere on the page.
+    for login in data["exclude"]:
+        assert f"github.com/{login}\"" not in text and f">{login}<" not in text, login
+    assert f'as of {data["updated"]}' in text
+    # and its structured data lists the same people, maintainer first
+    blocks = [json.loads(b) for b in re.findall(
+        r'<script type="application/ld\+json">(.*?)</script>', text, re.S)]
+    graph = next(b["@graph"] for b in blocks if "@graph" in b)
+    page = next(n for n in graph if n["@type"] == "WebPage")
+    items = page["mainEntity"]["itemListElement"]
+    assert items[0]["item"] == {"@id": f"{SITE_URL}/#developer"}
+    assert [i["item"]["url"] for i in items[1:]] == [c["profile"] for c in others]
+
+
+def test_every_page_leads_to_the_contributors_page(gated):
+    for path in PUBLIC:
+        text = gated.get(path).text
+        assert 'href="/contributors"' in text, path
+    assert 'aria-current="page">Contributors' in gated.get("/contributors").text
+    assert 'href="/contributors">Meet everyone who has contributed' in gated.get("/").text
+
+
+def test_update_contributors_leaves_off_bots_and_excluded_accounts(tmp_path, monkeypatch):
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "update_contributors", os.path.join(root, "scripts", "update_contributors.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = tmp_path / "contributors.json"
+    out.write_text(json.dumps({"exclude": ["claude", "Someone-Excluded"]}), encoding="utf-8")
+    monkeypatch.setattr(mod, "OUT", out)
+
+    def person(login, n, kind="User"):
+        return {"login": login, "contributions": n, "type": kind,
+                "avatar_url": f"https://avatars.example/{login}", "html_url": f"https://github.com/{login}"}
+    monkeypatch.setattr(mod, "fetch", lambda token: [
+        person("R204570", 105), person("claude", 2), person("dependabot[bot]", 9, "Bot"),
+        person("someone-excluded", 3), person("zed", 4), person("amy", 4)])
+    assert mod.main() == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert [c["login"] for c in data["contributors"]] == ["R204570", "amy", "zed"]
+    assert data["exclude"] == ["claude", "Someone-Excluded"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["updated"])
 
 
 def test_the_web_manifest_names_icons_that_are_served(gated):
