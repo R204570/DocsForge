@@ -115,15 +115,34 @@ BRAND = {"logo.svg": ROOT / "Logo" / "docsforge-logo.svg",
          "og.png": ROOT / "Logo" / "docsforge-og.png",
          "apple-touch-icon.png": ROOT / "Logo" / "docsforge-icon-180.png",
          "icon-192.png": ROOT / "Logo" / "docsforge-icon-192.png",
-         "icon-512.png": ROOT / "Logo" / "docsforge-icon-512.png"}
+         "icon-512.png": ROOT / "Logo" / "docsforge-icon-512.png",
+         "favicon-192.png": ROOT / "Logo" / "docsforge-favicon-192.png",
+         "mascot.webp": ROOT / "Logo" / "docsforge-mascot.webp"}
 #: Pages served but never indexed: the not-found page.
 UNLISTED = ("404",)
 #: The social card is 1200 x 630, the size every platform crops to.
 OG_IMAGE = (f"{SITE_URL}/og.png", 1200, 630)
 ICON = '<link rel="icon" href="/favicon.ico" sizes="any">'
-#: Home-screen icons and the web app manifest that lists them.
-HOME_ICONS = ('<link rel="apple-touch-icon" href="/apple-touch-icon.png">\n'
-              '  <link rel="manifest" href="/site.webmanifest">')
+#: A large square PNG beside the .ico: Google Search shows a site's favicon
+#: next to its name, and recommends one bigger than 48 x 48. Then the
+#: home-screen icons and the web app manifest that lists them, and the name
+#: browsers and phones give the site.
+HOME_ICONS = ('<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">\n'
+              '  <link rel="apple-touch-icon" href="/apple-touch-icon.png">\n'
+              '  <link rel="manifest" href="/site.webmanifest">\n'
+              '  <meta name="application-name" content="DocsForge">\n'
+              '  <meta name="apple-mobile-web-app-title" content="DocsForge">')
+#: The fox, full body, as the site shows it: a lavender sticker edge so its
+#: black outline reads on the near-black ground. 564 x 480.
+MASCOT = ('<img class="{cls}" src="/mascot.webp" alt="{alt}" width="564" height="480"'
+          '{extra}>')
+
+#: What Google Search shows as the site's name. Without a confident signal it
+#: falls back to the parent domain, and every *.vercel.app site reads
+#: "Vercel". The last alternate is the hostname in lowercase, which Google
+#: takes as the final fallback in place of the parent's name.
+SITE_NAME = "DocsForge"
+SITE_ALTERNATE_NAMES = ["DocsForge MCP server", SITE_URL.removeprefix("https://")]
 #: What the not-found page says to search engines in place of the SEO block.
 NOINDEX = '<meta name="robots" content="noindex">'
 #: The fox is 795 x 623; width and height are set so nothing shifts as it loads.
@@ -247,7 +266,7 @@ def structured_data(page: str, title: str, description: str) -> dict:
     person = {"@type": "Person", "@id": f"{SITE_URL}/#developer", "name": DEVELOPER["name"],
               "url": DEVELOPER["links"][0][1], "sameAs": [h for _, h in DEVELOPER["links"]]}
     website = {"@type": "WebSite", "@id": f"{SITE_URL}/#website", "url": SITE_URL + "/",
-               "name": "DocsForge", "inLanguage": "en",
+               "name": SITE_NAME, "alternateName": SITE_ALTERNATE_NAMES, "inLanguage": "en",
                "publisher": {"@id": person["@id"]}}
     software = {"@type": "SoftwareApplication", "@id": f"{SITE_URL}/#software",
                 "name": "DocsForge", "url": SITE_URL + "/",
@@ -289,6 +308,15 @@ def seo(page: str, html: str) -> str:
     q = lambda v: htmllib.escape(str(v), quote=False).replace('"', "&quot;")  # noqa: E731
     ld = json.dumps(structured_data(page, title, description), ensure_ascii=False,
                     separators=(",", ":")).replace("</", "<\\/")
+    # The site name, on the home page, also on its own and in exactly the form
+    # Google's site-name documentation shows: the signal it weighs most. Same
+    # @id as the WebSite in the graph, so the two are one entity.
+    site_name = ""
+    if page == "index":
+        site_name = '<script type="application/ld+json">' + json.dumps({
+            "@context": "https://schema.org", "@type": "WebSite", "@id": f"{SITE_URL}/#website",
+            "name": SITE_NAME, "alternateName": SITE_ALTERNATE_NAMES, "url": SITE_URL + "/",
+        }, ensure_ascii=False, separators=(",", ":")) + "</script>"
     return "\n  ".join([
         f'<link rel="canonical" href="{q(url)}">',
         '<meta name="robots" content="index, follow, max-image-preview:large">',
@@ -297,7 +325,7 @@ def seo(page: str, html: str) -> str:
         HOME_ICONS,
         "{{SITE_VERIFICATION}}",
         '<meta property="og:type" content="website">',
-        '<meta property="og:site_name" content="DocsForge">',
+        f'<meta property="og:site_name" content="{SITE_NAME}">',
         '<meta property="og:locale" content="en_US">',
         f'<meta property="og:title" content="{q(title)}">',
         f'<meta property="og:description" content="{q(description)}">',
@@ -312,7 +340,7 @@ def seo(page: str, html: str) -> str:
         f'<meta name="twitter:description" content="{q(description)}">',
         f'<meta name="twitter:image" content="{q(image)}">',
         f'<script type="application/ld+json">{ld}</script>',
-    ])
+    ] + ([site_name] if site_name else []))
 
 
 def build(page: str, css: str, js: str, picker: str) -> str:
@@ -321,6 +349,13 @@ def build(page: str, css: str, js: str, picker: str) -> str:
     html = html.replace("<!--SEO-->", seo(page, html) if listed else f"{NOINDEX}\n  {HOME_ICONS}")
     html = html.replace("<!--DEVELOPER-->", developer() if page == "index" else "")
     html = html.replace("<!--FAQ-->", faq() if page == "index" else "")
+    # The fox: `<!--MASCOT:class-->` for a decorative one, `<!--MASCOT:class:alt-->`
+    # for the one a page should name.
+    html = re.sub(r"<!--MASCOT:([a-z-]+)(?::([^>]*?))?-->",
+                  lambda m: MASCOT.format(cls=m.group(1), alt=htmllib.escape(m.group(2) or ""),
+                                          extra=' decoding="async"' + (
+                                              "" if m.group(2) else ' loading="lazy"')),
+                  html)
     for name, draw in DIAGRAMS.items():
         html = html.replace(f"<!--SVG:{name}-->", draw())
     assert "<!--SVG:" not in html, (page, "an unknown diagram marker")

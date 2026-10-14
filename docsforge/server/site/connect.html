@@ -18,8 +18,11 @@
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="author" content="Raj Patel">
   <meta name="theme-color" content="#0b0b0d">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
+  <meta name="application-name" content="DocsForge">
+  <meta name="apple-mobile-web-app-title" content="DocsForge">
   {{SITE_VERIFICATION}}
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="DocsForge">
@@ -35,7 +38,7 @@
   <meta name="twitter:title" content="Connect DocsForge to Claude Code, Cursor, Codex and more">
   <meta name="twitter:description" content="Connect DocsForge to Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code or Claude Desktop: one command or one config block per client.">
   <meta name="twitter:image" content="https://docsforge.vercel.app/og.png">
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://docsforge.vercel.app/#website","url":"https://docsforge.vercel.app/","name":"DocsForge","inLanguage":"en","publisher":{"@id":"https://docsforge.vercel.app/#developer"}},{"@type":"Person","@id":"https://docsforge.vercel.app/#developer","name":"Raj Patel","url":"https://portfolio-raj-25.netlify.app/","sameAs":["https://portfolio-raj-25.netlify.app/","https://www.linkedin.com/in/raj-patel5/","https://github.com/R204570"]},{"@type":"SoftwareApplication","@id":"https://docsforge.vercel.app/#software","name":"DocsForge","url":"https://docsforge.vercel.app/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","description":"An open-source MCP server that finds a library's official documentation from its name, verifies it, harvests it and serves it to AI agents and coding assistants.","license":"https://opensource.org/licenses/MIT","codeRepository":"https://github.com/R204570/DocsForge","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@id":"https://docsforge.vercel.app/#developer"},"image":"https://docsforge.vercel.app/og.png"},{"@type":"WebPage","@id":"https://docsforge.vercel.app/connect","url":"https://docsforge.vercel.app/connect","name":"Connect DocsForge to Claude Code, Cursor, Codex and more","description":"Connect DocsForge to Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code or Claude Desktop: one command or one config block per client.","isPartOf":{"@id":"https://docsforge.vercel.app/#website"},"about":{"@id":"https://docsforge.vercel.app/#software"},"primaryImageOfPage":{"@type":"ImageObject","url":"https://docsforge.vercel.app/og.png"},"breadcrumb":{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"DocsForge","item":"https://docsforge.vercel.app/"},{"@type":"ListItem","position":2,"name":"Connect","item":"https://docsforge.vercel.app/connect"}]}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://docsforge.vercel.app/#website","url":"https://docsforge.vercel.app/","name":"DocsForge","alternateName":["DocsForge MCP server","docsforge.vercel.app"],"inLanguage":"en","publisher":{"@id":"https://docsforge.vercel.app/#developer"}},{"@type":"Person","@id":"https://docsforge.vercel.app/#developer","name":"Raj Patel","url":"https://portfolio-raj-25.netlify.app/","sameAs":["https://portfolio-raj-25.netlify.app/","https://www.linkedin.com/in/raj-patel5/","https://github.com/R204570"]},{"@type":"SoftwareApplication","@id":"https://docsforge.vercel.app/#software","name":"DocsForge","url":"https://docsforge.vercel.app/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","description":"An open-source MCP server that finds a library's official documentation from its name, verifies it, harvests it and serves it to AI agents and coding assistants.","license":"https://opensource.org/licenses/MIT","codeRepository":"https://github.com/R204570/DocsForge","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@id":"https://docsforge.vercel.app/#developer"},"image":"https://docsforge.vercel.app/og.png"},{"@type":"WebPage","@id":"https://docsforge.vercel.app/connect","url":"https://docsforge.vercel.app/connect","name":"Connect DocsForge to Claude Code, Cursor, Codex and more","description":"Connect DocsForge to Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code or Claude Desktop: one command or one config block per client.","isPartOf":{"@id":"https://docsforge.vercel.app/#website"},"about":{"@id":"https://docsforge.vercel.app/#software"},"primaryImageOfPage":{"@type":"ImageObject","url":"https://docsforge.vercel.app/og.png"},"breadcrumb":{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"DocsForge","item":"https://docsforge.vercel.app/"},{"@type":"ListItem","position":2,"name":"Connect","item":"https://docsforge.vercel.app/connect"}]}}]}</script>
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -366,6 +369,20 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .notfound { padding-block: 48px 24px; }
 .notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
 .notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
+/* ── the fox ──────────────────────────────────────────── */
+/* Perched on the hero's recorded run: paws on the card's top edge. */
+.hero .hero-figure { margin-top: 84px; }
+.perch { position: absolute; bottom: calc(100% - 7px); right: 24px; width: auto; height: 96px; pointer-events: none; }
+@media (min-width: 1024px) { .hero .hero-figure { margin-top: 56px; } }
+@media (max-width: 640px) { .hero .hero-figure { margin-top: 72px; } .perch { height: 80px; right: 16px; } }
+/* Presenting the two ways in, at the bottom of the home page. */
+.close-side { display: grid; justify-items: start; gap: 18px; }
+@media (min-width: 900px) { .close-side { justify-items: center; } }
+.close-fox { width: auto; height: 132px; }
+/* Lost, on the 404. */
+.notfound { display: grid; }
+.lost-fox { width: auto; height: 170px; margin-bottom: 18px; justify-self: start; }
 
   </style>
 </head>

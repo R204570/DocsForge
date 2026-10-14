@@ -15,8 +15,11 @@
   <title>Page not found — DocsForge</title>
   <meta name="description" content="This page does not exist on the DocsForge site.">
   <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
+  <meta name="application-name" content="DocsForge">
+  <meta name="apple-mobile-web-app-title" content="DocsForge">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -348,6 +351,20 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
 .notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 
+/* ── the fox ──────────────────────────────────────────── */
+/* Perched on the hero's recorded run: paws on the card's top edge. */
+.hero .hero-figure { margin-top: 84px; }
+.perch { position: absolute; bottom: calc(100% - 7px); right: 24px; width: auto; height: 96px; pointer-events: none; }
+@media (min-width: 1024px) { .hero .hero-figure { margin-top: 56px; } }
+@media (max-width: 640px) { .hero .hero-figure { margin-top: 72px; } .perch { height: 80px; right: 16px; } }
+/* Presenting the two ways in, at the bottom of the home page. */
+.close-side { display: grid; justify-items: start; gap: 18px; }
+@media (min-width: 900px) { .close-side { justify-items: center; } }
+.close-fox { width: auto; height: 132px; }
+/* Lost, on the 404. */
+.notfound { display: grid; }
+.lost-fox { width: auto; height: 170px; margin-bottom: 18px; justify-self: start; }
+
   </style>
 </head>
 <body>
@@ -367,6 +384,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 
 <main class="wrap doc">
   <header class="lede notfound">
+    <img class="lost-fox" src="/mascot.webp" alt="The DocsForge fox, looking for the page" width="564" height="480" decoding="async">
     <p class="code">404</p>
     <h1>This page does not exist.</h1>
     <p class="lead">The address may be mistyped, or the page may have moved. Everything on the site is one of three pages.</p>

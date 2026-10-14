@@ -136,6 +136,32 @@ changed, instead of waiting for the next crawl.
    It checks the key file is live, then submits every URL in the live
    sitemap. `--dry-run` lists them without submitting.
 
+## 3b. The name and icon beside the result ("Vercel" and a grey globe)
+
+Google shows a **site name** and a **favicon** above every result. Both are
+chosen by Google's own systems, per hostname, and refreshed on their own
+schedule — days to weeks after a crawl, even when the page itself is already
+updated in the index.
+
+- **Site name.** Google's strongest signal is `WebSite` structured data on
+  the home page. When it is not confident, it falls back to the domain — and
+  for any `*.vercel.app` site that reads **"Vercel"**. The home page now
+  carries the `WebSite` block on its own, exactly as Google documents it
+  (`name: "DocsForge"`), with `alternateName` ending in the hostname in
+  lowercase (`docsforge.vercel.app`), which Google takes as the last-resort
+  name instead of the parent's. The same name is in `<title>`,
+  `og:site_name` and `application-name`. (`SITE_NAME` and
+  `SITE_ALTERNATE_NAMES` in `build_site.py`.)
+- **Favicon.** Google needs a square image, ideally larger than 48×48, linked
+  from the home page with `rel="icon"`. The site links `/favicon.ico` (48 to
+  256 px) and `/favicon-192.png`. The fox only arrived in the PR before the
+  SEO work, so Google's copy was still the default globe.
+
+**To speed both up:** Search Console → URL inspection →
+`https://docsforge.vercel.app/` → **Request indexing**. A custom domain is
+the only way to make the name independent of `vercel.app` entirely; it is
+not needed for this.
+
 ## 4. Checking indexing and fixing crawl errors
 
 - **Search Console → Pages** lists what is indexed and why anything is not.

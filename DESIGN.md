@@ -190,7 +190,7 @@ The site does not describe DocsForge; it plays one run of it back. A name goes i
 
 The world is near-black and quiet. Four greys make the ground (page, well, soft, surface); hairlines, not gaps, separate things; a single lavender is spent only on what lights up. Words are Inter; anything the software would print — a tool name, a path, a count, a caption, a version — is JetBrains Mono. Density is editorial: one 1100px column, rows that split five-to-seven between words and the figure, wide bands between sections. Depth is tonal, not cast; the one diffuse shadow exists to seat the two showcase surfaces. Nothing on the site is uppercase, letter-spaced open, or iconised.
 
-Motion is playback, never decoration, and it is strictly an enhancement: with script off or reduced motion on, every reveal and every diagram is simply shown at rest, complete. Confirmed rejections: no light mode; no raster imagery or illustration; no icon-card feature grid; no metric tiles; no emoji; no external scripts but the Google tag.
+Motion is playback, never decoration, and it is strictly an enhancement: with script off or reduced motion on, every reveal and every diagram is simply shown at rest, complete. Confirmed rejections: no light mode; no raster imagery or illustration beyond the fox mascot (below); no icon-card feature grid; no metric tiles; no emoji; no external scripts but the Google tag.
 
 **Key Characteristics:**
 - One chromatic colour, lavender, on a near-black four-step grey ladder; red appears only where a harvest fell short
@@ -391,7 +391,7 @@ Playback of the recorded run, driven by classes and one delay property. The sing
 - **Don't** fill an area larger than a button with solid lavender; use the 13% tint bounded by the 34% line.
 - **Don't** use red for anything but incomplete coverage.
 - **Don't** introduce an icon-card feature grid or metric tiles; the figures strip is a hairline band of mono numbers, and features are rows with a drawing.
-- **Don't** use raster imagery, illustration, icon fonts or emoji; the only pictographs are the fox logo, the inline external-link arrow, and the diagram tick. The fox is the one drawn image on the site and appears only as the wordmark.
+- **Don't** use raster imagery, illustration, icon fonts or emoji; the only pictographs are the fox logo, the inline external-link arrow, and the diagram tick. The one exception is the **fox mascot** (`/mascot.webp`, the full-body fox the owner chose, drawn in `Logo/docsforge-mascot.png`), which carries a 2px-equivalent lavender (#cf9fff) sticker edge so its black outline reads on the near-black ground, and no drop shadow (a black blur on #0b0b0d reads as a dark box). It appears in exactly three places: perched on the top edge of the hero's recorded-run figure (96px, 80px on phones), above the two buttons in the closing Connect band (132px), and on the 404 page (170px); and on the social card `og.png`. Nowhere else: it is a character, not decoration.
 - **Don't** set any text in uppercase or with open letter-spacing.
 - **Don't** hide content behind motion or load an external script other than the Google tag; every page must read complete with script off and at 400px.
 - **Don't** give a surface a shadow to lift it; move it a rung on the grey ladder and edge it with a hairline.

@@ -322,3 +322,17 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .notfound { padding-block: 48px 24px; }
 .notfound .code { font-family: var(--mono); font-size: 14px; color: var(--accent); margin: 0 0 10px; }
 .notfound .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
+/* ── the fox ──────────────────────────────────────────── */
+/* Perched on the hero's recorded run: paws on the card's top edge. */
+.hero .hero-figure { margin-top: 84px; }
+.perch { position: absolute; bottom: calc(100% - 7px); right: 24px; width: auto; height: 96px; pointer-events: none; }
+@media (min-width: 1024px) { .hero .hero-figure { margin-top: 56px; } }
+@media (max-width: 640px) { .hero .hero-figure { margin-top: 72px; } .perch { height: 80px; right: 16px; } }
+/* Presenting the two ways in, at the bottom of the home page. */
+.close-side { display: grid; justify-items: start; gap: 18px; }
+@media (min-width: 900px) { .close-side { justify-items: center; } }
+.close-fox { width: auto; height: 132px; }
+/* Lost, on the 404. */
+.notfound { display: grid; }
+.lost-fox { width: auto; height: 170px; margin-bottom: 18px; justify-self: start; }
