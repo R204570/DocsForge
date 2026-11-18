@@ -1,0 +1,24 @@
+{
+  "contract": 1,
+  "decided_at": "2026-11-18T10:15:37Z",
+  "run_id": "run-20261118T101458Z-77e0b4a2",
+  "intent": "resolve-import",
+  "usable_for_planning": false,
+  "reason": "the 'sdk' corpus is INCOMPLETE (2 of 120 pages)",
+  "judged": [
+    {
+      "corpus": "acme-sdk",
+      "version": "2.4",
+      "harvest_id": "hv-20261118T101500Z-3f9a2c1d",
+      "kind": "api",
+      "complete": true
+    },
+    {
+      "corpus": "acme-sdk--sdk-acme-example",
+      "version": "undated",
+      "harvest_id": "hv-20261118T101530Z-5e2d90aa",
+      "kind": "sdk",
+      "complete": false
+    }
+  ]
+}

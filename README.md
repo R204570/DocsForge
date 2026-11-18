@@ -259,7 +259,7 @@ takes `kind`. See **Serving a purpose** below.
 deleting a harvest is the one irreversible thing here, and a model that has just
 mis-resolved a name is not the caller you want holding that lever.
 
-Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (60k default) with an explicit truncation marker.
+Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (200,000 characters by default) with an explicit truncation marker.
 
 ## 3. Web chat
 
@@ -1247,12 +1247,16 @@ What a serverless host changes, and the code says so rather than pretending:
 
 - **Stateless.** `/mcp` runs the SDK's stateless mode — every request carries
   everything, answers are plain JSON. Nothing lives between requests.
-- **Ephemeral.** Nothing runs after a response. A harvest that finishes
-  inside `DOCSFORGE_HARVEST_DEADLINE` is stored as usual; one that does not
-  is *discarded*, and the result says exactly that instead of "it continues
-  in the background". Nothing partial is ever published. **Large harvests are
-  done from a long-lived DocsForge** — `python main.py` on your machine with
-  the same `DOCSFORGE_DB` — and are readable through Vercel at once. Raise the
+- **Ephemeral.** Nothing is *guaranteed* to run after a response. A harvest
+  that finishes inside `DOCSFORGE_HARVEST_DEADLINE` is stored as usual. One
+  that does not may keep running while the instance lives, because Fluid
+  compute reuses instances. It may also be cut off at any moment, and the
+  result says exactly that instead of promising it will finish.
+  `harvest_status` reports it as running, done or stopped, from any instance.
+  Nothing partial is ever published: a revision is published whole or not at
+  all, so a harvest that does finish is stored. **Large harvests are done
+  from a long-lived DocsForge** — `python main.py` on your machine with the
+  same `DOCSFORGE_DB` — and are readable through Vercel at once. Raise the
   deadline (to below `maxDuration`, 300 s by default here) if your client
   waits that long on a tool call.
 - **Only `/tmp` is writable, per instance.** Caches (resolution cache, logs)

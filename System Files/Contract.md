@@ -205,6 +205,19 @@ python -m docsforge --export "acme-sdk@2.4#hv-20261001T091200Z-1a2b3c4d"
 - **Listing them.** The local web app lists a version's kept revisions at `GET /api/library/{tech}/{version}` (`history`, newest first) and exports any of them with `…/export?harvest_id=`.
 - **Forgetting.** Forgetting a version forgets its history.
 
+## Fixtures
+
+[`tests/fixtures/contract-v1/`](../tests/fixtures/contract-v1/) holds one synthetic run against `acme.example`:
+
+| File | What it is |
+|---|---|
+| `complete.md` | An entry corpus, harvested whole and counted by a sitemap. One listed page answered 404, which is not a gap. |
+| `partial.md` | A federated corpus from the same run, cut by its page limit: 2 of the 120 pages its manifest lists. |
+| `decision.json` | The planning decision for that run. It is not usable, because the SDK corpus is incomplete, and it points at both revisions by `harvest_id`. |
+| `attempt-stopped.json` | Another run that stopped reporting with nothing stored. There is no revision, so its status record is the observation. |
+
+The fixtures are generated through the real renderer and status record by `scripts/make_contract_fixtures.py`, with `complete` decided by the real rule. `tests/test_contract_fixtures.py` regenerates them and fails on any difference, so they are always what DocsForge actually writes. `.gitattributes` keeps them byte for byte, with LF line endings on every platform.
+
 ## Not in v1
 
 - **Deduplication.** Pages are not deduplicated across federated corpora (Issues T2), so counts are per corpus.

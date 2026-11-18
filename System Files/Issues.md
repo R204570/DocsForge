@@ -958,6 +958,31 @@ into `<version>.history/<harvest_id>.md` before replacing it. The newest
 `DOCSFORGE_KEEP_HARVESTS` (3) are kept and export by id; forgetting a version
 forgets them. Tests in `tests/test_history.py`, on both stores.
 
+### I5 — the docs said a hosted harvest past the deadline is discarded · corrected (Phase 4)
+
+The README ("is *discarded*"), `vercel.py` ("is lost") and H6 promised more
+than the code does: the thread can go on running on a reused instance and the
+harvest can finish and publish. All three now say what holds — nothing is
+guaranteed after the response, a revision is published whole or not at all,
+and `harvest_status` says which.
+
+### I6 — the duplicate-harvest guard keys on the label, the store on slug and version · accepted
+
+`_as_harvest` compares the label a caller passed; the store files by the slug
+and the version the harvest settles on. Since Phase 0 two writers of one
+version are safe whatever the guard decides, so it stays what it is: a
+courtesy that saves a second crawl, not a lock.
+
+### M8 — federated corpora can store the same pages more than once · open (T2)
+
+Counts in a revision are per corpus and say so; deduplicating across corpora
+is outside contract v1.
+
+### O4 — the README contradicted itself on the response cap · fixed (Phase 4)
+
+One passage said `DOCSFORGE_MAX_CHARS` defaults to 60k, the table and the code
+200,000. Both now say 200,000.
+
 ### O3 — there was no export for Postgres · fixed (Phase 2)
 
 `python -m docsforge --export NAME[@VERSION][#HARVEST_ID]` exports from either
@@ -1094,11 +1119,17 @@ ledger is a database, the id is now claimed with an insert only one caller
 can win. Two processes on one machine with no database can still collide;
 the `run_id` each carries keeps their revisions apart regardless.
 
-### H6 — a hosted harvest past the deadline is lost · by design
+### H6 — a hosted harvest past the deadline is not guaranteed to finish · by design
 
-Vercel runs nothing after the response. `harvest_jobs.EPHEMERAL` makes the
-answer say so, and `harvest_status` discloses it on every call. Large
+Vercel guarantees nothing after the response. `harvest_jobs.EPHEMERAL` makes
+the answer say so, and `harvest_status` discloses it on every call. Large
 harvests are done offline against the same database.
+
+This used to say such a harvest "is lost", and the README that it "is
+discarded", which is stronger than the code: Fluid compute reuses instances,
+so the thread can go on running and the harvest can finish and publish — one
+was seen doing it (Issues I5, contract v1 Phase 4). What holds is that it is
+published whole or not at all, and that `harvest_status` says which.
 
 ---
 
