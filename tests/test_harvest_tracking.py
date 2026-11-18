@@ -519,10 +519,25 @@ def test_ids_do_not_collide_with_another_instances_harvest(ledger):
     assert set(ledger.rows) == {"effect-1", "effect-2"}, "neither overwrote the other"
 
 
-def test_an_expired_ledger_record_is_swept(ledger):
+def test_an_ended_ledger_record_leaves_the_listing_but_is_kept_for_lookups(ledger):
+    """Issues I3: a failed or stopped harvest stores nothing, so once its record
+    was swept it looked like a harvest that never happened. Past the listing
+    window it stays in the ledger, without its result text, for lookups by id."""
     gone = time.time() - harvest_jobs.KEEP_RECORDS_FOR - 1
+    ledger.rows["old-1"] = _row(id="old-1", state=FAILED, finished=gone, updated=gone,
+                                run_id="run-old", result="a long report")
+    assert harvest_jobs.recent() == [], "not listed"
+    assert "old-1" in ledger.rows, "but kept"
+    assert ledger.rows["old-1"]["result"] == "", "without the large part"
+    assert [j.id for j in harvest_jobs.attempts("old-1")] == ["old-1"]
+    assert [j.id for j in harvest_jobs.attempts("run-old")] == ["old-1"]
+
+
+def test_a_ledger_record_past_the_attempt_window_is_swept(ledger):
+    gone = time.time() - harvest_jobs.KEEP_ATTEMPTS_FOR - 1
     ledger.rows["old-1"] = _row(id="old-1", state=DONE, finished=gone, updated=gone)
     assert harvest_jobs.recent() == []
+    assert harvest_jobs.attempts("old-1") == []
     assert "old-1" not in ledger.rows
 
 

@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from docsforge.core.engine import ForgeError
+from docsforge.store.kb_store import CURRENT_RUN, RunContext, new_run_id
 
 # Long enough to swallow the great majority of harvests whole, short enough to
 # sit inside the shortest MCP client timeout. Both bounds matter, so this is
@@ -81,7 +82,16 @@ STALE_AFTER = 30.0
 
 #: How long a finished record stays readable. Long enough to answer "what
 #: happened to that harvest?" on the next turn, short enough not to accumulate.
+#: Also how far back a listing of every harvest reaches.
 KEEP_RECORDS_FOR = 900.0
+
+#: How long the shared ledger keeps a finished record, without its result,
+#: for anyone who asks after that harvest by id. A failed or stopped harvest
+#: publishes nothing, so once its record was swept it looked exactly like a
+#: harvest that never happened (Issues I3). Rows are small; the result text,
+#: the only large part, is dropped after `KEEP_RECORDS_FOR`. Records on this
+#: machine's disk are still swept after `KEEP_RECORDS_FOR`.
+KEEP_ATTEMPTS_FOR = float(os.environ.get("DOCSFORGE_HARVEST_KEEP_DAYS", "7")) * 86400
 
 RUNNING, DONE, FAILED, STALLED = "running", "done", "failed", "stalled"
 
@@ -193,30 +203,61 @@ class Job:
     pid: int = 0
     updated: float = 0.0
     mine: bool = True                # False when loaded from someone's record
+    #: Unique for good, unlike `id`: `effect-1` is a handle people quote, and
+    #: it is handed out again once its record is swept (Issues I1).
+    run_id: str = ""
+    #: Every revision this run published, as it published it:
+    #: `{technology, version, harvest_id, complete, stored_pages, store,
+    #: fallback}`. What a run that failed or stopped had already stored.
+    published: list = field(default_factory=list)
 
     @property
     def elapsed(self) -> float:
         return (self.finished or time.time()) - self.started
 
+    @property
+    def outcome(self) -> str:
+        """How the run ended, in terms of what it stored.
+
+        `published` — it ended normally and stored at least one revision;
+        `finished` — it ended normally and stored nothing new (the answer was
+        already stored, say); `partial` — it failed or stopped *after*
+        storing something; `failed` / `stopped` — it stored nothing. Empty
+        while it runs.
+        """
+        if self.state == RUNNING:
+            return ""
+        if self.state == DONE:
+            return "published" if self.published else "finished"
+        if self.published:
+            return "partial"
+        return "failed" if self.state == FAILED else "stopped"
+
     def line(self) -> str:
         """One line describing this job, for list_knowledge_base."""
         mins = f"{self.elapsed:.0f}s" if self.elapsed < 90 else f"{self.elapsed / 60:.0f}m"
+        stored = (f"; {len(self.published)} revision(s) were stored before that"
+                  if self.published else "")
         if self.state == RUNNING:
             return f"- **{self.label}** — {self.progress.line()}, {mins} elapsed  ·  `{self.id}`"
         if self.state == STALLED:
             return (f"- **{self.label}** — STOPPED REPORTING after {mins}, last seen "
                     f"{self.progress.line()}. The process running it most likely "
-                    f"exited; nothing was stored.  ·  `{self.id}`")
+                    f"exited{stored or '; nothing was stored'}.  ·  `{self.id}`")
         if self.state == FAILED:
-            return f"- **{self.label}** — FAILED after {mins}: {self.error}  ·  `{self.id}`"
+            return (f"- **{self.label}** — FAILED after {mins}: {self.error}{stored}"
+                    f"  ·  `{self.id}`")
         return f"- **{self.label}** — finished in {mins}  ·  `{self.id}`"
 
     def as_dict(self) -> dict:
         """The wire and on-disk shape. One definition, so they cannot drift."""
         return {
             "id": self.id,
+            "run_id": self.run_id,
             "label": self.label,
             "state": self.state,
+            "outcome": self.outcome,
+            "published": list(self.published),
             "phase": self.progress.phase,
             "url": self.progress.url,
             "pages": self.progress.pages,
@@ -361,6 +402,8 @@ def _job_from_record(data: dict) -> Job | None:
             pid=int(data.get("pid") or 0),
             updated=float(data.get("updated") or 0.0),
             mine=False,
+            run_id=str(data.get("run_id") or ""),
+            published=[p for p in (data.get("published") or []) if isinstance(p, dict)],
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -374,10 +417,10 @@ def _job_from_record(data: dict) -> Job | None:
     return job
 
 
-def _expired(job: Job, now: float) -> bool:
-    """A finished record nobody will ask about any more."""
+def _expired(job: Job, now: float, keep: float = KEEP_RECORDS_FOR) -> bool:
+    """A finished record older than `keep`."""
     settled = job.finished or job.updated
-    return bool(job.state != RUNNING and settled and now - settled > KEEP_RECORDS_FOR)
+    return bool(job.state != RUNNING and settled and now - settled > keep)
 
 
 def _disk_records() -> list[Job]:
@@ -418,7 +461,12 @@ def _rows_of(ledger: Ledger) -> list[dict]:
 
 
 def _shared_records() -> list[Job]:
-    """The ledger's records, and a sweep of the expired ones."""
+    """The ledger's records, and a sweep of the expired ones.
+
+    A finished record stays for `KEEP_ATTEMPTS_FOR`, so an attempt that
+    stored nothing can still be asked after by id; past `KEEP_RECORDS_FOR`
+    its result text — all that makes a row large — is dropped, once.
+    """
     ledger = _shared()
     if ledger is None:
         return []
@@ -428,12 +476,18 @@ def _shared_records() -> list[Job]:
         job = _job_from_record(data)
         if job is None:
             continue
-        if _expired(job, now):
+        if _expired(job, now, KEEP_ATTEMPTS_FOR):
             try:
                 ledger.forget_harvest(job.id)
             except Exception:                      # noqa: BLE001
                 pass
             continue
+        if data.get("result") and _expired(job, now):
+            try:
+                ledger.publish_harvest(dict(data, result=""))
+            except Exception:                      # noqa: BLE001
+                pass
+            job.result = ""
         out.append(job)
     return out
 
@@ -475,11 +529,27 @@ def _merged(records: list[Job] | None = None) -> list[Job]:
 
 def snapshot() -> tuple[list[Job], list[Job]]:
     """Every harvest, split into running and ended, from one read of the
-    ledger. What a caller wanting both should use."""
+    ledger. What a caller wanting both should use.
+
+    Ended means ended in the last `KEEP_RECORDS_FOR` — the ledger keeps
+    older records for lookups by id (`attempts()`), not for listings."""
     jobs = _merged(_records())
+    now = time.time()
     return (sorted((j for j in jobs if j.state == RUNNING), key=lambda j: j.started),
-            sorted((j for j in jobs if j.state != RUNNING),
+            sorted((j for j in jobs if j.state != RUNNING
+                    and (j.mine or not _expired(j, now))),
                    key=lambda j: j.finished, reverse=True))
+
+
+def attempts(wanted: str) -> list[Job]:
+    """Every record whose job id or run id is `wanted`, however old, newest
+    first. How a harvest that ended days ago — and stored nothing, so left no
+    revision behind — can still be asked after."""
+    if not wanted:
+        return []
+    return sorted((j for j in _merged(_records())
+                   if wanted in (j.id, j.run_id)),
+                  key=lambda j: j.finished or j.updated, reverse=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -516,6 +586,25 @@ def _new_id(label: str) -> str:
     number = _COUNTER
     while number in taken:
         number += 1
+
+    # Two instances that read the ledger at the same moment both see the same
+    # number free (Issues H5, I2). Where the ledger can claim an id, only one
+    # claim wins and the other moves on to the next number. A placeholder
+    # record, replaced by the caller's first publish.
+    claim = getattr(ledger, "claim_harvest", None) if ledger is not None else None
+    if claim is not None:
+        for _ in range(100):
+            now = time.time()
+            try:
+                if claim({"id": f"{safe}-{number}", "label": label, "state": RUNNING,
+                          "phase": "starting", "started": now, "updated": now,
+                          "pid": os.getpid()}):
+                    break
+            except Exception:                      # noqa: BLE001
+                break                              # unreachable: proceed as before
+            number += 1
+            while number in taken:
+                number += 1
     _COUNTER = number
     return f"{safe}-{number}"
 
@@ -565,9 +654,13 @@ def start(label: str, work: Callable[[Progress], str],
     """
     adopted = job_id or adopting()
     adopt("")
+    # A reserved record already carries the run's id; continuing it under a
+    # second one would split one run in two.
+    run_id = _run_of(adopted) if adopted else ""
     with _LOCK:
         job = Job(id=adopted or _new_id(label), label=label,
-                  started=time.time(), pid=os.getpid())
+                  started=time.time(), pid=os.getpid(),
+                  run_id=run_id or new_run_id())
         _JOBS[job.id] = job
         _prune()
 
@@ -580,6 +673,11 @@ def start(label: str, work: Callable[[Progress], str],
     _announce(job)
 
     def run() -> None:
+        # Set here, on the worker thread, because a thread does not inherit
+        # the context of the one that started it: every writer the harvest
+        # opens reads this to stamp its revision with the run, and reports
+        # back through it when it publishes.
+        CURRENT_RUN.set(RunContext(job.run_id, lambda result: _note_published(job, result)))
         try:
             job.result = work(job.progress)
             job.state = DONE
@@ -673,6 +771,34 @@ SERVER = os.environ.get("DOCSFORGE_SERVER", "http://127.0.0.1:8000")
 HANDOFF_TIMEOUT = 5.0
 
 
+def _note_published(job: Job, result: dict) -> None:
+    """A writer of this run published a revision: add it to the record now,
+    not when the run ends. A run that dies a moment later has still stored
+    it, and its record is the one place that can say so."""
+    entry = {
+        "technology": result.get("technology"),
+        "version": result.get("version"),
+        "harvest_id": result.get("harvest_id"),
+        "complete": result.get("complete"),
+        "stored_pages": result.get("stored_pages", result.get("pages")),
+        "store": result.get("store"),
+        "fallback": bool(result.get("fallback")),
+    }
+    with _LOCK:
+        job.published = job.published + [entry]
+    _publish(job, force=True)
+
+
+def _run_of(job_id: str) -> str:
+    """The run id an already-published record carries, or ''."""
+    with _LOCK:
+        held = _JOBS.get(job_id)
+    if held is not None and held.run_id:
+        return held.run_id
+    found = next((j for j in _records() if j.id == job_id), None)
+    return found.run_id if found is not None else ""
+
+
 def reserve(label: str) -> Job:
     """Publish a record for work that is about to begin, and return it.
 
@@ -682,7 +808,7 @@ def reserve(label: str) -> Job:
     """
     with _LOCK:
         job = Job(id=_new_id(label), label=label, started=time.time(),
-                  pid=os.getpid())
+                  pid=os.getpid(), run_id=new_run_id())
     _publish(job, force=True)
     _announce(job)
     return job

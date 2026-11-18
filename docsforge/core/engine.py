@@ -5841,6 +5841,35 @@ def _forget(targets: list[str], assume_yes: bool = False) -> int:
     return 0
 
 
+def _sync_store() -> int:
+    """`--sync-store`: copy fallback harvests from files into the database.
+
+    A harvest started while DOCSFORGE_DB was unreachable is written to the
+    local file store, and stops being what readers see once the database is
+    back. This copies each such revision across under its own `harvest_id`;
+    one the database already has, or has a newer harvest of, is left alone.
+    """
+    from docsforge.store.kb_store import build_store, sync_store
+
+    dsn = os.environ.get("DOCSFORGE_DB") or os.environ.get("DATABASE_URL") or ""
+    if not dsn:
+        print("error: set DOCSFORGE_DB to the database to copy into", file=sys.stderr)
+        return 1
+    db = build_store(dsn=dsn)
+    if db.kind != "postgres":
+        print(f"error: the database is still unreachable: {db.degraded}", file=sys.stderr)
+        return 1
+    files = build_store(dsn="")
+    done = sync_store(files, db)
+    if not done:
+        print(f"Nothing to copy: every harvest in {files.location} with an id "
+              f"is already in the database.")
+        return 0
+    for tech, version, what in done:
+        print(f"  {tech} {version} — {what}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Before parse_args: --help prints the module docstring, which contains
     # arrows, and argparse writes it straight to a cp1252 console.
@@ -5859,6 +5888,10 @@ def main(argv: list[str] | None = None) -> int:
                          "removes one. Repeatable.")
     ap.add_argument("--yes", action="store_true",
                     help="skip the confirmation prompt for --forget")
+    ap.add_argument("--sync-store", action="store_true",
+                    help="copy into DOCSFORGE_DB the harvests that went to the "
+                         "local file store while the database was unreachable, "
+                         "and exit")
     ap.add_argument("-o", "--out", default="./docs_md", help="output directory")
     ap.add_argument("--crawl", action="store_true", help="follow same-host links")
     ap.add_argument("--max-pages", type=int, default=25, metavar="N",
@@ -5875,6 +5908,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.forget:
         return _forget(args.forget, assume_yes=args.yes)
+    if args.sync_store:
+        return _sync_store()
     if not args.url:
         ap.error("a URL is required (or use --forget to remove a harvest)")
 

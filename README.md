@@ -449,6 +449,19 @@ one confident hallucination away. Set `DOCSFORGE_ALLOW_DELETE=1` to add a
 `forget_documentation` tool to the surface. Note that you do not need it to
 re-harvest: harvesting the same name again replaces that version on its own.
 
+### When the database was down during a harvest
+
+If `DOCSFORGE_DB` is set but unreachable, a harvest is written to the local
+file store instead, and its result says so. Once the database is back, readers
+use it again and that harvest is not among what they see. Copy it across:
+
+```bash
+python -m docsforge --sync-store
+```
+
+Each revision is copied under its own harvest id. One the database already
+holds, or holds a newer harvest of, is left alone, so running it twice is safe.
+
 ### Endpoints
 
 | Method | Path | Purpose |

@@ -1191,7 +1191,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
             f"time(s) (HTTP 429 with Retry-After) and was waited for each time; "
             f"every page was fetched.")
 
-    warning += note + release_claim + inferred_release
+    warning += note + release_claim + inferred_release + _fallback_note(entry)
 
     # What shape is this corpus? A caller who asked for "the documentation" and
     # received 560 pages averaging 490 characters -- one API symbol each -- has
@@ -1232,10 +1232,30 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
         f"Harvested **{slug}** {label} — {len(docs)} pages, "
         f"{entry['characters']:,} characters, "
         f"via {strategy}, in {time.time() - started:.0f}s.\n"
-        f"Stored in {store().kind}: `{where}`.{warning}\n\n"
+        # Where the writer put it, not where `store()` points now: a database
+        # that came back mid-harvest switched `store()` while this went to files.
+        f"Stored in {entry.get('store') or store().kind}: `{where}`.{warning}\n\n"
         f"Read it back with `read_knowledge_base(name=\"{slug}\", version=\"{label}\")` "
         f"— do NOT re-harvest to answer questions about it.\n\n"
         f"Pages:\n{listing}{more}"
+    )
+
+
+def _fallback_note(entry: dict) -> str:
+    """What to say when a revision went to files because the database was down.
+
+    Readers follow the database the moment it is back, so this harvest —
+    stored, and reported done — stops being what anyone reads (Issues B9).
+    Said where it happened, with the one command that fixes it.
+    """
+    if not entry.get("fallback"):
+        return ""
+    return (
+        "\n\n**Stored in the local file store, not the database.** "
+        "DOCSFORGE_DB was unreachable when this harvest started, so it went to "
+        "files. Once the database is back, readers use it and will not see this "
+        "harvest: run `python -m docsforge --sync-store` then to copy it across "
+        "under the same harvest id."
     )
 
 
@@ -1930,12 +1950,50 @@ def _elapsed_label(seconds: float) -> str:
     return f"{seconds:.0f}s" if seconds < 90 else f"{seconds / 60:.0f}m"
 
 
+def _revision_lines(revisions: list[dict]) -> str:
+    """The revisions a run stored, one line each, with their ids."""
+    out = []
+    for r in revisions:
+        c = r.get("complete")
+        cover = ("complete" if c is True else
+                 "INCOMPLETE" if c is False else "coverage unknown")
+        pages = r.get("stored_pages")
+        out.append(f"- **{r.get('technology')}** {r.get('version')} — "
+                   f"{pages if pages is not None else '?'} pages, {cover}; "
+                   f"revision `{r.get('harvest_id') or 'unknown'}`")
+    return "\n".join(out)
+
+
+def _stored_by(job: harvest_jobs.Job) -> tuple[list[dict], bool]:
+    """What a run stored, and whether the store itself was asked.
+
+    The record lists each revision as it is published, but a process can die
+    between publishing and writing that down — so the store is asked too, by
+    the run id every revision now carries. `False` when it could not be: a
+    record from before runs had ids, or a store that did not answer.
+    """
+    revisions = list(job.published)
+    if not job.run_id:
+        return revisions, False
+    try:
+        found = getattr(store(), "revisions_of_run", None)
+        found = found(job.run_id) if found is not None else None
+    except Exception:                                   # noqa: BLE001
+        found = None
+    if found is None:
+        return revisions, False
+    have = {r.get("harvest_id") for r in revisions}
+    revisions += [r for r in found if r.get("harvest_id") not in have]
+    return revisions, True
+
+
 def _status_of(job: harvest_jobs.Job) -> str:
     """One harvest, in full — what `harvest_status` says about it."""
     slug = _kb_slug(_normalise(job.label) or job.label)
     where = f" from {job.progress.url}" if job.progress.url else ""
     when = _elapsed_label(job.elapsed)
-    head = f"**{job.label}**{where} — harvest id `{job.id}`"
+    head = (f"**{job.label}**{where} — harvest id `{job.id}`"
+            + (f" (run `{job.run_id}`)" if job.run_id else ""))
 
     if job.state == harvest_jobs.RUNNING:
         p = job.progress
@@ -1960,13 +2018,28 @@ def _status_of(job: harvest_jobs.Job) -> str:
 
     if job.state == harvest_jobs.DONE:
         body = job.result.strip()
+        stored = (f"\n\nStored by this run:\n{_revision_lines(job.published)}"
+                  if job.published else "")
+        fallback = next((_fallback_note(r) for r in job.published if r.get("fallback")), "")
         return (
             f"{head}: **done** in {when}. It is stored; read it with "
             f"`read_knowledge_base(name=\"{slug}\")`."
+            + stored + fallback
             + (f"\n\nWhat the harvest reported:\n\n{_truncate(body)}" if body else "")
         )
 
     if job.state == harvest_jobs.FAILED:
+        if job.published:
+            # Failed *after* publishing: the entry corpus is stored before
+            # related corpora are fetched, so "nothing was stored" was false.
+            return (
+                f"{head}: **failed** after {when}, after storing part of what it "
+                f"set out to.\n\n{job.error or 'No reason was recorded.'}"
+                f"\n\nStored before it failed, and readable now:\n"
+                f"{_revision_lines(job.published)}\n\nNothing after those was "
+                f"stored. Tell the user what was stored and what went wrong "
+                f"rather than trying the same call again."
+            )
         return (
             f"{head}: **failed** after {when}.\n\n{job.error or 'No reason was recorded.'}"
             f"\n\nNothing was stored. If that names candidates or asks for a "
@@ -1977,21 +2050,36 @@ def _status_of(job: harvest_jobs.Job) -> str:
     # STALLED: a record whose process stopped reporting. Documentation is only
     # ever published whole, so nothing partial exists — but the main corpus is
     # published *before* related corpora are fetched, so a process that died
-    # during that second stage left the main one stored. Say both.
+    # during that second stage left the main one stored. The run id says which.
+    stopped = (f"{head}: **stopped reporting** after {when}, last seen "
+               f"{job.progress.line()}. The process running it most likely exited")
+    revisions, asked = _stored_by(job)
+    if revisions:
+        return (
+            f"{stopped}, after it had stored:\n{_revision_lines(revisions)}\n\n"
+            f"Those are whole and readable now. Anything it had not yet "
+            f"published is not stored — documentation is only ever published "
+            f"whole — and has to be harvested again on a DocsForge that stays up."
+        )
+    if asked:
+        return (
+            f"{stopped}, and nothing from this run is in the store — "
+            f"documentation is only ever published whole, so a harvest cut off "
+            f"part-way leaves nothing behind. It has to be started again on a "
+            f"DocsForge that stays up."
+        )
     return (
-        f"{head}: **stopped reporting** after {when}, last seen {job.progress.line()}. "
-        f"The process running it most likely exited, and nothing partial was "
-        f"stored — but if it was cut off while fetching related corpora, the main "
-        f"documentation was already stored whole. `list_knowledge_base` shows "
-        f"whether it landed; if not, it has to be started again on a DocsForge "
-        f"that stays up."
+        f"{stopped}, and nothing partial was stored — but if it was cut off "
+        f"while fetching related corpora, the main documentation was already "
+        f"stored whole. `list_knowledge_base` shows whether it landed; if not, "
+        f"it has to be started again on a DocsForge that stays up."
     )
 
 
 def _matches(job: harvest_jobs.Job, wanted: str) -> bool:
     if not wanted:
         return True
-    if job.id == wanted:
+    if wanted in (job.id, job.run_id):
         return True
     slug = _kb_slug(_normalise(wanted) or wanted)
     return _kb_slug(_normalise(job.label) or job.label) == slug
@@ -2017,6 +2105,12 @@ def tool_harvest_status(harvest: str = "", wait: int = 0) -> str:
     jobs = [j for j in live_now + ended if _matches(j, wanted)]
 
     if wanted and not jobs:
+        # Not in the listing window, but an id names one run exactly, and the
+        # shared ledger keeps ended runs for days: a harvest that stored
+        # nothing is still answerable by id (Issues I3).
+        older = harvest_jobs.attempts(wanted)
+        if older:
+            return _status_of(older[0])
         known = stored_name(wanted)
         others = live_now
         note = ""

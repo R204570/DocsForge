@@ -888,12 +888,56 @@ and for `usable_for_planning`. Both now read the value the store recorded.
 It was unselected, so the roll-up read complete beside a note saying it could
 not be harvested. It now stays selected and counts as incomplete.
 
-### I4 — an error after publishing reported "Nothing was stored" · fixed (Phase 0)
+### I4 — an error after publishing reported "Nothing was stored" · fixed (Phase 0, Phase 1)
 
 The entry corpus is published before related corpora are fetched, and an
 error in that second stage failed the whole job. It is now reported as what
-it is — the documentation stored, related corpora unknown — and a harvest that
-stopped reporting says the main documentation may already be stored.
+it is — the documentation stored, related corpora unknown. Since Phase 1 the
+run's record lists every revision as it is published, so a run that failed
+after storing names what it stored, and a stopped run is checked against the
+store by its `run_id`: "stopped after storing …" or "nothing from this run is
+in the store", no longer "may already be stored".
+
+---
+
+## Harvest identity (contract v1, Phase 1)
+
+Each was reproduced or traced against `633ae8e`; tests in
+`tests/test_harvest_identity.py`.
+
+### I1 — job ids are handed out again · fixed (Phase 1)
+
+`effect-1` is free again once its record is swept and the counter restarts,
+so it cannot name anything that outlives the record. Every tracked run now
+has a `run_id` (`run-<UTC second>-<8 hex>`) and every stored revision a
+`harvest_id` (`hv-…`), both unique for good. The revision carries both, in
+`index.json` and in `doc_version` (migration v7). The job id stays as the
+handle people quote, and `harvest_status` accepts a run id too.
+
+### I2 — two instances can mint the same job id at once · fixed (Phase 1)
+
+See H5. A new id is claimed in the ledger with `insert … on conflict do
+nothing`; the loser takes the next number.
+
+### I3 — a failed or stopped attempt was visible for 15 minutes · fixed (Phase 1)
+
+A harvest that stores nothing leaves no revision, so once its record was
+swept it looked like a harvest that never happened. The shared ledger now
+keeps ended records for `DOCSFORGE_HARVEST_KEEP_DAYS` (7), with the result
+text dropped after 15 minutes, and `harvest_status` finds them by job id or
+run id. Listings still show the last 15 minutes. Records on a machine's own
+disk are still swept after 15 minutes, so this needs a database.
+
+### B9 — a harvest made while the database was down disappeared when it came back · fixed (Phase 1)
+
+`store()` falls back to files while `DOCSFORGE_DB` is unreachable and
+switches back once it answers, so a harvest written during the outage — and
+reported done — was no longer what anyone read. The result and the status
+now say it went to the file store, and `python -m docsforge --sync-store`
+copies each such revision into the database under its own `harvest_id`,
+leaving alone any the database already has or has a newer harvest of. The
+headline also says where the writer stored it, not where `store()` points
+by the time it is written.
 
 ---
 
@@ -975,11 +1019,14 @@ a model asked, among other things, whether a new host documents the
 project. Bounded (12 calls per harvest, veto-only for most decisions), but
 the admission question runs against attacker-controlled text.
 
-### H5 — two processes can mint the same harvest id · open, low
+### H5 — two processes can mint the same harvest id · fixed with a database (Phase 1)
 
 `_new_id` scans the on-disk records and the ledger under a lock that is
 per-process. Two serverless invocations for the same name at the same
-instant can collide, and one status record overwrites the other.
+instant could collide, and one status record overwrote the other. Where the
+ledger is a database, the id is now claimed with an insert only one caller
+can win. Two processes on one machine with no database can still collide;
+the `run_id` each carries keeps their revisions apart regardless.
 
 ### H6 — a hosted harvest past the deadline is lost · by design
 

@@ -24,6 +24,7 @@ Postgres is used when DOCSFORGE_DB (or DATABASE_URL) is set; files otherwise.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import os
@@ -173,6 +174,44 @@ def new_harvest_id() -> str:
     that outlives the record. Sortable and readable, with no dependency.
     """
     return f"hv-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{secrets.token_hex(4)}"
+
+
+def new_run_id() -> str:
+    """An id for one tracked run: one tool call, which may publish several
+    revisions (the entry corpus and the corpora federated with it). Same shape
+    as `new_harvest_id`, and for the same reason never handed out twice."""
+    return f"run-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{secrets.token_hex(4)}"
+
+
+class RunContext:
+    """The tracked run a writer belongs to, and who to tell when it publishes.
+
+    Set by `harvest_jobs` inside the worker thread — threads do not inherit
+    context variables, so setting it in the caller would reach no writer —
+    and read once by each writer when it opens. Outside a tracked run there is
+    none, and a revision simply carries no `run_id`.
+    """
+
+    __slots__ = ("run_id", "on_publish")
+
+    def __init__(self, run_id: str, on_publish=None):
+        self.run_id = run_id
+        self.on_publish = on_publish
+
+
+CURRENT_RUN: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar(
+    "docsforge_run", default=None)
+
+
+def _report_published(run: RunContext | None, result: dict) -> None:
+    """Tell the run that a revision was published. Never raises: a status
+    record that could not be updated must not undo a publish that happened."""
+    if run is None or run.on_publish is None:
+        return
+    try:
+        run.on_publish(result)
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def clean_page(title: str, url: str, body: str) -> tuple[str, str, str]:
@@ -560,7 +599,8 @@ class FileStore:
             return w.settle(complete=complete, expected=expected)
 
     def _finish(self, tech, version, source, strategy, path, text_len,
-                titles, complete, expected, pinned=None) -> dict:
+                titles, complete, expected, pinned=None, harvest_id=None,
+                run_id=None) -> dict:
         with self._index_lock():
             index = self._load(for_write=True)
             previous = index.get(self._key(tech, version)) or {}
@@ -575,10 +615,29 @@ class FileStore:
                 "complete": complete,
                 "expected": expected,
                 "pinned": versions_mod.still_pinned(pinned, previous.get("pinned")),
+                # Which revision this is, and which run published it. Absent
+                # from entries written before revisions had ids.
+                "harvest_id": harvest_id,
+                "run_id": run_id,
                 "titles": list(titles[:2000]),
             }
             self._save(index)
             return index[self._key(tech, version)]
+
+    def revisions_of_run(self, run_id: str) -> list[dict]:
+        """The stored revisions a run published, oldest first.
+
+        How a status check tells "stopped, and nothing was stored" from
+        "stopped after storing the main documentation": the process that died
+        cannot say, but what it published carries its `run_id`.
+        """
+        if not run_id:
+            return []
+        rows = [e for e in self._load().values() if e.get("run_id") == run_id]
+        return [{"technology": e["technology"], "version": e["version"],
+                 "harvest_id": e.get("harvest_id"), "complete": e.get("complete"),
+                 "stored_pages": e.get("pages"), "store": self.kind}
+                for e in sorted(rows, key=lambda e: e.get("saved") or 0.0)]
 
     def delete(self, tech: str, version: str | None = None) -> int:
         with self._index_lock():
@@ -840,6 +899,8 @@ class _FileWriter:
         self.expected = expected
         self.pinned = pinned
         self.harvest_id = new_harvest_id()
+        self.run = CURRENT_RUN.get()
+        self.run_id = self.run.run_id if self.run else None
         self.titles: list[str] = []
         self.urls: list[str] = []
         #: Pages the store itself refused. Empty for files, which refuse
@@ -936,11 +997,18 @@ class _FileWriter:
             entry = self.store._finish(
                 self.tech, self.version, self.source, self.strategy, self.path,
                 len(head) + self._chars + 1, self.titles, complete,
-                expected, self.pinned)
+                expected, self.pinned, self.harvest_id, self.run_id)
         self._settled = True
         self.partial.unlink(missing_ok=True)
-        return dict(entry, harvest_id=self.harvest_id, stored_pages=len(self.titles),
-                    complete_reason=reason, rejected=list(self.rejected))
+        result = dict(entry, stored_pages=len(self.titles),
+                      complete_reason=reason, rejected=list(self.rejected),
+                      store=self.store.kind,
+                      # Set when a database is configured but was unreachable,
+                      # so this went to files instead (B9): once the database
+                      # is back, readers stop seeing it.
+                      fallback=bool(getattr(self.store, "wanted_dsn", "")))
+        _report_published(self.run, result)
+        return result
 
     def close(self) -> None:
         """Abandon an unsettled harvest. The stored version stays as it was."""
@@ -1186,8 +1254,26 @@ class PostgresStore:
             self._upgrade_v4(cx)
             self._upgrade_v5(cx)
             self._upgrade_v6(cx)
+            self._upgrade_v7(cx)
             cx.commit()
         self._ready = True
+
+    @staticmethod
+    def _upgrade_v7(cx) -> None:
+        """Give every revision an id of its own, and the run that published it.
+
+        `harvest_id` names one stored revision for good: the job id (`effect-1`)
+        is handed out again once its status record is swept, so it cannot name
+        anything that outlives the record. `run_id` groups the revisions one
+        tool call published, which is how a status check finds what a run that
+        died had already stored. Null on rows written before this.
+        """
+        cx.execute("alter table doc_version add column if not exists harvest_id text")
+        cx.execute("alter table doc_version add column if not exists run_id text")
+        cx.execute("create unique index if not exists doc_version_harvest_id_idx "
+                   "on doc_version (harvest_id) where harvest_id is not null")
+        cx.execute("create index if not exists doc_version_run_id_idx "
+                   "on doc_version (run_id) where run_id is not null")
 
     @staticmethod
     def _upgrade_v6(cx) -> None:
@@ -1361,9 +1447,14 @@ class PostgresStore:
             return w.settle(complete=complete, expected=expected)
 
     def writer(self, tech, version, source, strategy, expected: int | None = None,
-               pinned: bool | None = None):
-        """A writer that makes each page durable as it arrives."""
-        return _PgWriter(self, tech, version, source, strategy, expected, pinned)
+               pinned: bool | None = None, harvest_id: str | None = None,
+               run_id: str | None = None):
+        """A writer that makes each page durable as it arrives.
+
+        `harvest_id` and `run_id` keep the ids of a revision copied in from
+        elsewhere (`sync_store`); a new harvest mints its own."""
+        return _PgWriter(self, tech, version, source, strategy, expected, pinned,
+                         harvest_id=harvest_id, run_id=run_id)
 
     def delete(self, tech: str, version: str | None = None) -> int:
         """Remove a technology or one version of it; how many versions went.
@@ -1412,11 +1503,43 @@ class PostgresStore:
                 (str(record["id"]), float(record.get("updated") or 0.0), Jsonb(record)))
             cx.commit()
 
+    def claim_harvest(self, record: dict) -> bool:
+        """Take a job id, or say it is taken. Two instances picking ids at the
+        same moment both saw it free; only one insert can win."""
+        from psycopg.types.json import Jsonb
+
+        self.migrate()
+        with self._borrow() as cx:
+            won = cx.execute(
+                "insert into harvest (id, updated, record) values (%s, %s, %s) "
+                "on conflict (id) do nothing returning id",
+                (str(record["id"]), float(record.get("updated") or 0.0),
+                 Jsonb(record))).fetchone()
+            cx.commit()
+        return won is not None
+
     def harvests(self) -> list[dict]:
         self.migrate()
         with self._borrow() as cx:
             rows = cx.execute("select record from harvest order by updated desc").fetchall()
         return [row[0] for row in rows]
+
+    def revisions_of_run(self, run_id: str) -> list[dict]:
+        """The published revisions carrying `run_id`, oldest first. See
+        `FileStore.revisions_of_run`."""
+        if not run_id:
+            return []
+        self.migrate()
+        with self._borrow() as cx:
+            rows = cx.execute(
+                "select t.name, v.version, v.harvest_id, v.complete, "
+                "       (select count(*) from page p where p.version_id = v.id) "
+                "from doc_version v join technology t on t.id = v.technology_id "
+                "where v.run_id = %s and v.state = 'ready' order by v.id",
+                (run_id,)).fetchall()
+        return [{"technology": r[0], "version": r[1], "harvest_id": r[2],
+                 "complete": r[3], "stored_pages": r[4], "store": self.kind}
+                for r in rows]
 
     def forget_harvest(self, job_id: str) -> None:
         self.migrate()
@@ -1777,14 +1900,18 @@ class _PgWriter:
     #: a dead row a little longer.
     STALE_AFTER = "30 minutes"
 
-    def __init__(self, store, tech, version, source, strategy, expected, pinned=None):
+    def __init__(self, store, tech, version, source, strategy, expected, pinned=None,
+                 harvest_id: str | None = None, run_id: str | None = None):
         store.migrate()
         self.store = store
         self.tech, self.version = tech, version
         self.source, self.strategy = source, strategy
         self.expected = expected
         self.pinned = pinned
-        self.harvest_id = new_harvest_id()
+        self.harvest_id = harvest_id or new_harvest_id()
+        # A copy keeps the run it came from and reports to no run here.
+        self.run = None if harvest_id else CURRENT_RUN.get()
+        self.run_id = run_id if harvest_id else (self.run.run_id if self.run else None)
         self.titles: list[str] = []
         self.urls: list[str] = []
         self.rejected: list[tuple[str, str]] = []
@@ -1808,9 +1935,10 @@ class _PgWriter:
         self.version_id = self.cx.execute(
             "insert into doc_version "
             "  (technology_id, version, source, strategy, complete, expected, state, "
-            "   heartbeat_at) "
-            "values (%s, %s, %s, %s, %s, %s, 'harvesting', now()) returning id",
-            (self.tech_id, version, source, strategy, None, expected)).fetchone()[0]
+            "   heartbeat_at, harvest_id, run_id) "
+            "values (%s, %s, %s, %s, %s, %s, 'harvesting', now(), %s, %s) returning id",
+            (self.tech_id, version, source, strategy, None, expected,
+             self.harvest_id, self.run_id)).fetchone()[0]
         self.cx.commit()
 
     def __enter__(self):
@@ -1943,7 +2071,7 @@ class _PgWriter:
                 pass
             raise
         self._done()
-        return {
+        result = {
             "technology": self.tech, "version": self.version,
             "source": self.source, "strategy": self.strategy,
             "pages": self._n, "characters": self._chars,
@@ -1951,8 +2079,11 @@ class _PgWriter:
             "harvested": time.strftime("%Y-%m-%d %H:%M"), "complete": complete,
             "expected": expected, "pinned": pinned, "titles": self.titles[:2000],
             "rejected": list(self.rejected), "harvest_id": self.harvest_id,
-            "stored_pages": self._n, "complete_reason": reason,
+            "run_id": self.run_id, "stored_pages": self._n, "complete_reason": reason,
+            "store": self.store.kind, "fallback": False,
         }
+        _report_published(self.run, result)
+        return result
 
     def close(self) -> None:
         """Abandon an unsettled harvest, leaving the published one alone."""
@@ -2006,3 +2137,54 @@ def build_store(root: Path | str | None = None, dsn: str | None = None) -> Store
     files.degraded = problem
     files.wanted_dsn = dsn if problem else ""
     return files
+
+
+def sync_store(files: FileStore, db: PostgresStore) -> list[tuple[str, str, str]]:
+    """Copy into the database the revisions a fallback wrote to files.
+
+    A harvest that starts while the configured database is unreachable goes to
+    the file store, and the moment the database is back every reader switches
+    to it — so that harvest, reported as done, is no longer what anyone sees
+    (Issues B9). This puts it where the readers are, under the same
+    `harvest_id`, and leaves alone:
+
+    * a revision the database already holds (same `harvest_id`);
+    * a version the database has a newer harvest of;
+    * an entry written before revisions had ids, which nothing can match.
+
+    Returns `(technology, version, what happened)` for every revision it
+    looked at with an id.
+    """
+    db.migrate()
+    with db._borrow() as cx:
+        known = {r[0] for r in cx.execute(
+            "select harvest_id from doc_version where harvest_id is not null").fetchall()}
+        newest = {(r[0], r[1]): r[2].timestamp() for r in cx.execute(
+            "select t.name, v.version, v.harvested_at from doc_version v "
+            "join technology t on t.id = v.technology_id "
+            "where v.state = 'ready'").fetchall()}
+
+    done: list[tuple[str, str, str]] = []
+    for entry in sorted(files._load().values(), key=lambda e: e.get("saved") or 0.0):
+        harvest_id = entry.get("harvest_id")
+        tech, version = entry["technology"], entry["version"]
+        if not harvest_id or harvest_id in known:
+            continue
+        theirs = newest.get((tech, version))
+        if theirs is not None and theirs >= float(entry.get("saved") or 0.0):
+            done.append((tech, version, "skipped: the database has a newer harvest"))
+            continue
+        path = Path(entry["file"])
+        if not path.exists():
+            done.append((tech, version, f"skipped: its file is missing ({path})"))
+            continue
+        _, blocks = split_pages(path.read_text(encoding="utf-8"))
+        with db.writer(tech, version, entry.get("source") or "",
+                       entry.get("strategy") or "files", entry.get("expected"),
+                       entry.get("pinned"), harvest_id=harvest_id,
+                       run_id=entry.get("run_id")) as w:
+            for block in blocks:
+                w.add(*parse_page(block))
+            got = w.settle(complete=entry.get("complete"), expected=entry.get("expected"))
+        done.append((tech, version, f"copied, {got['stored_pages']} pages"))
+    return done
