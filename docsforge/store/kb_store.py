@@ -24,9 +24,12 @@ Postgres is used when DOCSFORGE_DB (or DATABASE_URL) is set; files otherwise.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import secrets
+import shutil
 import threading
 import time
 from contextlib import contextmanager
@@ -64,11 +67,26 @@ def merge_complete(*values) -> bool | None:
     return True
 
 
+#: The `---` written *before* each page, which a split leaves at the end of
+#: the page in front of it.
+_TRAILING_SEPARATOR = re.compile(r"\n+---[ \t]*\n*\Z")
+
+
 def split_pages(body: str) -> tuple[str, list[str]]:
-    """Return (header, [page, ...]) for a combined knowledge-base file."""
+    """Return (header, [page, ...]) for a combined knowledge-base file.
+
+    Each page is written as `---`, then its heading, so splitting on headings
+    leaves every page but the last carrying the next page's `---`. Read back,
+    its body was its stored body plus `\\n\\n---` — not the page that was
+    stored, not what Postgres returns for the same page, and carried into
+    Postgres by `migrate_kb`. One trailing separator is removed from each page
+    but the last; a page whose own text ends in a rule keeps that rule.
+    """
     parts = _PAGE_BOUNDARY.split(body)
     if len(parts) > 1:
-        return parts[0], parts[1:]
+        blocks = parts[1:]
+        blocks = [_TRAILING_SEPARATOR.sub("", b, count=1) for b in blocks[:-1]] + blocks[-1:]
+        return parts[0], blocks
     loose = re.split(r"\n(?=## )", body)
     return (loose[0], loose[1:]) if len(loose) > 1 else (body, [])
 
@@ -144,6 +162,158 @@ def _no_session():
 
 
 # ─────────────────────────────────────────────────────────────
+# What both stores agree on
+# ─────────────────────────────────────────────────────────────
+def new_harvest_id() -> str:
+    """An id for one stored revision: the UTC second it was opened, plus
+    eight random hex characters.
+
+    Not the job id. `effect-1` is a handle for people to quote and it is handed
+    out again once its status record is swept, so it cannot name a revision
+    that outlives the record. Sortable and readable, with no dependency.
+    """
+    return f"hv-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{secrets.token_hex(4)}"
+
+
+def clean_page(title: str, url: str, body: str) -> tuple[str, str, str]:
+    """The one form a page is stored in, by either store.
+
+    * A title is one line. `<title>` text keeps the newlines of the HTML it
+      came from, and a title with a newline in it no longer matched the page
+      boundary, so the page vanished into the one before it on read.
+    * A URL cannot hold whitespace or `>`, which would end `Source: <…>`.
+    * A body has LF line endings. Text-mode files on Windows wrote `\\r\\n` as
+      `\\r\\r\\n` and read it back as two line breaks; elsewhere the carriage
+      returns were dropped on the copy. Either way the page read back was not
+      the page stored, and it differed by operating system and by store.
+    """
+    title = " ".join((title or "").split())
+    url = re.sub(r"\s", "%20", (url or "").strip()).replace(">", "%3E")
+    body = (body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    return title, url, body
+
+
+def settled_completeness(complete, expected, stored: int,
+                         rejected) -> tuple[bool | None, str]:
+    """`complete` as it may be stored, and why it was lowered if it was.
+
+    A harvest decides `complete` from what it *acquired*. Only the writer knows
+    what was *stored*: a page the store refused, or a count that came up short,
+    makes `True` untrue. Only `True` is ever lowered — `False` and `None` are
+    already the weaker claims.
+    """
+    if complete is not True:
+        return complete, ""
+    if rejected:
+        return False, (f"the store refused {len(rejected)} page(s) the harvest "
+                       f"acquired, so {stored} are stored")
+    if expected is not None and stored < expected:
+        return False, f"stored {stored} of the {expected} pages counted"
+    return True, ""
+
+
+def _replace(src: Path, dst: Path, attempts: int = 60) -> None:
+    """`os.replace`, retried while another process holds `dst` open.
+
+    Atomic on every platform, which is the point: a reader sees the old file or
+    the new one, never half of either. On Windows it is refused while a reader
+    has the target open, and readers open, read and close, so waiting works.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * min(attempt + 1, 10))
+
+
+#: How long a writer waits for another to finish publishing. Publishing is a
+#: file copy and an index update — seconds at worst — so a wait this long
+#: means something is stuck, and saying so beats waiting forever.
+LOCK_TIMEOUT = 120.0
+
+_LOCKS_GUARD = threading.Lock()
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_HELD = threading.local()
+
+
+def _os_lock(handle, deadline: float, path: Path) -> None:
+    while True:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise StoreError(
+                    f"timed out after {LOCK_TIMEOUT:.0f}s waiting for another "
+                    f"DocsForge process to release {path}") from None
+            time.sleep(0.05)
+
+
+def _os_unlock(handle) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+@contextmanager
+def _file_lock(path: Path, timeout: float | None = None):
+    """Hold `path` exclusively against every other thread and process.
+
+    The web app, a stdio MCP server per turn and the detached harvest worker
+    are separate processes writing one `knowledge_base/`. A thread lock covers
+    the threads of one of them; the OS lock covers the rest. Re-entrant within
+    a thread, because reading the index can repair it, and the repair takes the
+    same lock its caller may already hold.
+    """
+    key = os.path.normcase(str(path))
+    held = getattr(_HELD, "depth", None)
+    if held is None:
+        held = _HELD.depth = {}
+    if held.get(key):
+        held[key] += 1
+        try:
+            yield
+        finally:
+            held[key] -= 1
+        return
+
+    with _LOCKS_GUARD:
+        local = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    limit = LOCK_TIMEOUT if timeout is None else timeout
+    deadline = time.monotonic() + limit
+    if not local.acquire(timeout=limit):
+        raise StoreError(f"timed out after {limit:.0f}s waiting for {path}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a+b") as handle:
+            _os_lock(handle, deadline, path)
+            held[key] = 1
+            try:
+                yield
+            finally:
+                held[key] = 0
+                _os_unlock(handle)
+    finally:
+        local.release()
+
+
+# ─────────────────────────────────────────────────────────────
 # Files
 # ─────────────────────────────────────────────────────────────
 class FileStore:
@@ -172,17 +342,115 @@ class FileStore:
         except Exception:                          # noqa: BLE001
             return {}
 
+    # -- locks --------------------------------------------------
+    def _index_lock(self):
+        """Every read-modify-write of `index.json` happens under this."""
+        return _file_lock(self.root / ".locks" / "index.lock")
+
+    def _version_lock(self, tech: str, version: str):
+        """Publishing one version happens under this.
+
+        Keyed on the slug, not the label: two labels that slug alike would
+        otherwise share a file without sharing a lock.
+        """
+        return _file_lock(self.root / ".locks" / f"{slugify(tech)}@{slugify(version)}.lock")
+
     # -- index --------------------------------------------------
-    def _load(self) -> dict:
+    def _load(self, for_write: bool = False) -> dict:
+        """The index, or a rebuilt one if it is damaged — never "empty".
+
+        An index that will not parse used to read as an empty store, and the
+        next harvest to settle wrote back an index holding only itself: every
+        other technology stayed on disk and vanished from every listing. Now
+        the damaged file is kept beside the store and the index is rebuilt
+        from the Markdown files themselves.
+
+        `for_write` is the caller about to write the index back. It must not
+        be handed `{}` for an index it merely failed to read.
+        """
         if not self.index_path.exists():
             return {}
+        for attempt in range(5):
+            try:
+                text = self.index_path.read_text(encoding="utf-8")
+                break
+            except OSError as e:
+                if attempt == 4:
+                    if for_write:
+                        raise StoreError(f"cannot read {self.index_path}: {e}") from e
+                    return {}
+                time.sleep(0.05 * (attempt + 1))
         try:
-            data = json.loads(self.index_path.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
-            return {}
+            data = json.loads(text)
+        except ValueError:
+            return self._recover_index()
         if not isinstance(data, dict):
-            return {}
+            return self._recover_index()
         return self._upgrade_v1(data)
+
+    def _recover_index(self) -> dict:
+        """Rebuild a damaged `index.json` from the files it describes.
+
+        What a contract-0 file says about itself is its header: pages, source,
+        strategy, time and Contents. What it does not say is whether it was
+        complete, so a recovered entry is `None` there — unknown, which is the
+        honest answer, rather than a guess in either direction. The damaged
+        index is kept, so nothing it held is lost to the repair.
+        """
+        rebuilt = self._scan_files()
+        try:
+            with self._index_lock():
+                # Another process may have repaired it while this one waited.
+                try:
+                    data = json.loads(self.index_path.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        return self._upgrade_v1(data)
+                except (ValueError, OSError):
+                    pass
+                stamp = time.strftime("%Y%m%dT%H%M%S")
+                try:
+                    shutil.copyfile(self.index_path,
+                                    self.root / f"index.json.damaged-{stamp}")
+                except OSError:
+                    pass
+                self._save(rebuilt)
+        except (OSError, StoreError):
+            pass                                # read-only: usable in memory
+        return rebuilt
+
+    _HEADER = re.compile(r"<!-- harvested: (?P<pages>\d+) pages \| from: (?P<source>.*?) "
+                         r"\| via: (?P<strategy>.*?) \| (?P<when>[\d-]+ [\d:]+) -->")
+
+    def _scan_files(self) -> dict:
+        """An index read off the Markdown files on disk. See `_recover_index`."""
+        index: dict = {}
+        for path in sorted(self.root.glob("*/*.md")):
+            tech = path.parent.name
+            if tech.startswith("."):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            head, blocks = split_pages(text)
+            meta = self._HEADER.search(head)
+            first = head.lstrip().split("\n", 1)[0]
+            named = re.match(rf"# {re.escape(tech)} (.+) documentation\s*$", first)
+            version = named.group(1) if named else path.stem
+            index[self._key(tech, version)] = {
+                "technology": tech, "version": version,
+                "source": meta.group("source") if meta else "",
+                "strategy": meta.group("strategy") if meta else "",
+                "pages": len(blocks), "characters": len(text), "file": str(path),
+                "harvested": (meta.group("when") if meta
+                              else time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))),
+                "saved": mtime,
+                "complete": None, "expected": None, "pinned": None,
+                "titles": [parse_page(b)[0] for b in blocks][:2000],
+                "recovered": True,
+            }
+        return index
 
     def _upgrade_v1(self, index: dict) -> dict:
         """Read an index written before versions existed.
@@ -210,17 +478,55 @@ class FileStore:
             upgraded[self._key(tech, version)] = moved
 
         try:
-            self._save(upgraded)
-        except OSError:
+            with self._index_lock():
+                self._save(upgraded)
+        except (OSError, StoreError):
             pass       # read-only checkout: still usable in memory
         return upgraded
 
     def _save(self, index: dict) -> None:
+        """Write the index whole or not at all. Callers hold `_index_lock`.
+
+        `write_text` truncates and then writes, so a reader could see half an
+        index — and a half index read as an empty store. A temporary file
+        renamed over the old one is never seen half-written.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
-        self.index_path.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+        tmp = self.index_path.with_name(
+            f"index.json.{os.getpid()}.{secrets.token_hex(3)}.tmp")
+        try:
+            with tmp.open("w", encoding="utf-8", newline="\n") as out:
+                out.write(json.dumps(index, indent=2, sort_keys=True))
+                out.flush()
+                os.fsync(out.fileno())
+            _replace(tmp, self.index_path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def _key(self, tech: str, version: str) -> str:
         return f"{tech}@{version}"
+
+    def _path_for(self, tech: str, version: str, index: dict) -> Path:
+        """Where this version's file lives, never shared with another label.
+
+        The index is keyed on the label and the file on its slug, so `v3 beta`
+        and `v3-beta` used to be two entries pointing at one file, each harvest
+        overwriting the other. A label whose slug is taken gets a suffix.
+        """
+        folder = self.root / tech
+        taken = {os.path.normcase(str(e.get("file", ""))) for e in index.values()
+                 if isinstance(e, dict) and e.get("technology") == tech
+                 and e.get("version") != version}
+        mine = (index.get(self._key(tech, version)) or {}).get("file")
+        if (mine and Path(mine).parent == folder
+                and os.path.normcase(str(mine)) not in taken):
+            return Path(mine)
+        base = folder / f"{slugify(version)}.md"
+        if os.path.normcase(str(base)) not in taken:
+            return base
+        digest = hashlib.sha1(version.encode("utf-8")).hexdigest()[:8]
+        return folder / f"{slugify(version)}-{digest}.md"
 
     # -- writing ------------------------------------------------
     def writer(self, tech, version, source, strategy, expected: int | None = None,
@@ -255,35 +561,37 @@ class FileStore:
 
     def _finish(self, tech, version, source, strategy, path, text_len,
                 titles, complete, expected, pinned=None) -> dict:
-        index = self._load()
-        previous = index.get(self._key(tech, version)) or {}
-        index[self._key(tech, version)] = {
-            "technology": tech, "version": version, "source": source,
-            "strategy": strategy, "pages": len(titles), "characters": text_len,
-            "file": str(path), "harvested": time.strftime("%Y-%m-%d %H:%M"),
-            # Displayed to the minute, ordered to the microsecond: two harvests
-            # in the same minute still have a newest one, and "read the newest
-            # version" has to agree with Postgres about which that is.
-            "saved": time.time(),
-            "complete": complete,
-            "expected": expected,
-            "pinned": versions_mod.still_pinned(pinned, previous.get("pinned")),
-            "titles": list(titles[:2000]),
-        }
-        self._save(index)
-        return index[self._key(tech, version)]
+        with self._index_lock():
+            index = self._load(for_write=True)
+            previous = index.get(self._key(tech, version)) or {}
+            index[self._key(tech, version)] = {
+                "technology": tech, "version": version, "source": source,
+                "strategy": strategy, "pages": len(titles), "characters": text_len,
+                "file": str(path), "harvested": time.strftime("%Y-%m-%d %H:%M"),
+                # Displayed to the minute, ordered to the microsecond: two harvests
+                # in the same minute still have a newest one, and "read the newest
+                # version" has to agree with Postgres about which that is.
+                "saved": time.time(),
+                "complete": complete,
+                "expected": expected,
+                "pinned": versions_mod.still_pinned(pinned, previous.get("pinned")),
+                "titles": list(titles[:2000]),
+            }
+            self._save(index)
+            return index[self._key(tech, version)]
 
     def delete(self, tech: str, version: str | None = None) -> int:
-        index = self._load()
-        doomed = [k for k, v in index.items()
-                  if v["technology"] == tech and (version is None or v["version"] == version)]
-        for key in doomed:
-            path = Path(index[key]["file"])
-            if path.exists():
-                path.unlink()
-            del index[key]
-        self._save(index)
-        return len(doomed)
+        with self._index_lock():
+            index = self._load(for_write=True)
+            doomed = [k for k, v in index.items()
+                      if v["technology"] == tech and (version is None or v["version"] == version)]
+            for key in doomed:
+                path = Path(index[key]["file"])
+                if path.exists():
+                    path.unlink()
+                del index[key]
+            self._save(index)
+            return len(doomed)
 
     # -- reading ------------------------------------------------
     def _rows(self) -> list[dict]:
@@ -508,10 +816,17 @@ class _FileWriter:
     at settle time by writing the header and copying the partial across in
     chunks. Bounded memory, and byte-identical to writing it all at once.
 
-    A crash leaves the `.partial` on disk, recoverable by hand. An orderly
-    failure removes it. Either way the previously stored version is untouched,
-    which is the property the old write had by accident and this one keeps on
-    purpose.
+    Each writer has a partial of its own, named by its harvest id, and the
+    finished file is written beside the published one and renamed over it.
+    Two harvests of one version used to share `<version>.md.partial`, so their
+    pages interleaved; and the published file was truncated and rewritten in
+    place, so a crash part-way through destroyed the version it was replacing.
+    Now the published version is untouched until the instant a whole new one
+    replaces it, and two harvests of one version each publish a whole file —
+    the later one wins, and neither is ever mixed with the other.
+
+    A crash leaves the partial in `<tech>/.incoming/`, recoverable by hand. An
+    orderly failure removes it.
     """
 
     #: Copied in blocks rather than read whole, so peak memory stays flat
@@ -524,18 +839,22 @@ class _FileWriter:
         self.source, self.strategy = source, strategy
         self.expected = expected
         self.pinned = pinned
+        self.harvest_id = new_harvest_id()
         self.titles: list[str] = []
         self.urls: list[str] = []
         #: Pages the store itself refused. Empty for files, which refuse
         #: nothing — kept so both writers answer the same questions.
         self.rejected: list[tuple[str, str]] = []
         self._chars = 0
+        self._settled = False
 
         folder = store.root / tech
-        folder.mkdir(parents=True, exist_ok=True)
+        incoming = folder / ".incoming"
+        incoming.mkdir(parents=True, exist_ok=True)
+        #: Where it will probably be published; `settle()` decides for certain.
         self.path = folder / f"{slugify(version)}.md"
-        self.partial = folder / f"{slugify(version)}.md.partial"
-        self._handle = self.partial.open("w", encoding="utf-8")
+        self.partial = incoming / f"{slugify(version)}.{self.harvest_id}.partial"
+        self._handle = self.partial.open("w", encoding="utf-8", newline="\n")
 
     def __enter__(self):
         return self
@@ -546,8 +865,9 @@ class _FileWriter:
 
     def add(self, title: str, url: str, body: str) -> bool:
         """Append one page, flushed before the next is fetched (Invariant 16)."""
+        title, url, body = clean_page(title, url, body)
         block = "\n" + "\n".join(
-            ["", "---", "", f"## {title}", "", f"Source: <{url}>", "", body.strip()])
+            ["", "---", "", f"## {title}", "", f"Source: <{url}>", "", body])
         self._handle.write(block)
         self._handle.flush()
         self.titles.append(title)
@@ -563,10 +883,13 @@ class _FileWriter:
         is not honoured by an `llms.txt` published once for the whole site — and
         that is only knowable at the end. Renaming here is safe because nothing
         has been able to see this harvest until now.
+
+        `complete` is checked against what was stored (`settled_completeness`):
+        the result carries the value actually stored, and `complete_reason`
+        when it had to be lowered.
         """
         if version and version != self.version:
             self.version = version
-            self.path = self.path.parent / f"{slugify(version)}.md"
         if strategy:
             # Which strategy won is decided by the harvest, not by the caller
             # who opened the writer before it ran.
@@ -574,6 +897,9 @@ class _FileWriter:
         if self._handle is not None:
             self._handle.close()
             self._handle = None
+        expected = self.expected if expected is None else expected
+        complete, reason = settled_completeness(complete, expected, len(self.titles),
+                                                self.rejected)
 
         header = [f"# {self.tech} {self.version} documentation", "",
                   f"<!-- harvested: {len(self.titles)} pages | from: {self.source} | "
@@ -584,28 +910,44 @@ class _FileWriter:
         header.append("")
         head = "\n".join(header)
 
-        with self.path.open("w", encoding="utf-8") as out:
-            out.write(head)
-            if self.partial.exists():
-                with self.partial.open("r", encoding="utf-8") as src:
-                    while True:
-                        chunk = src.read(self.COPY_CHUNK)
-                        if not chunk:
-                            break
-                        out.write(chunk)
-            out.write("\n")
+        # One publisher per version at a time, and the index updated inside the
+        # same hold: otherwise two settles could leave one's file under the
+        # other's index entry.
+        with self.store._version_lock(self.tech, self.version):
+            self.path = self.store._path_for(self.tech, self.version,
+                                             self.store._load(for_write=True))
+            tmp = self.path.with_name(f"{self.path.name}.{self.harvest_id}.tmp")
+            try:
+                with tmp.open("w", encoding="utf-8", newline="\n") as out:
+                    out.write(head)
+                    with self.partial.open("r", encoding="utf-8", newline="") as src:
+                        while True:
+                            chunk = src.read(self.COPY_CHUNK)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                    out.write("\n")
+                    out.flush()
+                    os.fsync(out.fileno())
+                _replace(tmp, self.path)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+            entry = self.store._finish(
+                self.tech, self.version, self.source, self.strategy, self.path,
+                len(head) + self._chars + 1, self.titles, complete,
+                expected, self.pinned)
+        self._settled = True
         self.partial.unlink(missing_ok=True)
-
-        return self.store._finish(
-            self.tech, self.version, self.source, self.strategy, self.path,
-            len(head) + self._chars + 1, self.titles, complete,
-            self.expected if expected is None else expected, self.pinned)
+        return dict(entry, harvest_id=self.harvest_id, stored_pages=len(self.titles),
+                    complete_reason=reason, rejected=list(self.rejected))
 
     def close(self) -> None:
         """Abandon an unsettled harvest. The stored version stays as it was."""
         if self._handle is not None:
             self._handle.close()
             self._handle = None
+        if not self._settled:
             self.partial.unlink(missing_ok=True)
 
 
@@ -843,8 +1185,26 @@ class PostgresStore:
             self._upgrade_v3(cx)
             self._upgrade_v4(cx)
             self._upgrade_v5(cx)
+            self._upgrade_v6(cx)
             cx.commit()
         self._ready = True
+
+    @staticmethod
+    def _upgrade_v6(cx) -> None:
+        """Give an in-flight harvest a pulse another writer can check.
+
+        A writer used to clear every unsettled row for its version before
+        starting, on the theory that any such row was an abandoned attempt. A
+        harvest still running under that label was not abandoned: its row and
+        its pages went, every page it wrote after that was refused, and when it
+        settled it deleted the published version and published nothing. Now
+        only a row whose heartbeat has stopped is treated as abandoned.
+
+        Null for rows written before this; their `harvested_at` (when they
+        opened) stands in for it.
+        """
+        cx.execute("alter table doc_version add column if not exists "
+                   "heartbeat_at timestamptz")
 
     @staticmethod
     def _upgrade_v5(cx) -> None:
@@ -1401,7 +1761,21 @@ class _PgWriter:
     whatever is published, and only the final `settle()` swaps them. Nothing
     that is already stored is at risk until the moment there is something
     complete to replace it with.
+
+    Two harvests of one version may run at once — two processes, two hosted
+    instances, a stalled harvest restarted while it was in fact still alive.
+    Neither touches the other's row while it runs, settles are serialised by
+    an advisory lock, and a writer whose row has gone publishes nothing and
+    says so, rather than deleting the published version and reporting success.
     """
+
+    #: How often a running harvest refreshes `heartbeat_at`.
+    HEARTBEAT_EVERY = 30.0
+    #: How long without a heartbeat before an unsettled row counts as
+    #: abandoned. Generous: a crawl can wait out rate limits for minutes
+    #: between pages, and clearing a live harvest is far worse than keeping
+    #: a dead row a little longer.
+    STALE_AFTER = "30 minutes"
 
     def __init__(self, store, tech, version, source, strategy, expected, pinned=None):
         store.migrate()
@@ -1410,26 +1784,32 @@ class _PgWriter:
         self.source, self.strategy = source, strategy
         self.expected = expected
         self.pinned = pinned
+        self.harvest_id = new_harvest_id()
         self.titles: list[str] = []
         self.urls: list[str] = []
         self.rejected: list[tuple[str, str]] = []
         self._chars = 0
         self._n = 0
+        self._beat = time.monotonic()
 
         self.cx = store._connect()
         self.tech_id = self.cx.execute(
             "insert into technology (name) values (%s) "
             "on conflict (name) do update set name = excluded.name returning id",
             (tech,)).fetchone()[0]
-        # Clear any earlier attempt that never settled, so a retry does not
-        # accumulate abandoned rows.
+        # Clear earlier attempts that will never settle — failed ones, and
+        # unsettled ones whose heartbeat stopped — so retries do not pile up
+        # abandoned rows. Never a harvest that is still running: that used to
+        # be deleted here too, out from under it.
         self.cx.execute(
-            "delete from doc_version where technology_id = %s and version = %s "
-            "and state <> 'ready'", (self.tech_id, version))
+            "delete from doc_version where technology_id = %s and (state = 'failed' "
+            "  or (state = 'harvesting' and coalesce(heartbeat_at, harvested_at) "
+            f"      < now() - interval '{self.STALE_AFTER}'))", (self.tech_id,))
         self.version_id = self.cx.execute(
             "insert into doc_version "
-            "  (technology_id, version, source, strategy, complete, expected, state) "
-            "values (%s, %s, %s, %s, %s, %s, 'harvesting') returning id",
+            "  (technology_id, version, source, strategy, complete, expected, state, "
+            "   heartbeat_at) "
+            "values (%s, %s, %s, %s, %s, %s, 'harvesting', now()) returning id",
             (self.tech_id, version, source, strategy, None, expected)).fetchone()[0]
         self.cx.commit()
 
@@ -1457,6 +1837,7 @@ class _PgWriter:
 
     def add(self, title: str, url: str, body: str) -> bool:
         """Store one page. Returns False if the store refused it."""
+        title, url, body = clean_page(title, url, body)
         try:
             page_id = self.cx.execute(
                 "insert into page (version_id, ordinal, title, url, content) "
@@ -1464,11 +1845,23 @@ class _PgWriter:
                 (self.version_id, self._n + 1, title, url, body)).fetchone()[0]
             if len(body) > INDEX_CHARS:
                 self._index_tail(page_id, title, url, body)
+            if time.monotonic() - self._beat >= self.HEARTBEAT_EVERY:
+                self.cx.execute("update doc_version set heartbeat_at = now() "
+                                "where id = %s", (self.version_id,))
+                self._beat = time.monotonic()
             self.cx.commit()
         except Exception as e:                          # noqa: BLE001
             # The failed statement poisons the transaction, so it has to be
             # rolled back before the next page can be written.
             self.cx.rollback()
+            if getattr(e, "sqlstate", "") == "23503":
+                # foreign_key_violation: this harvest's row is gone — removed
+                # with `forget_documentation`, or cleared as abandoned. Every
+                # page after this would be refused the same way, so stop now
+                # rather than crawl the rest of the site into nothing.
+                raise StoreError(
+                    f"this harvest of {self.tech} {self.version} was removed from "
+                    f"the store while it ran; nothing more can be stored for it") from e
             self.rejected.append((url, self._why(e)))
             return False
         self._n += 1
@@ -1501,28 +1894,54 @@ class _PgWriter:
         `version` may differ from the label the writer opened with; see
         `_FileWriter.settle`. Renaming is safe because a `harvesting` row is
         invisible to every reader until this method flips it.
+
+        One settle per version at a time (an advisory lock on technology and
+        label), and only by a writer whose own row is still `harvesting`. A
+        writer whose row is gone raises before deleting anything.
         """
         if expected is None:
             expected = self.expected
-        if version and version != self.version:
-            self.version = version
-            self.cx.execute("update doc_version set version = %s where id = %s",
-                            (version, self.version_id))
-        if strategy:
-            self.strategy = strategy
-            self.cx.execute("update doc_version set strategy = %s where id = %s",
-                            (strategy, self.version_id))
-        previous = self.cx.execute(
-            "select pinned from doc_version where technology_id = %s and version = %s "
-            "and state = 'ready'", (self.tech_id, self.version)).fetchone()
-        pinned = versions_mod.still_pinned(self.pinned, previous[0] if previous else None)
-        self.cx.execute(
-            "delete from doc_version where technology_id = %s and version = %s "
-            "and state = 'ready'", (self.tech_id, self.version))
-        self.cx.execute(
-            "update doc_version set state = 'ready', complete = %s, expected = %s, "
-            "pinned = %s where id = %s", (complete, expected, pinned, self.version_id))
-        self.cx.commit()
+        label = version or self.version
+        complete, reason = settled_completeness(complete, expected, self._n,
+                                                self.rejected)
+        try:
+            self.cx.execute("select pg_advisory_xact_lock(%s::integer, hashtext(%s::text))",
+                            (self.tech_id, label))
+            row = self.cx.execute(
+                "select state from doc_version where id = %s for update",
+                (self.version_id,)).fetchone()
+            if row is None or row[0] != "harvesting":
+                raise StoreError(
+                    f"this harvest of {self.tech} {label} is no longer in the store "
+                    f"({'removed' if row is None else row[0]}) — removed with "
+                    f"forget_documentation, or cleared as abandoned. Nothing was "
+                    f"published, and the version already stored is unchanged.")
+            if label != self.version:
+                self.version = label
+                self.cx.execute("update doc_version set version = %s where id = %s",
+                                (label, self.version_id))
+            if strategy:
+                self.strategy = strategy
+                self.cx.execute("update doc_version set strategy = %s where id = %s",
+                                (strategy, self.version_id))
+            previous = self.cx.execute(
+                "select pinned from doc_version where technology_id = %s and version = %s "
+                "and state = 'ready'", (self.tech_id, self.version)).fetchone()
+            pinned = versions_mod.still_pinned(self.pinned,
+                                               previous[0] if previous else None)
+            self.cx.execute(
+                "delete from doc_version where technology_id = %s and version = %s "
+                "and state = 'ready'", (self.tech_id, self.version))
+            self.cx.execute(
+                "update doc_version set state = 'ready', complete = %s, expected = %s, "
+                "pinned = %s where id = %s", (complete, expected, pinned, self.version_id))
+            self.cx.commit()
+        except BaseException:
+            try:
+                self.cx.rollback()              # also releases the advisory lock
+            except Exception:                   # noqa: BLE001
+                pass
+            raise
         self._done()
         return {
             "technology": self.tech, "version": self.version,
@@ -1531,7 +1950,8 @@ class _PgWriter:
             "file": f"postgres://{self.store.location} ({self.tech} {self.version})",
             "harvested": time.strftime("%Y-%m-%d %H:%M"), "complete": complete,
             "expected": expected, "pinned": pinned, "titles": self.titles[:2000],
-            "rejected": list(self.rejected),
+            "rejected": list(self.rejected), "harvest_id": self.harvest_id,
+            "stored_pages": self._n, "complete_reason": reason,
         }
 
     def close(self) -> None:
