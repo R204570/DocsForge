@@ -60,18 +60,27 @@ def _write_record(**fields):
 
 
 def _held(label="effect"):
-    """A harvest in this process that runs until released."""
+    """A harvest in this process that runs until released.
+
+    Returned only once the worker has reported its progress. The worker is a
+    thread, and a status read before it got that far saw "harvesting, 0 pages
+    so far" — which failed about one CI run in two.
+    """
     gate = threading.Event()
+    reported = threading.Event()
 
     def work(progress: Progress) -> str:
         progress.phase = "harvesting"
         progress.url = "https://effect.website/docs/"
         progress.expected = 703
         progress.pages = 118
+        reported.set()
         gate.wait(10)
         return "Harvested **effect** v3 - 703 pages"
 
-    return harvest_jobs.start(label, work), gate
+    job = harvest_jobs.start(label, work)
+    assert reported.wait(10), "the stub harvest never reported its progress"
+    return job, gate
 
 
 # ── the tool exists, and is served ────────────────────────────

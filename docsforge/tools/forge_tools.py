@@ -517,6 +517,12 @@ def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
     # Invariant 8: this corpus settles its own count. Nothing here touches any
     # other corpus's `complete`.
     corpus.settle(stored, expected)
+    # …and its `complete` is the one the store recorded, not a recount.
+    # `Corpus.settle` says `stored >= expected`, which calls a crawl that
+    # merely drained its own frontier complete; the store calls that unknown.
+    # The roll-up and `usable_for_planning` judged the recount, so they could
+    # pass a corpus whose stored record said nobody had counted it.
+    corpus.complete = entry.get("complete")
     corpus.version = label
     return entry["file"]
 
@@ -643,7 +649,8 @@ def _measure_corpora(sites, entry, stats: dict, js: bool = False) -> None:
 
 def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
               explicit: list[str] | None = None, strict: bool = False,
-              max_pages: int = 0, js: bool = False) -> str:
+              max_pages: int = 0, js: bool = False,
+              settled: dict | None = None) -> str:
     """Discover, admit, classify and select the corpora around a harvest.
 
     Ordering note: selection runs *after* the entry corpus is crawled, not
@@ -651,6 +658,10 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
     evidence gathered while crawling, so there is nothing to select between
     until at least one corpus has been read. What selection governs is which
     *additional* corpora are harvested.
+
+    `settled` is what the store recorded for the entry corpus. When given, the
+    entry's count and completeness are taken from it rather than recomputed,
+    so the roll-up and `usable_for_planning` judge the value that is stored.
     """
     from docsforge.core import federation
     from docsforge.core import selection as sel
@@ -658,9 +669,15 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
     proposed = (stats or {}).get("corpora") or []
     entry = federation.Corpus(url=harvested_url, entry=True)
     entry.kind, entry.kind_confidence = federation.classify_kind(harvested_url)
-    entry.settle(stats.get("fetched") or stats.get("discovered") or 0,
-                 stats.get("discovered"))
-    entry.complete = stats.get("whole") if stats.get("whole") is not None else entry.complete
+    if settled is not None:
+        entry.settle(settled.get("stored_pages", settled.get("pages")) or 0,
+                     settled.get("expected"))
+        entry.complete = settled.get("complete")
+    else:
+        entry.settle(stats.get("fetched") or stats.get("discovered") or 0,
+                     stats.get("discovered"))
+        entry.complete = (stats.get("whole") if stats.get("whole") is not None
+                          else entry.complete)
 
     sites = federation.Federation.single(harvested_url, technology=name)
     sites.corpora[0] = entry
@@ -721,9 +738,11 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
             corpus.status = f"harvested separately -> `{where}`"
         except (ForgeError, StoreError) as e:
             # A corpus that could not be fetched is reported, not dropped, and
-            # not counted as covered.
+            # not counted as covered. It stays *selected*: unselecting it took
+            # it out of the roll-up, which then read complete — a corpus that
+            # was wanted and not obtained is a shortfall, not a choice.
             corpus.status = f"selected, but could not be harvested: {e}"
-            corpus.selected = False
+            corpus.complete = False
 
     if strict:
         ok, why = sel.usable_for_planning(chosen, sites.corpora)
@@ -1029,6 +1048,14 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
             entry = writer.settle(complete=whole, expected=expected,
                                   version=label, strategy=strategy)
 
+    # The store is the last word on `complete`: it lowers `True` when it
+    # refused pages or holds fewer than were counted, and the headline must
+    # say what was stored rather than what was acquired.
+    if entry.get("complete") is not whole:
+        whole = entry.get("complete")
+        if entry.get("complete_reason"):
+            stats["reason"] = entry["complete_reason"]
+
     # Pages the store itself refused — too large to index, most often. They
     # were reached and extracted, so they are disclosed rather than lost.
     for url_, why in (entry.get("rejected") or []):
@@ -1051,16 +1078,36 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
         try:
             note = _federate(name or slug, url, stats, intent=intent,
                              explicit=_corpus_list(corpora), strict=bool(strict),
-                             max_pages=max_pages, js=js)
+                             max_pages=max_pages, js=js, settled=entry)
+            federation_failed = False
+        except Exception as e:                          # noqa: BLE001
+            # The entry corpus is already published. Letting this escape made
+            # the job FAILED, and `harvest_status` then said "Nothing was
+            # stored" about documentation that was stored and readable. What
+            # is unknown is everything *beyond* it, so that is what is said.
+            federation_stage.finish(tracing.FAILED, error=f"{type(e).__name__}: {e}")
+            federation_failed = True
+            stats.pop("federation", None)
+            note = (f"\n\n**Related corpora could not be checked** — "
+                    f"{type(e).__name__}: {e}. The documentation above is stored "
+                    f"and readable; whether this technology documents itself "
+                    f"anywhere else is not known.")
+            if strict:
+                note += ("\n\n`usable_for_planning: false` — related corpora "
+                         "could not be checked.")
+            if whole is True:
+                whole = None
+                stats["reason"] = "related corpora could not be checked"
         except BaseException as e:
             federation_stage.finish(tracing.FAILED, error=f"{type(e).__name__}: {e}")
             raise
     across = stats.get("federation") or {}
-    federation_stage.finish(
-        tracing.COMPLETED,
-        message=(f"{across.get('selected', 0)} of {across.get('corpora', 1)} "
-                 f"corpora selected" if across else "no related corpora"),
-        result=across or None)
+    if not federation_failed:
+        federation_stage.finish(
+            tracing.COMPLETED,
+            message=(f"{across.get('selected', 0)} of {across.get('corpora', 1)} "
+                     f"corpora selected" if across else "no related corpora"),
+            result=across or None)
     if across.get("corpora", 1) > 1 and across.get("complete") != whole:
         whole = across.get("complete")
         truncated = False           # the shortfall is another corpus's, not a cap
@@ -1830,8 +1877,11 @@ def _still_harvesting(job: harvest_jobs.Job, tool: str = "learn_technology") -> 
             f"instance; `wait=20` lets it run that long before answering.\n"
             f"- **done** means it is stored — read it with "
             f"`read_knowledge_base(name=\"{slug}\")`.\n"
-            f"- **stopped reporting** means it was cut off, and nothing "
-            f"partial was published; only then is it worth starting again.\n\n"
+            f"- **stopped reporting** means it was cut off. Nothing partial is "
+            f"ever published, though the main documentation may already be "
+            f"stored if it was cut off while fetching related corpora — "
+            f"`list_knowledge_base` shows it. Only if it is not there is it "
+            f"worth starting again.\n\n"
             f"Do not call {tool} for {job.label!r} again before that status "
             f"says so — a second call crawls the same site from the start. A "
             f"harvest this size is better run on a long-lived DocsForge "
@@ -1924,12 +1974,17 @@ def _status_of(job: harvest_jobs.Job) -> str:
             f"rather than trying the same call again."
         )
 
-    # STALLED: a record whose process stopped reporting.
+    # STALLED: a record whose process stopped reporting. Documentation is only
+    # ever published whole, so nothing partial exists — but the main corpus is
+    # published *before* related corpora are fetched, so a process that died
+    # during that second stage left the main one stored. Say both.
     return (
         f"{head}: **stopped reporting** after {when}, last seen {job.progress.line()}. "
         f"The process running it most likely exited, and nothing partial was "
-        f"stored. `list_knowledge_base` shows whether it landed anyway; if "
-        f"not, it has to be started again on a DocsForge that stays up."
+        f"stored — but if it was cut off while fetching related corpora, the main "
+        f"documentation was already stored whole. `list_knowledge_base` shows "
+        f"whether it landed; if not, it has to be started again on a DocsForge "
+        f"that stays up."
     )
 
 

@@ -798,12 +798,111 @@ of the others.
 
 ---
 
+## Store integrity (contract v1, Phase 0)
+
+Found reviewing what a stored file would have to carry for contract v1 (the
+per-corpus `harvest_id`, `complete`, page hashes promised in Discussion #35).
+Each was reproduced against `633ae8e` before it was fixed, and each has a test
+in `tests/test_store_integrity.py`. Contract v1 itself — frontmatter, page
+hashes, export, history — is later phases; these are what had to hold before
+anything could be stamped on a file.
+
+### B1 — two harvests of one version mixed their pages · fixed (Phase 0)
+
+Both writers streamed into `<version>.md.partial`; the second open truncated
+the first's and their pages interleaved. Measured: the published file held
+`B0, B1, A2` — two harvests' pages under one index entry describing a third.
+On Windows the first settle then died on the shared partial *after*
+overwriting the published file. Now each writer has its own partial, named by
+its harvest id, and settles of one version are serialised by a lock.
+
+### B2 — in Postgres, the same race deleted the published version · fixed (Phase 0)
+
+A writer cleared every unsettled row for its version, including a live one.
+That harvest's pages went by cascade, every later page was "rejected", and at
+settle it deleted the published row, updated a row that no longer existed and
+reported success. Now only failed rows and rows whose `heartbeat_at` is 30
+minutes stale are cleared, a lost row stops the harvest at the next page, and
+settle takes an advisory lock and checks its own row before deleting anything.
+
+### B3 — a crash while publishing destroyed the previous version · fixed (Phase 0)
+
+The published file was truncated and rewritten in place. Now it is written
+beside the target, fsynced, and renamed over it.
+
+### B4 — two processes publishing at once lost an index entry · fixed (Phase 0)
+
+`index.json` was read, modified and written back with no lock. Now under a
+cross-process lock (`msvcrt` / `fcntl`), written to a temporary file and
+renamed.
+
+### B5 — a half-written `index.json` orphaned the whole store · fixed (Phase 0)
+
+An index that would not parse read as empty, and the next settle wrote back
+an index of one. Measured: three technologies on disk, one in the index. Now
+a damaged index is kept as `index.json.damaged-<time>` and rebuilt from the
+Markdown headers, with `complete` unknown for every recovered entry.
+
+### B6 — a page body shaped like a page header splits the page · open (Phase 2)
+
+`## X` followed by `Source: <url>` inside a page reads as two pages. Needs the
+length-delimited page line of contract v1; tracked by an `xfail` test.
+
+### B7 — a newline in a title merged the page into the one before · fixed (Phase 0)
+
+`<title>` text keeps its newlines, and `## Getting\nStarted` no longer matched
+the boundary. Titles are now one line, in both stores.
+
+### B8 — page bodies did not come back byte for byte · fixed (Phase 0)
+
+Text-mode files doubled every `\r\n` on Windows and dropped the `\r` elsewhere.
+Bodies are now stored with LF line endings in both stores, and files are
+written with `newline="\n"`.
+
+### B10 — two labels that slug alike shared one file · fixed (Phase 0)
+
+`v3 beta` and `v3-beta` were two index entries over one file. A label whose
+slug is taken now gets a suffixed file.
+
+### B11 — every page but the last read back with `---` appended · fixed (Phase 0)
+
+Found writing the B8 test. Splitting on headings left each page carrying the
+separator written before the next, so the file store returned `body\n\n---`
+where Postgres returned `body`, and `scripts/migrate_kb.py` carried it into
+Postgres. `split_pages` now removes that one separator.
+
+### M1 — `complete` was decided before the store's refusals were known · fixed (Phase 0)
+
+A page Postgres refused (a NUL byte, a bad surrogate) did not lower `complete`.
+Settle now checks the claim against what was stored and lowers `True` with a
+reason; the harvest's headline reports the stored value.
+
+### M2 — federation judged a recount, not the stored `complete` · fixed (Phase 0)
+
+`Corpus.settle` calls `stored >= expected` complete, so a crawl that drained
+its own frontier — unknown in the store — counted as complete for the roll-up
+and for `usable_for_planning`. Both now read the value the store recorded.
+
+### M3 — a selected corpus that failed dropped out of the roll-up · fixed (Phase 0)
+
+It was unselected, so the roll-up read complete beside a note saying it could
+not be harvested. It now stays selected and counts as incomplete.
+
+### I4 — an error after publishing reported "Nothing was stored" · fixed (Phase 0)
+
+The entry corpus is published before related corpora are fetched, and an
+error in that second stage failed the whole job. It is now reported as what
+it is — the documentation stored, related corpora unknown — and a harvest that
+stopped reporting says the main documentation may already be stored.
+
+---
+
 ## Search and reading
 
-### S2 — an abandoned harvest leaves a row nobody ever clears · open
+### S2 — an abandoned harvest leaves a row nobody ever clears · fixed (Phase 0, with B2)
 
-Carried, not re-measured. Offline, `--reset` clears everything; hosted, a
-row for a harvest the instance died under stays until something notices.
+Every new writer now clears its technology's failed rows and unsettled rows
+whose heartbeat is 30 minutes stale.
 
 ### S3 — an OpenAPI operation is not searchable by its operationId · open
 

@@ -284,8 +284,12 @@ def usable_for_planning(selection: Selection, corpora: list) -> tuple[bool, str]
             return False, f"no {kind!r} corpus was found or selected"
         for corpus in matches:
             if corpus.complete is False:
-                return False, (f"the {kind!r} corpus is INCOMPLETE "
-                               f"({corpus.stored} of {corpus.expected} pages)")
+                # A corpus that failed outright has no count to quote; its
+                # status says what happened instead of "(0 of None pages)".
+                extent = (f"{corpus.stored} of {corpus.expected} pages"
+                          if corpus.expected is not None
+                          else (corpus.status or f"{corpus.stored} pages"))
+                return False, f"the {kind!r} corpus is INCOMPLETE ({extent})"
             if corpus.complete is None:
                 return False, (f"coverage of the {kind!r} corpus is unknown — "
                                f"nothing established how much exists")
