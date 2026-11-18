@@ -190,8 +190,22 @@ A run that stores nothing leaves no revision. Its status record is the trace:
 - **How long it is kept.** With a database, the record stays for `DOCSFORGE_HARVEST_KEEP_DAYS` (default 7). `harvest_status(harvest="run-…")` finds it in that time.
 - **A run that stopped reporting.** Before saying "nothing stored", the status check asks the store for revisions carrying that run's id.
 
-## Not yet in v1
+## History
 
-- **History.** A re-harvest still replaces the revision it supersedes. Keeping earlier revisions, and exporting them by `harvest_id`, is Phase 3 of #42.
+A re-harvest gets a new `harvest_id` and **does not overwrite** the revision it replaces. That revision becomes *superseded*: it is no longer read, listed or searched, but it can still be exported by its id.
+
+```bash
+python -m docsforge --export "acme-sdk@2.4#hv-20261001T091200Z-1a2b3c4d"
+```
+
+- **How many are kept.** The newest `DOCSFORGE_KEEP_HARVESTS` superseded revisions of each version are kept (default 3). The current revision is never pruned.
+- **Where they live.**
+  - In Postgres, a superseded row stays in `doc_version` with `state = 'superseded'`, and its pages stay too.
+  - In the file store, superseded revisions are kept beside the current file in `<version>.history/<harvest_id>.md`. That is a hard link where the filesystem supports one, and a copy otherwise.
+- **Listing them.** The local web app lists a version's kept revisions at `GET /api/library/{tech}/{version}` (`history`, newest first) and exports any of them with `…/export?harvest_id=`.
+- **Forgetting.** Forgetting a version forgets its history.
+
+## Not in v1
+
 - **Deduplication.** Pages are not deduplicated across federated corpora (Issues T2), so counts are per corpus.
 - **Signing.** `sha256` detects accidental change, not tampering.

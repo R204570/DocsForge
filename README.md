@@ -355,6 +355,8 @@ Everything is optional; see `.env.example` for the full list.
 | `GITHUB_TOKEN` | — | Raises the GitHub API rate limit. |
 | `DOCSFORGE_MAX_CHARS` | `200000` | Largest tool result returned to a model. Not a storage limit — files and the knowledge base keep every page whole. Raise it if your provider's context window allows; the cap exists because a result that overflows the window fails the turn rather than truncating. |
 | `DOCSFORGE_OUT_ROOT` | `./docs_md` | Directory `save_docs` may write into. |
+| `DOCSFORGE_KEEP_HARVESTS` | `3` | Earlier revisions kept for each version when it is harvested again. They can be exported by `harvest_id`, and are never read or searched. `0` keeps none. |
+| `DOCSFORGE_HARVEST_KEEP_DAYS` | `7` | How long the database keeps the record of a harvest that ended, so `harvest_status` can still answer for it by id. |
 | `DOCSFORGE_ALLOW_PRIVATE` | unset | Allow fetching private/loopback addresses. |
 | `DOCSFORGE_ALLOW_DELETE` | unset | Let the **model** delete stored documentation. Off by default — see below. |
 | `DOCSFORGE_REASONING` | `off` | Allow a bounded number of model calls at four decision points — see below. |
@@ -448,6 +450,9 @@ name is the last caller who should hold that lever — 703 pages of Effect are
 one confident hallucination away. Set `DOCSFORGE_ALLOW_DELETE=1` to add a
 `forget_documentation` tool to the surface. Note that you do not need it to
 re-harvest: harvesting the same name again replaces that version on its own.
+The revision it replaces is kept (`DOCSFORGE_KEEP_HARVESTS`, three by default)
+and can be exported by its `harvest_id`, but nothing reads or searches it.
+Forgetting a version forgets its earlier revisions too.
 
 ### When the database was down during a harvest
 

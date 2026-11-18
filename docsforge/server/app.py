@@ -520,8 +520,12 @@ def library_pages(tech: str, version: str):
         entry = backend.entry(tech, version)
         if entry is None:
             return _store_error(StoreError(f"{tech} has no version {version!r}"))
+        # The revisions kept for this version, newest first — each one
+        # exportable by its harvest_id at `…/export?harvest_id=`.
+        history = backend.history(tech, version) if hasattr(backend, "history") else []
         return {"technology": tech, "version": version,
-                "meta": entry, "pages": backend.pages(tech, version)}
+                "meta": entry, "pages": backend.pages(tech, version),
+                "history": history}
     except StoreError as e:
         return _store_error(e)
 

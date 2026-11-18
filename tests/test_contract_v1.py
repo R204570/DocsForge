@@ -267,7 +267,7 @@ def test_a_rebuilt_index_restores_every_v1_entry(files):
 def test_export_by_harvest_id(files):
     entry = _store_pages(files)
     assert files.export("acme-sdk", "2.4", entry["harvest_id"]).startswith("---\n")
-    with pytest.raises(StoreError, match="not kept"):
+    with pytest.raises(StoreError, match="no revision"):
         files.export("acme-sdk", "2.4", "hv-20260101T000000Z-deadbeef")
 
 

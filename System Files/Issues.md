@@ -948,6 +948,16 @@ Every harvest and read response starts with an identity line — corpus,
 version, `harvest_id`, `complete`, expected and stored — which truncation,
 cutting from the end, cannot remove.
 
+### R1 — a re-harvest deleted the revision it replaced · fixed (Phase 3)
+
+So a `harvest_id` recorded by an importer named nothing the moment the same
+version was harvested again — promise 3 of the contract. The replaced revision
+is now superseded rather than deleted: Postgres keeps the row in state
+`superseded`, which no reader selects; the file store hard-links the old file
+into `<version>.history/<harvest_id>.md` before replacing it. The newest
+`DOCSFORGE_KEEP_HARVESTS` (3) are kept and export by id; forgetting a version
+forgets them. Tests in `tests/test_history.py`, on both stores.
+
 ### O3 — there was no export for Postgres · fixed (Phase 2)
 
 `python -m docsforge --export NAME[@VERSION][#HARVEST_ID]` exports from either

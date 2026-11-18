@@ -9,7 +9,9 @@ Three levels, because documentation has three levels:
 
 Keeping versions apart matters: a project's v2 and v3 docs contradict each
 other, and a model handed both will happily quote the wrong one. Re-harvesting
-a version you already have replaces that version and leaves the others alone.
+a version you already have replaces that version and leaves the others alone;
+the revision it replaces is kept, unread, for export by its `harvest_id`
+(`keep_harvests`, and `System Files/Contract.md`).
 
 Two backends behind one interface:
 
@@ -250,6 +252,17 @@ def clean_page(title: str, url: str, body: str) -> tuple[str, str, str]:
     url = re.sub(r"\s", "%20", (url or "").strip()).replace(">", "%3E")
     body = (body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     return title, url, body
+
+
+def keep_harvests() -> int:
+    """How many superseded revisions of one version to keep (contract v1,
+    decision D2). A re-harvest used to delete the revision it replaced, so a
+    reader holding its `harvest_id` held an id for nothing. Read per call, so
+    a change takes effect without a restart; 0 keeps none, as before."""
+    try:
+        return max(0, int(os.environ.get("DOCSFORGE_KEEP_HARVESTS", "3")))
+    except ValueError:
+        return 3
 
 
 def _settle_meta(writer, complete, expected, facts: dict | None,
@@ -731,6 +744,9 @@ class FileStore:
         A v1 file *is* its export, byte for byte. A file written before
         contract v1 is rendered as one, with `legacy` provenance
         (`contract.legacy_meta`); the file itself is not changed.
+
+        `harvest_id` picks a revision: the current one, or one a re-harvest
+        superseded and `keep_harvests()` kept.
         """
         entry = self.entry(tech, version)
         if entry is None:
@@ -741,13 +757,98 @@ class FileStore:
             raise StoreError(f"{tech} is in the index but its file is missing: {path}")
         text = path.read_bytes().decode("utf-8")
         rendered = text if contract.is_v1(text) else self._legacy_render(entry, text)
-        if harvest_id:
-            held = contract.parse_frontmatter(rendered).get("harvest_id")
-            if harvest_id != held:
-                raise StoreError(
-                    f"{tech} {entry['version']} is stored as revision {held}, not "
-                    f"{harvest_id}; earlier revisions are not kept")
-        return rendered
+        if not harvest_id or harvest_id == contract.parse_frontmatter(rendered).get("harvest_id"):
+            return rendered
+        kept = self._history_dir(path) / f"{slugify(harvest_id)}.md"
+        if not kept.exists():
+            raise StoreError(f"no revision {harvest_id} of {tech} {entry['version']} is "
+                             f"stored; it was never stored here, or more than "
+                             f"{keep_harvests()} newer revisions replaced it")
+        old = kept.read_bytes().decode("utf-8")
+        if contract.is_v1(old):
+            return old
+        head = self._HEADER.search(split_pages(old)[0])
+        return self._legacy_render(
+            {"technology": entry["technology"], "version": entry["version"],
+             "source": head.group("source") if head else "",
+             "strategy": head.group("strategy") if head else "",
+             "complete": None, "expected": None, "saved": kept.stat().st_mtime}, old)
+
+    # -- history ------------------------------------------------
+    @staticmethod
+    def _history_dir(path: Path) -> Path:
+        """Where superseded revisions of the version published at `path` go:
+        beside it, out of reach of the `*/*.md` scan that rebuilds the index."""
+        return path.with_name(f"{path.stem}.history")
+
+    @staticmethod
+    def _revision_id_of(text: str) -> str:
+        if contract.is_v1(text):
+            held = contract.parse_frontmatter(text).get("harvest_id")
+            if held:
+                return held
+        return "legacy-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+    def _archive(self, path: Path) -> None:
+        """Keep the revision about to be replaced at `path`, under its id.
+
+        A hard link where the filesystem has them: no copy, and it survives
+        the rename that replaces the published file. Done before that rename,
+        so a crash between the two leaves a duplicate, never a gap.
+        """
+        if keep_harvests() <= 0 or not path.exists():
+            return
+        text = path.read_bytes().decode("utf-8")
+        folder = self._history_dir(path)
+        folder.mkdir(exist_ok=True)
+        kept = folder / f"{slugify(self._revision_id_of(text))}.md"
+        if kept.exists():
+            return
+        try:
+            os.link(path, kept)
+        except OSError:
+            shutil.copy2(path, kept)
+
+    def _prune_history(self, path: Path) -> None:
+        """Keep the newest `keep_harvests()` superseded revisions."""
+        folder = self._history_dir(path)
+        if not folder.exists():
+            return
+        # Newest first: by when the revision was written (a hard link keeps
+        # it), then by id, whose timestamp breaks a tie within one second.
+        kept = sorted(folder.glob("*.md"), key=lambda p: (p.stat().st_mtime, p.name),
+                      reverse=True)
+        for old in kept[keep_harvests():]:
+            try:
+                old.unlink()
+            except OSError:
+                pass                        # held open by a reader; next settle retries
+
+    def history(self, tech: str, version: str) -> list[dict]:
+        """Every kept revision of one version, newest first; the first is the
+        one readers see."""
+        entry = self.entry(tech, version)
+        if entry is None:
+            raise StoreError(f"{tech} has no version {version!r}")
+        path = Path(entry["file"])
+        files = [path] + sorted(self._history_dir(path).glob("*.md"),
+                                key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+        out = []
+        for i, f in enumerate(files):
+            try:
+                text = f.read_bytes().decode("utf-8")
+            except OSError:
+                continue
+            front = contract.parse_frontmatter(text) if contract.is_v1(text) else {}
+            out.append({
+                "harvest_id": self._revision_id_of(text),
+                "harvested_at": front.get("harvested_at") or contract.utc(f.stat().st_mtime),
+                "complete": front.get("complete") if front else (
+                    entry.get("complete") if i == 0 else None),
+                "current": i == 0,
+                "pages": front.get("stored_pages") if front else len(split_pages(text)[1]),
+            })
+        return out
 
     def _legacy_render(self, entry: dict, text: str) -> str:
         _, blocks = split_pages(text)
@@ -820,6 +921,8 @@ class FileStore:
                 path = Path(index[key]["file"])
                 if path.exists():
                     path.unlink()
+                # Forgetting a version forgets its history too.
+                shutil.rmtree(self._history_dir(path), ignore_errors=True)
                 del index[key]
             self._save(index)
             return len(doomed)
@@ -1161,10 +1264,12 @@ class _FileWriter:
                             out.write(chunk)
                     out.flush()
                     os.fsync(out.fileno())
+                self.store._archive(self.path)
                 _replace(tmp, self.path)
             except BaseException:
                 tmp.unlink(missing_ok=True)
                 raise
+            self.store._prune_history(self.path)
             entry = self.store._finish(
                 self.tech, self.version, self.source, self.strategy, self.path,
                 len(head) + self._chars, self.titles, complete,
@@ -1735,7 +1840,8 @@ class PostgresStore:
         contract v1 is rendered with `legacy` provenance (`contract.legacy_meta`)."""
         self.migrate()
         with self._borrow() as cx:
-            vid = self._version_id(cx, tech, version)
+            vid = (self._revision_id(cx, tech, version, harvest_id) if harvest_id
+                   else self._version_id(cx, tech, version))
             row = cx.execute(
                 "select v.version, v.source, v.strategy, v.complete, v.expected, "
                 "       v.harvest_id, v.meta, v.harvested_at "
@@ -1751,11 +1857,42 @@ class PostgresStore:
                 strategy=strategy, store=self.kind, complete=complete,
                 expected=expected, stored=len(pages),
                 harvested_at=contract.utc(when.timestamp()) if when else None)
-        if harvest_id and harvest_id != (meta.get("harvest_id") or held):
-            raise StoreError(f"{tech} {label} is stored as revision "
-                             f"{meta.get('harvest_id') or held}, not {harvest_id}; "
-                             f"earlier revisions are not kept")
         return contract.render_revision(meta, [tuple(p) for p in pages])
+
+    def _revision_id(self, cx, tech: str, version: str | None, harvest_id: str) -> int:
+        """The row of one revision — current or superseded — by its id.
+        `legacy-<n>` names a row written before revisions had ids."""
+        legacy = re.fullmatch(r"legacy-(\d+)", harvest_id)
+        row = cx.execute(
+            "select v.id, v.version from doc_version v "
+            "join technology t on t.id = v.technology_id "
+            "where t.name = %s and v.state in ('ready', 'superseded') and "
+            + ("v.id = %s and v.harvest_id is null" if legacy else "v.harvest_id = %s"),
+            (tech, int(legacy.group(1)) if legacy else harvest_id)).fetchone()
+        if row is None or (version is not None and row[1] != version):
+            raise StoreError(f"no revision {harvest_id} of {tech}"
+                             + (f" {version}" if version else "")
+                             + f" is stored; it was never stored here, or more than "
+                               f"{keep_harvests()} newer revisions replaced it")
+        return row[0]
+
+    def history(self, tech: str, version: str) -> list[dict]:
+        """Every kept revision of one version, newest first; the first is the
+        one readers see."""
+        self.migrate()
+        with self._borrow() as cx:
+            rows = cx.execute(
+                "select v.id, v.harvest_id, v.meta ->> 'harvested_at', v.harvested_at, "
+                "       v.complete, v.state, "
+                "       (select count(*) from page p where p.version_id = v.id) "
+                "  from doc_version v join technology t on t.id = v.technology_id "
+                " where t.name = %s and v.version = %s "
+                "   and v.state in ('ready', 'superseded') "
+                " order by (v.state = 'ready') desc, v.id desc", (tech, version)).fetchall()
+        return [{"harvest_id": r[1] or f"legacy-{r[0]}",
+                 "harvested_at": r[2] or (contract.utc(r[3].timestamp()) if r[3] else None),
+                 "complete": r[4], "current": r[5] == "ready", "pages": r[6]}
+                for r in rows]
 
     def forget_harvest(self, job_id: str) -> None:
         self.migrate()
@@ -2289,13 +2426,23 @@ class _PgWriter:
                 "and state = 'ready'", (self.tech_id, self.version)).fetchone()
             pinned = versions_mod.still_pinned(self.pinned,
                                                previous[0] if previous else None)
+            # Superseded, not deleted: every reader filters on 'ready', so the
+            # revision this replaces stops being read at the same instant it
+            # used to stop existing — and stays exportable by its harvest_id.
             self.cx.execute(
-                "delete from doc_version where technology_id = %s and version = %s "
-                "and state = 'ready'", (self.tech_id, self.version))
+                "update doc_version set state = 'superseded' where technology_id = %s "
+                "and version = %s and state = 'ready'", (self.tech_id, self.version))
             self.cx.execute(
                 "update doc_version set state = 'ready', complete = %s, expected = %s, "
                 "pinned = %s, meta = %s where id = %s",
                 (complete, expected, pinned, Jsonb(meta), self.version_id))
+            # The newest `keep_harvests()` superseded revisions stay; their
+            # pages go with them by cascade.
+            self.cx.execute(
+                "delete from doc_version where id in ("
+                "  select id from doc_version where technology_id = %s and version = %s "
+                "   and state = 'superseded' order by id desc offset %s)",
+                (self.tech_id, self.version, keep_harvests()))
             self.cx.commit()
         except BaseException:
             try:
