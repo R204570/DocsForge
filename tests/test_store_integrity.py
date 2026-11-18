@@ -200,8 +200,10 @@ def test_a_damaged_index_is_never_written_back_smaller(files):
     recovered = files.entry("bravo", "v2")
     assert recovered["pages"] == 2
     assert recovered["source"] == "https://b.dev/"
-    # The file never said how complete it was. Unknown, not a guess.
-    assert recovered["complete"] is None
+    # A contract-v1 file says how complete it is, so the rebuild loses nothing.
+    assert recovered["complete"] is False
+    assert recovered["expected"] == 5
+    assert recovered["harvest_id"].startswith("hv-")
     assert list(files.root.glob("index.json.damaged-*")), "the damaged index was not kept"
 
 
@@ -244,13 +246,14 @@ def test_clean_page_is_the_one_normal_form():
         ("A B", "https://x.dev/a%20b%3E", "x")
 
 
-@pytest.mark.xfail(strict=True, reason="contract v1 Phase 2 (P2.3): length-delimited pages")
 def test_a_body_that_looks_like_a_page_boundary_stays_one_page(files):
+    """B6, fixed by contract v1 (P2.3): pages are read by their byte length."""
     body = "Intro.\n\n## Changelog\n\nSource: <https://up.example/CHANGELOG>\n\nQuoted."
     files.save("md", "v1", "https://m.dev/", "crawl",
                [("Guide", "https://m.dev/g", body), ("API", "https://m.dev/a", "api")],
                complete=True, expected=2)
     assert [p["title"] for p in files.pages("md", "v1")] == ["Guide", "API"]
+    assert files.page("md", "v1", 1)["content"] == body
 
 
 # ── M1: settle enforces `complete` against what was stored ──────
@@ -261,7 +264,8 @@ def test_fewer_pages_than_counted_cannot_be_stored_as_complete(files):
     entry = w.settle(complete=True)
 
     assert entry["complete"] is False
-    assert "2 of the 3" in entry["complete_reason"]
+    assert entry["complete_reason"]["code"] == "listed-not-acquired"
+    assert "2 of the 3" in entry["complete_reason"]["text"]
     assert files.entry("short", "v1")["complete"] is False
 
 
@@ -272,7 +276,8 @@ def test_a_refused_page_lowers_complete(files):
     entry = w.settle(complete=True)
 
     assert entry["complete"] is False
-    assert "refused 1 page" in entry["complete_reason"]
+    assert entry["complete_reason"]["code"] == "rejected-by-store"
+    assert "refused 1 page" in entry["complete_reason"]["text"]
 
 
 @pytest.mark.parametrize("claimed", [False, None])

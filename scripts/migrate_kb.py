@@ -58,7 +58,9 @@ def main() -> int:
             saved = dest.save(
                 meta["technology"], meta["version"], meta["source"],
                 meta.get("strategy", "migrated"), pages,
-                complete=meta.get("complete", True),
+                # As stored, never upgraded to `True`: contract v1 lowers a
+                # `True` that nothing counted, so the count goes with it.
+                complete=meta.get("complete"), expected=meta.get("expected"),
             )
             print(f"  {label}: {saved['pages']} pages, {saved['characters']:,} chars")
 

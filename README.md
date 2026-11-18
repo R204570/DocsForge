@@ -799,6 +799,31 @@ again.
 
 To read what is stored, open [DocsStore](#docsstore) at `/library`.
 
+### What a stored harvest says about itself
+
+Every stored harvest is a **contract-v1 revision**, specified in
+[`System Files/Contract.md`](System%20Files/Contract.md). Its frontmatter
+records:
+
+- `harvest_id`, a unique id for that one revision;
+- when it was harvested;
+- how many pages the site said exist, and how many were stored;
+- whether it is `complete` (`true`, `false` or `null`), and why not when it
+  isn't.
+
+Every page carries when it was captured, its byte length and its SHA-256, so
+an importer can check each page is the one that was stored. Export one from
+either backend:
+
+```bash
+python -m docsforge --export effect@v3 -o effect-v3.md
+```
+
+The local web app serves the same file at
+`/api/library/{tech}/{version}/export`. Files written before contract v1 still
+read. They export with `legacy` provenance, and
+`python -m docsforge --upgrade-store` rewrites them in place.
+
 ### Why the crawl is scoped
 
 Documentation shares a domain with marketing, blogs and changelogs. Crawling by

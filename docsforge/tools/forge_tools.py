@@ -149,6 +149,23 @@ def _coverage_note(complete: bool | None, expected=None, stored=None) -> str:
     return ""
 
 
+def _identity_line(entry: dict) -> str:
+    """One line saying which stored revision a response is about (contract v1).
+
+    First in the response, so truncation — which cuts from the end — never
+    removes it (Issues O2). `complete` is written as stored, and a missing one
+    as `null`, never `true` (O1).
+    """
+    def j(v):
+        return "null" if v is None else ("true" if v is True else
+                                         "false" if v is False else str(v))
+    return (f'<!-- docsforge: corpus="{entry.get("technology")}" '
+            f'version="{entry.get("version")}" '
+            f'harvest_id="{entry.get("harvest_id") or "none"}" '
+            f'complete={j(entry.get("complete"))} expected={j(entry.get("expected"))} '
+            f'stored={j(entry.get("stored_pages", entry.get("pages")))} -->\n')
+
+
 def _truncate(text: str, limit: int = MAX_CHARS) -> str:
     if len(text) <= limit:
         return text
@@ -467,6 +484,112 @@ def corpus_key(technology: str, corpus) -> str:
     return f"{_kb_slug(technology)}--{corpus.slug}"
 
 
+def _urls(items) -> list[str]:
+    """URLs from a stats list whose entries may read `url (why)`."""
+    return [str(x).split(" (", 1)[0] for x in (items or [])]
+
+
+def _contract_facts(stats: dict, strategy: str, *, url: str, opts, docs: list,
+                    label: str, version: str | None = None, release_hint: str = "",
+                    confirmed: bool = False, whole=None, role: str = "entry") -> dict:
+    """What a harvest knows that its writer does not, for the revision's
+    contract-v1 frontmatter (`kb_store._settle_meta`).
+
+    All of it read from `stats` keys the engine already sets — nothing here
+    measures anything new, it only stops the measurements being thrown away:
+
+    * `count_basis` — how `expected_pages` was established, because it counts
+      different things per strategy (Issues M4).
+    * `version_basis` — whether the label was declared, found in the path,
+      asked for and confirmed, or merely asked for (M6).
+    * `scope` — what `complete` is measured against (M5).
+    * the pages reached and not stored, by kind, and why `complete` is not
+      `true` when it is not.
+    """
+    s = (strategy or "").lower()
+    if "listed" in stats:
+        index = str(stats.get("index") or "sitemap").lower()
+        base = "sitemap" if "sitemap" in index else "manifest"
+        basis = f"{base}+links" if stats.get("found_by_links") else base
+    elif "frontier_drained" in stats:
+        basis = "crawl-frontier"
+    elif "github" in s:
+        basis = "repository"
+    elif "openapi" in s or "swagger" in s:
+        basis = "api-spec"
+    elif any(k in s for k in ("llms-full", "llms-medium", "llms-small", "raw")):
+        basis = "dump-file"
+    elif stats.get("failed_urls") is not None and stats.get("expected") is not None:
+        basis = "manifest"
+    elif "sitemap" in s and stats.get("discovered") is not None:
+        basis = "sitemap"
+    else:
+        basis = "none"
+
+    declared = stats.get("declared_version") or ""
+    site = stats.get("current_release") or ""
+    if version:
+        version_basis = "requested-confirmed" if confirmed else "requested-unconfirmed"
+    elif declared and label == _kb_slug(declared):
+        version_basis = "site-declared"
+    elif site and label == _kb_slug(site):
+        version_basis = "site-path"
+    elif release_hint and label == _kb_slug(release_hint):
+        version_basis = "registry-current"
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", label or ""):
+        version_basis = "harvest-date"
+    elif label and label == _version_from_url(url):
+        version_basis = "site-path"
+    else:
+        version_basis = "undated"
+
+    widened = stats.get("widened") or {}
+    topic = stats.get("topic") or {}
+    scope = {
+        "mode": getattr(opts, "scope", None) or "section",
+        "start": url,
+        "widened_to": widened.get("to"),
+        "topic": (getattr(opts, "topic", "") or None),
+        "max_pages": getattr(opts, "max_pages", 0) or None,
+    }
+
+    text = str(stats.get("reason") or "")
+    if stats.get("truncated"):
+        code = "page-limit"
+        left = stats.get("remaining") or 0
+        text = text or (f"stopped at the {opts.max_pages}-page limit"
+                        + (f", {left}+ pages still queued" if left else ""))
+    elif stats.get("rate_limited"):
+        code = "rate-limited"
+    elif whole is False and stats.get("failed_urls"):
+        code = "listed-not-acquired"
+    elif whole is False and "llms.txt index" in text:
+        code = "index-without-dump"
+    elif whole is False and stats.get("unextractable"):
+        code = "unextractable"
+    elif whole is False:
+        code = "shortfall"
+    elif whole is None and "frontier_drained" in stats:
+        code = "crawl-uncounted"
+    elif whole is None:
+        code = "no-enumeration"
+    else:
+        code = ""
+    reason = {"code": code, "text": text or code.replace("-", " ")} if code else None
+
+    return {
+        "count_basis": basis,
+        "version_basis": version_basis,
+        "scope": scope,
+        "corpus_role": role,
+        "unextractable": _urls(stats.get("unextractable")),
+        "refused": _urls(stats.get("refused")),
+        "dead": _urls(stats.get("dead")),
+        "off_topic": int(topic.get("left") or 0),
+        "reason": reason,
+    }
+
+
 def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
     """Fetch one federated corpus, store it, and settle its own count.
 
@@ -510,8 +633,18 @@ def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
             raise ForgeError(f"harvested nothing from {corpus.url}")
 
         label = corpus_label(corpus, docs, stats.get("declared_version", ""))
+        facts = _contract_facts(stats, strategy, url=corpus.url, opts=opts, docs=docs,
+                                label=label, whole=whole, role="federated")
+        if corpus.shape == "page":
+            facts["count_basis"] = "spec-sections"
+        declared = stats.get("declared_version") or ""
+        facts["version_basis"] = (
+            "site-declared" if declared and label == _kb_slug(declared)
+            else "site-path" if corpus.version and label == _kb_slug(corpus.version)
+            else "undated")
+        facts["technology"] = _kb_slug(technology)
         entry = writer.settle(complete=whole, expected=expected,
-                              version=label, strategy=strategy)
+                              version=label, strategy=strategy, facts=facts)
         stored = len(writer.titles)
 
     # Invariant 8: this corpus settles its own count. Nothing here touches any
@@ -524,6 +657,8 @@ def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
     # pass a corpus whose stored record said nobody had counted it.
     corpus.complete = entry.get("complete")
     corpus.version = label
+    # What the planning decision points at (contract v1, §5.10).
+    corpus.harvest_id = entry.get("harvest_id")
     return entry["file"]
 
 
@@ -673,6 +808,8 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
         entry.settle(settled.get("stored_pages", settled.get("pages")) or 0,
                      settled.get("expected"))
         entry.complete = settled.get("complete")
+        entry.harvest_id = settled.get("harvest_id") or ""
+        entry.version = settled.get("version") or ""
     else:
         entry.settle(stats.get("fetched") or stats.get("discovered") or 0,
                      stats.get("discovered"))
@@ -720,6 +857,8 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
                           "unaffected. Nothing else was fetched."]
             if strict:
                 lines += ["", "`usable_for_planning: false` — selection unresolved."]
+                lines += _decision_block(name, chosen, sites.corpora, False,
+                                         f"selection unresolved: {chosen.reason}")
             return "\n".join(lines)
 
     if explicit or chosen.trigger == "":
@@ -747,6 +886,7 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
     if strict:
         ok, why = sel.usable_for_planning(chosen, sites.corpora)
         lines += ["", "", f"`usable_for_planning: {str(ok).lower()}` — {why}"]
+        lines += _decision_block(name, chosen, sites.corpora, ok, why)
 
     # Invariant 9's roll-up, recorded where the caller's headline can reach it.
     # `Federation.complete` was implemented and tested under PROPOSAL-II and
@@ -767,6 +907,37 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
         stats["reasoning"] = spent.record()
         lines += ["", "", spent.note()]
     return "\n".join(lines)
+
+
+def _decision_block(name: str, chosen, corpora: list, ok: bool, why: str) -> list[str]:
+    """The planning decision as a sidecar (contract v1, §5.10).
+
+    A decision is about an intent, several corpora and one moment, so it is
+    not stamped into any one revision; it points at the revisions it judged
+    by `harvest_id`, and every `complete` in it is the one the store
+    recorded, never a recount (Issues M2).
+    """
+    from docsforge.store.kb_store import CURRENT_RUN
+    from docsforge.store import contract
+
+    run = CURRENT_RUN.get()
+    judged = [{
+        "corpus": _kb_slug(name) if c.entry else corpus_key(name, c),
+        "version": c.version or None,
+        "harvest_id": c.harvest_id or None,
+        "kind": c.kind or None,
+        "complete": c.complete,
+    } for c in corpora if c.selected]
+    decision = {
+        "contract": contract.CONTRACT,
+        "decided_at": contract.utc(),
+        "run_id": run.run_id if run is not None else None,
+        "intent": getattr(chosen, "intent", None),
+        "usable_for_planning": bool(ok),
+        "reason": why,
+        "judged": judged,
+    }
+    return ["", "```json", json.dumps(decision, indent=2, ensure_ascii=False), "```"]
 
 
 class _StripSink:
@@ -1043,10 +1214,19 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
         # as "this is the whole thing", and must not be reported as one.
         whole = False if truncated else stats.get("whole")
         expected = stats.get("discovered")
+        facts = _contract_facts(stats, strategy, url=url, opts=opts, docs=docs,
+                                label=label, version=version, release_hint=release_hint,
+                                confirmed=bool(version) and (
+                                    bool(stats.get("release_confirmed"))
+                                    or bool(declared and versions.same_release(version, declared))),
+                                whole=whole)
+        if expected is None and facts["count_basis"] in ("repository", "api-spec", "dump-file"):
+            # One artifact that either arrived or did not: what arrived is the count.
+            expected = len(docs)
         with trace.stage("storing", message="writing pages to the knowledge base",
                          target=slug):
             entry = writer.settle(complete=whole, expected=expected,
-                                  version=label, strategy=strategy)
+                                  version=label, strategy=strategy, facts=facts)
 
     # The store is the last word on `complete`: it lowers `True` when it
     # refused pages or holds fewer than were counted, and the headline must
@@ -1054,7 +1234,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
     if entry.get("complete") is not whole:
         whole = entry.get("complete")
         if entry.get("complete_reason"):
-            stats["reason"] = entry["complete_reason"]
+            stats["reason"] = entry["complete_reason"]["text"]
 
     # Pages the store itself refused — too large to index, most often. They
     # were reached and extracted, so they are disclosed rather than lost.
@@ -1229,6 +1409,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
                "strategy": strategy, "complete": whole, "truncated": truncated,
                "seconds": round(time.time() - started, 1)})
     return (
+        _identity_line(entry) +
         f"Harvested **{slug}** {label} — {len(docs)} pages, "
         f"{entry['characters']:,} characters, "
         f"via {strategy}, in {time.time() - started:.0f}s.\n"
@@ -1441,6 +1622,12 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
         raise ForgeError(str(e)) from e
 
     label = entry.get("version", "")
+    identity = _identity_line(entry)
+    # On every read, full ones included — a full read used to carry no
+    # coverage warning at all (Issues O1). A missing `complete` is unknown,
+    # not complete: the default used to be `True`.
+    note = _coverage_note(entry.get("complete"), entry.get("expected"),
+                          entry.get("pages"))
     if how == "all":
         if len(body) > MAX_CHARS:
             from docsforge.core import passages as psg
@@ -1452,20 +1639,18 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
             header = (
                 f"<!-- {slug} {label} is {len(body):,} characters; showing the first "
                 f"{MAX_CHARS:,}. Omitted {len(body) - MAX_CHARS:,} characters ({omitted_count} sections including {omitted_desc}). "
-                f"Pass `section` to read specific pages/sections. -->\n\n"
+                f"Pass `section` to read specific pages/sections. -->\n"
             )
-            return _truncate(header + body)
-        return body
+            return _truncate(identity + header + note + "\n" + body)
+        return identity + (note + "\n" if note else "") + body
 
     header = (
         f"# {slug} {label}: {found} page{'s' if found != 1 else ''} "
         f"matching {section!r} (by {how})\n"
     )
-    note = _coverage_note(entry.get("complete", True), entry.get("expected"),
-                          entry.get("pages"))
     if note:
         header += note
-    return _truncate(header + "\n" + body)
+    return _truncate(identity + header + "\n" + body)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1608,6 +1793,7 @@ def _already_stored(filed: str, name: str, version: str | None,
                     result={"technology": known, "version": entry["version"],
                             "pages": entry["pages"]})
         return (
+            _identity_line(entry) +
             f"**{known}** {entry['version']} is already stored — "
             f"{entry['pages']} pages, harvested {entry['harvested']}.\n\n"
             f"Read it with `read_knowledge_base(name=\"{known}\", "
@@ -1998,10 +2184,13 @@ def _status_of(job: harvest_jobs.Job) -> str:
     if job.state == harvest_jobs.RUNNING:
         p = job.progress
         lines = [f"{head}: **running**, {p.line()}, {when} elapsed."]
-        if p.phase == "harvesting" and p.expected and job.elapsed > 0:
+        if p.phase == "harvesting" and p.expected:
             done = p.fraction() or 0.0
             lines.append(f"About {done:.0%} of the pages the site lists are in.")
-            rate = p.pages / job.elapsed
+            # Only the rate needs time to have passed. On Windows a status read
+            # in the clock tick the job started sees `elapsed == 0`, and gating
+            # the share on it too dropped the share from the answer.
+            rate = p.pages / job.elapsed if job.elapsed > 0 else 0
             if p.pages >= 5 and rate > 0:
                 left = (p.expected - p.pages) / rate
                 lines.append(f"At that rate, roughly {_elapsed_label(left)} more "

@@ -39,13 +39,16 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from docsforge.core import versions as versions_mod
+from docsforge.store import contract
 
 # A page written by a combined file looks like:
 #     ## {title}
 #
 #     Source: <url>
+#     <!-- docsforge:page n=… -->        (contract v1 only)
 _PAGE_BOUNDARY = re.compile(r"\n(?=## [^\n]*\n+Source: <)")
-_PAGE_HEAD = re.compile(r"^## (?P<title>[^\n]*)\n+Source: <(?P<url>[^>]*)>\s*", re.S)
+_PAGE_HEAD = re.compile(r"^## (?P<title>[^\n]*)\n+Source: <(?P<url>[^>]*)>\s*"
+                        r"(?:<!-- docsforge:page [^\n]*-->\s*)?", re.S)
 
 #: A path segment that looks like a documentation version: v3, 2.1, latest…
 _VERSION_SEGMENT = re.compile(r"^(v\d+(\.\d+)*|\d+\.\d+(\.\d+)*|latest|stable|next|canary)$", re.I)
@@ -82,7 +85,22 @@ def split_pages(body: str) -> tuple[str, list[str]]:
     stored, not what Postgres returns for the same page, and carried into
     Postgres by `migrate_kb`. One trailing separator is removed from each page
     but the last; a page whose own text ends in a rule keeps that rule.
+
+    A contract-v1 file is read by length instead (`contract.parse_revision`),
+    so a page whose body looks like a page boundary stays one page (Issues
+    B6); its pages come back in the same `## title / Source: / body` shape as
+    a contract-0 page, without the page line. One that does not parse as v1 —
+    edited by hand, say — falls back to the pattern below.
     """
+    if contract.is_v1(body):
+        try:
+            revision = contract.parse_revision(body)
+        except contract.ContractError:
+            revision = None
+        if revision is not None:
+            head = body.split("\n---\n\n## ", 1)[0]
+            return head, [f"## {p.title}\n\nSource: <{p.url}>\n\n{p.body}"
+                          for p in revision.pages]
     parts = _PAGE_BOUNDARY.split(body)
     if len(parts) > 1:
         blocks = parts[1:]
@@ -192,11 +210,13 @@ class RunContext:
     none, and a revision simply carries no `run_id`.
     """
 
-    __slots__ = ("run_id", "on_publish")
+    __slots__ = ("run_id", "on_publish", "job")
 
-    def __init__(self, run_id: str, on_publish=None):
+    def __init__(self, run_id: str, on_publish=None, job: str | None = None):
         self.run_id = run_id
         self.on_publish = on_publish
+        #: The short handle (`effect-1`), recorded in the frontmatter as `job`.
+        self.job = job
 
 
 CURRENT_RUN: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar(
@@ -232,23 +252,55 @@ def clean_page(title: str, url: str, body: str) -> tuple[str, str, str]:
     return title, url, body
 
 
-def settled_completeness(complete, expected, stored: int,
-                         rejected) -> tuple[bool | None, str]:
-    """`complete` as it may be stored, and why it was lowered if it was.
+def _settle_meta(writer, complete, expected, facts: dict | None,
+                 version: str) -> dict:
+    """The contract-v1 frontmatter for a revision being published.
 
-    A harvest decides `complete` from what it *acquired*. Only the writer knows
-    what was *stored*: a page the store refused, or a count that came up short,
-    makes `True` untrue. Only `True` is ever lowered — `False` and `None` are
-    already the weaker claims.
+    `facts` is what the harvest knows and the writer does not: how the count
+    was made, how the version was established, the scope, the pages reached
+    and not stored, and why `complete` is what it is. A caller that passes
+    none (a script, a test) gets `count_basis: "stated"` when it gave a count
+    and `"none"` when it did not — and `complete: true` only in the first
+    case, because nothing is `true` because nobody counted (§5.6).
     """
-    if complete is not True:
-        return complete, ""
-    if rejected:
-        return False, (f"the store refused {len(rejected)} page(s) the harvest "
-                       f"acquired, so {stored} are stored")
-    if expected is not None and stored < expected:
-        return False, f"stored {stored} of the {expected} pages counted"
-    return True, ""
+    facts = facts or {}
+    stored = len(writer.titles)
+    basis = facts.get("count_basis") or ("stated" if expected is not None else "none")
+    missing = contract.not_stored(
+        unextractable=facts.get("unextractable") or [],
+        refused_429=facts.get("refused") or [],
+        rejected_by_store=[url for url, _ in writer.rejected],
+        off_topic=facts.get("off_topic") or [],
+        dead_404=facts.get("dead") or [],
+    )
+    complete, reason = contract.judge(complete, facts.get("reason"), basis,
+                                      expected, stored, missing)
+    run = writer.run
+    return {
+        "docsforge_contract": contract.CONTRACT,
+        "harvest_id": writer.harvest_id,
+        "run_id": writer.run_id,
+        "job": getattr(run, "job", None) if run is not None else None,
+        "technology": facts.get("technology") or writer.tech.split("--")[0],
+        "corpus": writer.tech,
+        "corpus_role": facts.get("corpus_role")
+                       or ("federated" if "--" in writer.tech else "entry"),
+        "version": version,
+        "version_basis": facts.get("version_basis") or "unstated",
+        "source": writer.source,
+        "strategy": writer.strategy,
+        "store": writer.store.kind,
+        "scope": facts.get("scope"),
+        "started_at": contract.utc(writer.started),
+        "harvested_at": contract.utc(),
+        "complete": complete,
+        "complete_reason": reason,
+        "count_basis": basis,
+        "expected_pages": expected,
+        "stored_pages": stored,
+        "not_stored": missing,
+        "generator": contract.GENERATOR,
+    }
 
 
 def _replace(src: Path, dst: Path, attempts: int = 60) -> None:
@@ -473,6 +525,35 @@ class FileStore:
             except OSError:
                 continue
             head, blocks = split_pages(text)
+            if contract.is_v1(text):
+                # A contract-v1 file says everything the index held about it,
+                # `complete` included, so nothing is lost to the rebuild.
+                try:
+                    front = contract.parse_frontmatter(text)
+                except contract.ContractError:
+                    front = {}
+                if front.get("version"):
+                    when = front.get("harvested_at") or ""
+                    index[self._key(tech, front["version"])] = {
+                        "technology": tech, "version": front["version"],
+                        "source": front.get("source") or "",
+                        "strategy": front.get("strategy") or "",
+                        "pages": len(blocks), "characters": len(text), "file": str(path),
+                        "harvested": when.replace("T", " ")[:16] or time.strftime(
+                            "%Y-%m-%d %H:%M", time.localtime(mtime)),
+                        "saved": mtime,
+                        "complete": front.get("complete"),
+                        "expected": front.get("expected_pages"),
+                        "pinned": None,
+                        "harvest_id": front.get("harvest_id"),
+                        "run_id": front.get("run_id"),
+                        "complete_reason": front.get("complete_reason"),
+                        "count_basis": front.get("count_basis"),
+                        "contract": contract.CONTRACT,
+                        "titles": [parse_page(b)[0] for b in blocks][:2000],
+                        "recovered": True,
+                    }
+                    continue
             meta = self._HEADER.search(head)
             first = head.lstrip().split("\n", 1)[0]
             named = re.match(rf"# {re.escape(tech)} (.+) documentation\s*$", first)
@@ -600,7 +681,7 @@ class FileStore:
 
     def _finish(self, tech, version, source, strategy, path, text_len,
                 titles, complete, expected, pinned=None, harvest_id=None,
-                run_id=None) -> dict:
+                run_id=None, complete_reason=None, count_basis=None) -> dict:
         with self._index_lock():
             index = self._load(for_write=True)
             previous = index.get(self._key(tech, version)) or {}
@@ -619,6 +700,9 @@ class FileStore:
                 # from entries written before revisions had ids.
                 "harvest_id": harvest_id,
                 "run_id": run_id,
+                "complete_reason": complete_reason,
+                "count_basis": count_basis,
+                "contract": contract.CONTRACT if harvest_id else 0,
                 "titles": list(titles[:2000]),
             }
             self._save(index)
@@ -638,6 +722,94 @@ class FileStore:
                  "harvest_id": e.get("harvest_id"), "complete": e.get("complete"),
                  "stored_pages": e.get("pages"), "store": self.kind}
                 for e in sorted(rows, key=lambda e: e.get("saved") or 0.0)]
+
+    # -- contract v1 --------------------------------------------
+    def export(self, tech: str, version: str | None = None,
+               harvest_id: str | None = None) -> str:
+        """The stored revision as a contract-v1 document.
+
+        A v1 file *is* its export, byte for byte. A file written before
+        contract v1 is rendered as one, with `legacy` provenance
+        (`contract.legacy_meta`); the file itself is not changed.
+        """
+        entry = self.entry(tech, version)
+        if entry is None:
+            raise StoreError(f"no stored documentation for {tech!r}"
+                             + (f" version {version!r}" if version else ""))
+        path = Path(entry["file"])
+        if not path.exists():
+            raise StoreError(f"{tech} is in the index but its file is missing: {path}")
+        text = path.read_bytes().decode("utf-8")
+        rendered = text if contract.is_v1(text) else self._legacy_render(entry, text)
+        if harvest_id:
+            held = contract.parse_frontmatter(rendered).get("harvest_id")
+            if harvest_id != held:
+                raise StoreError(
+                    f"{tech} {entry['version']} is stored as revision {held}, not "
+                    f"{harvest_id}; earlier revisions are not kept")
+        return rendered
+
+    def _legacy_render(self, entry: dict, text: str) -> str:
+        _, blocks = split_pages(text)
+        pages = [parse_page(b) for b in blocks]
+        saved = entry.get("saved")
+        meta = contract.legacy_meta(
+            harvest_id="legacy-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12],
+            technology=entry["technology"], version=entry["version"],
+            source=entry.get("source") or "", strategy=entry.get("strategy") or "",
+            store=self.kind, complete=entry.get("complete"),
+            expected=entry.get("expected"), stored=len(pages),
+            harvested_at=contract.utc(saved) if saved else None)
+        return contract.render_revision(meta, [(t, u, b, None) for t, u, b in pages])
+
+    def upgrade(self) -> list[tuple[str, str, str]]:
+        """Rewrite every contract-0 file as contract v1 (`--upgrade-store`).
+
+        Each file becomes its own export: frontmatter with `legacy`
+        provenance, and a page line per page with its hash and `captured_at:
+        null`, since nobody recorded when it was fetched. A `complete: true`
+        with nothing counted becomes `null` in the file and the index alike
+        (decision D3). Idempotent — a v1 file is left alone — and the index is
+        copied to `index.json.bak` first.
+        """
+        with self._index_lock():
+            if self.index_path.exists():
+                shutil.copyfile(self.index_path, self.root / "index.json.bak")
+            entries = list(self._load(for_write=True).items())
+        done: list[tuple[str, str, str]] = []
+        for key, entry in entries:
+            tech, version = entry["technology"], entry["version"]
+            with self._version_lock(tech, version):
+                path = Path(entry["file"])
+                if not path.exists():
+                    done.append((tech, version, f"skipped: its file is missing ({path})"))
+                    continue
+                text = path.read_bytes().decode("utf-8")
+                if contract.is_v1(text):
+                    continue
+                rendered = self._legacy_render(entry, text)
+                tmp = path.with_name(f"{path.name}.upgrade.tmp")
+                try:
+                    with tmp.open("w", encoding="utf-8", newline="\n") as out:
+                        out.write(rendered)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    _replace(tmp, path)
+                except BaseException:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                front = contract.parse_frontmatter(rendered)
+                with self._index_lock():
+                    index = self._load(for_write=True)
+                    if key in index:
+                        index[key].update(
+                            harvest_id=front["harvest_id"], contract=contract.CONTRACT,
+                            complete=front["complete"],
+                            complete_reason=front["complete_reason"],
+                            count_basis=front["count_basis"], characters=len(rendered))
+                        self._save(index)
+                done.append((tech, version, f"upgraded, {front['stored_pages']} pages"))
+        return done
 
     def delete(self, tech: str, version: str | None = None) -> int:
         with self._index_lock():
@@ -901,6 +1073,7 @@ class _FileWriter:
         self.harvest_id = new_harvest_id()
         self.run = CURRENT_RUN.get()
         self.run_id = self.run.run_id if self.run else None
+        self.started = time.time()
         self.titles: list[str] = []
         self.urls: list[str] = []
         #: Pages the store itself refused. Empty for files, which refuse
@@ -924,11 +1097,16 @@ class _FileWriter:
         self.close()
         return False
 
-    def add(self, title: str, url: str, body: str) -> bool:
-        """Append one page, flushed before the next is fetched (Invariant 16)."""
+    def add(self, title: str, url: str, body: str, captured_at: str | None = None) -> bool:
+        """Append one page, flushed before the next is fetched (Invariant 16).
+
+        Written as a contract-v1 page block: its page line carries the number,
+        `captured_at` (now, unless the caller knows when it was fetched), the
+        byte length and the SHA-256 of exactly the body written.
+        """
         title, url, body = clean_page(title, url, body)
-        block = "\n" + "\n".join(
-            ["", "---", "", f"## {title}", "", f"Source: <{url}>", "", body])
+        block = contract.render_page(len(self.titles) + 1, title, url, body,
+                                     captured_at or contract.utc())
         self._handle.write(block)
         self._handle.flush()
         self.titles.append(title)
@@ -936,7 +1114,8 @@ class _FileWriter:
         self._chars += len(block)
         return True
 
-    def settle(self, complete, expected=None, version=None, strategy=None) -> dict:
+    def settle(self, complete, expected=None, version=None, strategy=None,
+               facts: dict | None = None) -> dict:
         """Assemble the finished file and publish it.
 
         `version` may differ from the label the writer opened with. A harvest's
@@ -945,9 +1124,10 @@ class _FileWriter:
         that is only knowable at the end. Renaming here is safe because nothing
         has been able to see this harvest until now.
 
-        `complete` is checked against what was stored (`settled_completeness`):
-        the result carries the value actually stored, and `complete_reason`
-        when it had to be lowered.
+        `complete` is judged against what was stored and how it was counted
+        (`contract.judge`, §5.6): the result carries the value actually stored
+        and its `complete_reason`, and the file carries both in its frontmatter
+        (`_settle_meta`, which also says what `facts` holds).
         """
         if version and version != self.version:
             self.version = version
@@ -959,17 +1139,9 @@ class _FileWriter:
             self._handle.close()
             self._handle = None
         expected = self.expected if expected is None else expected
-        complete, reason = settled_completeness(complete, expected, len(self.titles),
-                                                self.rejected)
-
-        header = [f"# {self.tech} {self.version} documentation", "",
-                  f"<!-- harvested: {len(self.titles)} pages | from: {self.source} | "
-                  f"via: {self.strategy} | {time.strftime('%Y-%m-%d %H:%M')} -->",
-                  "", "## Contents", ""]
-        for i, (title, url) in enumerate(zip(self.titles, self.urls), 1):
-            header.append(f"{i}. [{title}]({url})")
-        header.append("")
-        head = "\n".join(header)
+        meta = _settle_meta(self, complete, expected, facts, self.version)
+        complete, reason = meta["complete"], meta["complete_reason"]
+        head = contract.render_header(meta, self.titles, self.urls)
 
         # One publisher per version at a time, and the index updated inside the
         # same hold: otherwise two settles could leave one's file under the
@@ -987,7 +1159,6 @@ class _FileWriter:
                             if not chunk:
                                 break
                             out.write(chunk)
-                    out.write("\n")
                     out.flush()
                     os.fsync(out.fileno())
                 _replace(tmp, self.path)
@@ -996,13 +1167,14 @@ class _FileWriter:
                 raise
             entry = self.store._finish(
                 self.tech, self.version, self.source, self.strategy, self.path,
-                len(head) + self._chars + 1, self.titles, complete,
-                expected, self.pinned, self.harvest_id, self.run_id)
+                len(head) + self._chars, self.titles, complete,
+                expected, self.pinned, self.harvest_id, self.run_id,
+                complete_reason=reason, count_basis=meta["count_basis"])
         self._settled = True
         self.partial.unlink(missing_ok=True)
         result = dict(entry, stored_pages=len(self.titles),
                       complete_reason=reason, rejected=list(self.rejected),
-                      store=self.store.kind,
+                      store=self.store.kind, meta=meta,
                       # Set when a database is configured but was unreachable,
                       # so this went to files instead (B9): once the database
                       # is back, readers stop seeing it.
@@ -1255,8 +1427,23 @@ class PostgresStore:
             self._upgrade_v5(cx)
             self._upgrade_v6(cx)
             self._upgrade_v7(cx)
+            self._upgrade_v8(cx)
             cx.commit()
         self._ready = True
+
+    @staticmethod
+    def _upgrade_v8(cx) -> None:
+        """Contract v1: what a revision says about itself, and per-page hashes.
+
+        `meta` holds the revision's frontmatter exactly as the file store
+        writes it, so an export renders the same document from either store.
+        `captured_at` is kept as the ISO string the frontmatter uses, so it
+        renders back byte for byte. All null on rows written before this;
+        their export says `legacy` (`contract.legacy_meta`).
+        """
+        cx.execute("alter table doc_version add column if not exists meta jsonb")
+        cx.execute("alter table page add column if not exists captured_at text")
+        cx.execute("alter table page add column if not exists sha256 text")
 
     @staticmethod
     def _upgrade_v7(cx) -> None:
@@ -1541,6 +1728,35 @@ class PostgresStore:
                  "complete": r[3], "stored_pages": r[4], "store": self.kind}
                 for r in rows]
 
+    def export(self, tech: str, version: str | None = None,
+               harvest_id: str | None = None) -> str:
+        """The stored revision as a contract-v1 document — the same renderer,
+        and so the same document, as the file store's. A row written before
+        contract v1 is rendered with `legacy` provenance (`contract.legacy_meta`)."""
+        self.migrate()
+        with self._borrow() as cx:
+            vid = self._version_id(cx, tech, version)
+            row = cx.execute(
+                "select v.version, v.source, v.strategy, v.complete, v.expected, "
+                "       v.harvest_id, v.meta, v.harvested_at "
+                "  from doc_version v where v.id = %s", (vid,)).fetchone()
+            pages = cx.execute(
+                "select title, url, content, captured_at, sha256 from page "
+                " where version_id = %s order by ordinal", (vid,)).fetchall()
+        label, source, strategy, complete, expected, held, meta, when = row
+        if meta is None:
+            held = held or f"legacy-{vid}"
+            meta = contract.legacy_meta(
+                harvest_id=held, technology=tech, version=label, source=source,
+                strategy=strategy, store=self.kind, complete=complete,
+                expected=expected, stored=len(pages),
+                harvested_at=contract.utc(when.timestamp()) if when else None)
+        if harvest_id and harvest_id != (meta.get("harvest_id") or held):
+            raise StoreError(f"{tech} {label} is stored as revision "
+                             f"{meta.get('harvest_id') or held}, not {harvest_id}; "
+                             f"earlier revisions are not kept")
+        return contract.render_revision(meta, [tuple(p) for p in pages])
+
     def forget_harvest(self, job_id: str) -> None:
         self.migrate()
         with self._borrow() as cx:
@@ -1627,7 +1843,9 @@ class PostgresStore:
                 select v.version, v.source, v.strategy, v.complete,
                        to_char(v.harvested_at, 'YYYY-MM-DD HH24:MI'),
                        count(p.id), coalesce(sum(length(p.content)), 0),
-                       v.expected, extract(epoch from v.harvested_at), v.pinned
+                       v.expected, extract(epoch from v.harvested_at), v.pinned,
+                       v.harvest_id, v.run_id, v.meta -> 'complete_reason',
+                       v.meta ->> 'count_basis', v.meta is not null
                   from doc_version v
                   join technology t on t.id = v.technology_id
                   left join page p on p.version_id = v.id
@@ -1642,6 +1860,8 @@ class PostgresStore:
             "complete": r[3], "harvested": r[4], "pages": r[5], "characters": r[6],
             "expected": r[7], "saved": float(r[8] or 0), "pinned": r[9],
             "file": f"postgres://{self.location} ({tech} {r[0]})",
+            "harvest_id": r[10], "run_id": r[11], "complete_reason": r[12],
+            "count_basis": r[13], "contract": contract.CONTRACT if r[14] else 0,
         } for r in rows]
         # The default version first — `entry(tech, None)` takes the head of
         # this list, and "no version named" means "the current release", not
@@ -1918,6 +2138,7 @@ class _PgWriter:
         self._chars = 0
         self._n = 0
         self._beat = time.monotonic()
+        self.started = time.time()
 
         self.cx = store._connect()
         self.tech_id = self.cx.execute(
@@ -1963,14 +2184,19 @@ class _PgWriter:
                     "Postgres's 1 MB tsvector ceiling)")
         return text
 
-    def add(self, title: str, url: str, body: str) -> bool:
-        """Store one page. Returns False if the store refused it."""
+    def add(self, title: str, url: str, body: str, captured_at: str | None = None) -> bool:
+        """Store one page. Returns False if the store refused it.
+
+        With the same `captured_at` and SHA-256 the file store writes in its
+        page line, so an export renders the page identically."""
         title, url, body = clean_page(title, url, body)
         try:
             page_id = self.cx.execute(
-                "insert into page (version_id, ordinal, title, url, content) "
-                "values (%s, %s, %s, %s, %s) returning id",
-                (self.version_id, self._n + 1, title, url, body)).fetchone()[0]
+                "insert into page (version_id, ordinal, title, url, content, "
+                "                  captured_at, sha256) "
+                "values (%s, %s, %s, %s, %s, %s, %s) returning id",
+                (self.version_id, self._n + 1, title, url, body,
+                 captured_at or contract.utc(), contract.sha256(body))).fetchone()[0]
             if len(body) > INDEX_CHARS:
                 self._index_tail(page_id, title, url, body)
             if time.monotonic() - self._beat >= self.HEARTBEAT_EVERY:
@@ -2016,7 +2242,8 @@ class _PgWriter:
                 "values (%s, %s, %s, %s)",
                 (page_id, i, chunk.heading_path or title, chunk.text))
 
-    def settle(self, complete, expected=None, version=None, strategy=None) -> dict:
+    def settle(self, complete, expected=None, version=None, strategy=None,
+               facts: dict | None = None) -> dict:
         """Publish this harvest, replacing the version it supersedes.
 
         `version` may differ from the label the writer opened with; see
@@ -2026,12 +2253,18 @@ class _PgWriter:
         One settle per version at a time (an advisory lock on technology and
         label), and only by a writer whose own row is still `harvesting`. A
         writer whose row is gone raises before deleting anything.
+
+        The contract-v1 frontmatter (`_settle_meta`) is kept in `meta`, so the
+        export renders the same document the file store would have written.
         """
         if expected is None:
             expected = self.expected
         label = version or self.version
-        complete, reason = settled_completeness(complete, expected, self._n,
-                                                self.rejected)
+        if strategy:
+            self.strategy = strategy
+        meta = _settle_meta(self, complete, expected, facts, label)
+        complete, reason = meta["complete"], meta["complete_reason"]
+        from psycopg.types.json import Jsonb
         try:
             self.cx.execute("select pg_advisory_xact_lock(%s::integer, hashtext(%s::text))",
                             (self.tech_id, label))
@@ -2049,7 +2282,6 @@ class _PgWriter:
                 self.cx.execute("update doc_version set version = %s where id = %s",
                                 (label, self.version_id))
             if strategy:
-                self.strategy = strategy
                 self.cx.execute("update doc_version set strategy = %s where id = %s",
                                 (strategy, self.version_id))
             previous = self.cx.execute(
@@ -2062,7 +2294,8 @@ class _PgWriter:
                 "and state = 'ready'", (self.tech_id, self.version))
             self.cx.execute(
                 "update doc_version set state = 'ready', complete = %s, expected = %s, "
-                "pinned = %s where id = %s", (complete, expected, pinned, self.version_id))
+                "pinned = %s, meta = %s where id = %s",
+                (complete, expected, pinned, Jsonb(meta), self.version_id))
             self.cx.commit()
         except BaseException:
             try:
@@ -2080,7 +2313,8 @@ class _PgWriter:
             "expected": expected, "pinned": pinned, "titles": self.titles[:2000],
             "rejected": list(self.rejected), "harvest_id": self.harvest_id,
             "run_id": self.run_id, "stored_pages": self._n, "complete_reason": reason,
-            "store": self.store.kind, "fallback": False,
+            "store": self.store.kind, "fallback": False, "meta": meta,
+            "count_basis": meta["count_basis"], "contract": contract.CONTRACT,
         }
         _report_published(self.run, result)
         return result
@@ -2178,13 +2412,28 @@ def sync_store(files: FileStore, db: PostgresStore) -> list[tuple[str, str, str]
         if not path.exists():
             done.append((tech, version, f"skipped: its file is missing ({path})"))
             continue
-        _, blocks = split_pages(path.read_text(encoding="utf-8"))
+        text = path.read_bytes().decode("utf-8")
+        revision = contract.parse_revision(text) if contract.is_v1(text) else None
+        if revision is not None:
+            pages = [(p.title, p.url, p.body, p.captured_at) for p in revision.pages]
+        else:
+            pages = [(*parse_page(b), None) for b in split_pages(text)[1]]
         with db.writer(tech, version, entry.get("source") or "",
                        entry.get("strategy") or "files", entry.get("expected"),
                        entry.get("pinned"), harvest_id=harvest_id,
                        run_id=entry.get("run_id")) as w:
-            for block in blocks:
-                w.add(*parse_page(block))
+            for title, url, body, captured in pages:
+                w.add(title, url, body, captured_at=captured)
             got = w.settle(complete=entry.get("complete"), expected=entry.get("expected"))
+        if revision is not None:
+            # The revision as it was published, not as this copy re-judged it:
+            # same ids, same times, same verdict. Only where it lives changed.
+            from psycopg.types.json import Jsonb
+            with db._borrow() as cx:
+                cx.execute("update doc_version set meta = %s, complete = %s "
+                           "where harvest_id = %s",
+                           (Jsonb(dict(revision.meta, store=db.kind)),
+                            revision.meta.get("complete"), harvest_id))
+                cx.commit()
         done.append((tech, version, f"copied, {got['stored_pages']} pages"))
     return done

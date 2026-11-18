@@ -843,10 +843,12 @@ an index of one. Measured: three technologies on disk, one in the index. Now
 a damaged index is kept as `index.json.damaged-<time>` and rebuilt from the
 Markdown headers, with `complete` unknown for every recovered entry.
 
-### B6 — a page body shaped like a page header splits the page · open (Phase 2)
+### B6 — a page body shaped like a page header split the page · fixed (Phase 2)
 
-`## X` followed by `Source: <url>` inside a page reads as two pages. Needs the
-length-delimited page line of contract v1; tracked by an `xfail` test.
+`## X` followed by `Source: <url>` inside a page read as two pages. A
+contract-v1 file is now read by length: each page line carries the body's
+byte count, and the parser reads exactly that many bytes. Files written before
+v1 still split by pattern until `--upgrade-store` rewrites them.
 
 ### B7 — a newline in a title merged the page into the one before · fixed (Phase 0)
 
@@ -897,6 +899,60 @@ run's record lists every revision as it is published, so a run that failed
 after storing names what it stored, and a stopped run is checked against the
 store by its `run_id`: "stopped after storing …" or "nothing from this run is
 in the store", no longer "may already be stored".
+
+---
+
+## What a revision says about itself (contract v1, Phase 2)
+
+The format is specified in `System Files/Contract.md`; tests in
+`tests/test_contract_v1.py`.
+
+### M4 — `expected_pages` counted different things per strategy · recorded (Phase 2)
+
+A manifest's count, a sitemap's, a crawl frontier's and a dump file's are not
+the same claim. They still are not, but each revision now says which it is
+(`count_basis`), and `complete: true` requires one that states a number
+independently of the harvest.
+
+### M5 — the scope `complete` was measured against was not recorded · fixed (Phase 2)
+
+`scope`: the mode, the start URL, where it widened to, the topic, the page
+limit.
+
+### M6 — whether the version label was confirmed was not recorded · fixed (Phase 2)
+
+`version_basis`, including `requested-unconfirmed` for a label that was asked
+for and that nothing in the harvest confirmed.
+
+### M7 — older records claim `complete: true` with nothing counted · fixed for exports (Phase 2)
+
+A writer can no longer store that (§5.6). A revision stored before contract v1
+exports it as `null`, `legacy-unverified`; `--upgrade-store` writes the same
+into the file. Postgres rows keep their stored value; only the export says
+`null`.
+
+### M9 — `harvested_at` meant different things in each store · fixed (Phase 2)
+
+The frontmatter's `harvested_at` is when the revision was published, in both
+stores, and `started_at` when its writer opened. The Postgres column still
+records when the row was opened; nothing in the contract reads it.
+
+### O1 — a full read carried no coverage warning · fixed (Phase 2)
+
+And a missing `complete` was read as `True`. Every read now carries the
+coverage note, and a missing value is unknown.
+
+### O2 — a truncated response did not say what it was cut from · fixed (Phase 2)
+
+Every harvest and read response starts with an identity line — corpus,
+version, `harvest_id`, `complete`, expected and stored — which truncation,
+cutting from the end, cannot remove.
+
+### O3 — there was no export for Postgres · fixed (Phase 2)
+
+`python -m docsforge --export NAME[@VERSION][#HARVEST_ID]` exports from either
+store through one renderer, and both give the same document; the local web
+app serves it at `/api/library/{tech}/{version}/export`.
 
 ---
 

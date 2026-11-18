@@ -5841,6 +5841,52 @@ def _forget(targets: list[str], assume_yes: bool = False) -> int:
     return 0
 
 
+def _export(target: str, out: str | None) -> int:
+    """`--export NAME[@VERSION][#HARVEST_ID]`: a stored harvest, as contract v1.
+
+    From whichever store is configured — so a hosted deployment's harvests
+    are exported by running this locally against the same DOCSFORGE_DB.
+    Written as UTF-8 with LF line endings, byte for byte what the store
+    renders, because every page's `sha256` is of exactly those bytes.
+    """
+    from pathlib import Path
+
+    from docsforge.store.kb_store import StoreError, build_store
+
+    rest, _, harvest_id = target.partition("#")
+    name, _, version = rest.partition("@")
+    store = build_store()
+    try:
+        text = store.export(name.strip(), version.strip() or None,
+                            harvest_id.strip() or None)
+    except StoreError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    data = text.encode("utf-8")
+    if out:
+        Path(out).write_bytes(data)
+        print(f"wrote {out} ({len(data):,} bytes) from {store.kind}", file=sys.stderr)
+    else:
+        sys.stdout.buffer.write(data)
+        sys.stdout.flush()
+    return 0
+
+
+def _upgrade_store() -> int:
+    """`--upgrade-store`: rewrite the local knowledge base as contract v1."""
+    from docsforge.store.kb_store import build_store
+
+    files = build_store(dsn="")
+    done = files.upgrade()
+    if not done:
+        print(f"Nothing to upgrade: every file in {files.location} is contract v1.")
+        return 0
+    for tech, version, what in done:
+        print(f"  {tech} {version} — {what}")
+    print(f"The previous index is kept as {files.root / 'index.json.bak'}.")
+    return 0
+
+
 def _sync_store() -> int:
     """`--sync-store`: copy fallback harvests from files into the database.
 
@@ -5892,7 +5938,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="copy into DOCSFORGE_DB the harvests that went to the "
                          "local file store while the database was unreachable, "
                          "and exit")
-    ap.add_argument("-o", "--out", default="./docs_md", help="output directory")
+    ap.add_argument("--export", metavar="NAME[@VERSION][#HARVEST_ID]",
+                    help="write a stored harvest as a contract-v1 document (to "
+                         "stdout, or to -o FILE) and exit")
+    ap.add_argument("--upgrade-store", action="store_true",
+                    help="rewrite every file in the local knowledge base as "
+                         "contract v1, and exit (idempotent)")
+    ap.add_argument("-o", "--out", default=None,
+                    help="output directory (default ./docs_md); with --export, "
+                         "the file to write")
     ap.add_argument("--crawl", action="store_true", help="follow same-host links")
     ap.add_argument("--max-pages", type=int, default=25, metavar="N",
                     help="page ceiling for a crawl; 0 means no limit")
@@ -5910,8 +5964,13 @@ def main(argv: list[str] | None = None) -> int:
         return _forget(args.forget, assume_yes=args.yes)
     if args.sync_store:
         return _sync_store()
+    if args.export:
+        return _export(args.export, args.out)
+    if args.upgrade_store:
+        return _upgrade_store()
     if not args.url:
         ap.error("a URL is required (or use --forget to remove a harvest)")
+    args.out = args.out or "./docs_md"
 
     opts = Options(
         crawl=args.crawl,

@@ -677,7 +677,8 @@ def start(label: str, work: Callable[[Progress], str],
         # the context of the one that started it: every writer the harvest
         # opens reads this to stamp its revision with the run, and reports
         # back through it when it publishes.
-        CURRENT_RUN.set(RunContext(job.run_id, lambda result: _note_published(job, result)))
+        CURRENT_RUN.set(RunContext(job.run_id, lambda result: _note_published(job, result),
+                                   job=job.id))
         try:
             job.result = work(job.progress)
             job.state = DONE
