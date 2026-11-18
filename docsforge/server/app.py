@@ -32,7 +32,7 @@ from typing import Iterator
 import nh3
 from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field
@@ -520,8 +520,12 @@ def library_pages(tech: str, version: str):
         entry = backend.entry(tech, version)
         if entry is None:
             return _store_error(StoreError(f"{tech} has no version {version!r}"))
+        # The revisions kept for this version, newest first — each one
+        # exportable by its harvest_id at `…/export?harvest_id=`.
+        history = backend.history(tech, version) if hasattr(backend, "history") else []
         return {"technology": tech, "version": version,
-                "meta": entry, "pages": backend.pages(tech, version)}
+                "meta": entry, "pages": backend.pages(tech, version),
+                "history": history}
     except StoreError as e:
         return _store_error(e)
 
@@ -544,6 +548,24 @@ def _without_repeated_title(content: str, title: str) -> str:
     if heading in (stored, _SITE_SUFFIX.sub("", stored)):
         return content[match.end():]
     return content
+
+
+@app.get("/api/library/{tech}/{version}/export")
+def library_export(tech: str, version: str, harvest_id: str = ""):
+    """One stored revision as a contract-v1 Markdown document, as a download.
+
+    The same bytes `python -m docsforge --export` writes: every page's
+    `sha256` is of exactly what is sent. Local only — the hosted deployment
+    serves the MCP endpoint, not this app.
+    """
+    try:
+        text = _store().export(tech, version, harvest_id or None)
+    except StoreError as e:
+        return _store_error(e)
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{tech}-{version}.md")
+    return Response(content=text.encode("utf-8"),
+                    media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @app.get("/api/library/{tech}/{version}/page/{ordinal}")

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/R204570/DocsForge/blob/main/docsforge/store/contract_v1.schema.json",
+  "title": "DocsForge contract v1 — revision frontmatter",
+  "description": "The YAML frontmatter at the top of a contract-v1 revision. Every value is written as JSON. See System Files/Contract.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "docsforge_contract", "harvest_id", "run_id", "job",
+    "technology", "corpus", "corpus_role", "version", "version_basis",
+    "source", "strategy", "store", "scope",
+    "started_at", "harvested_at",
+    "complete", "complete_reason", "count_basis",
+    "expected_pages", "stored_pages", "not_stored", "generator"
+  ],
+  "properties": {
+    "docsforge_contract": {"const": 1},
+    "harvest_id": {
+      "description": "One stored revision of one corpus, unique for good. 'legacy-…' for a revision stored before contract v1.",
+      "type": "string", "pattern": "^(hv-\\d{8}T\\d{6}Z-[0-9a-f]{8}|legacy-[0-9a-z]+)$"
+    },
+    "run_id": {
+      "description": "The tool call that published it; groups an entry corpus with its federated corpora. Null outside a tracked run.",
+      "type": ["string", "null"], "pattern": "^run-"
+    },
+    "job": {"description": "The short handle people quote (effect-1). Not unique.", "type": ["string", "null"]},
+    "technology": {"type": "string"},
+    "corpus": {"description": "The store key: the technology, or technology--corpus for a federated corpus.", "type": "string"},
+    "corpus_role": {"enum": ["entry", "federated"]},
+    "version": {"type": "string"},
+    "version_basis": {
+      "enum": ["site-path", "site-declared", "registry-current", "requested-confirmed",
+               "requested-unconfirmed", "harvest-date", "undated", "legacy", "unstated"]
+    },
+    "source": {"type": "string"},
+    "strategy": {"type": "string"},
+    "store": {"enum": ["files", "postgres"]},
+    "scope": {
+      "type": ["object", "null"],
+      "properties": {
+        "mode": {"type": "string"},
+        "start": {"type": "string"},
+        "widened_to": {"type": ["string", "null"]},
+        "topic": {"type": ["string", "null"]},
+        "max_pages": {"type": ["integer", "null"]}
+      }
+    },
+    "started_at": {"$ref": "#/$defs/utc"},
+    "harvested_at": {"$ref": "#/$defs/utc"},
+    "complete": {"type": ["boolean", "null"]},
+    "complete_reason": {
+      "type": ["object", "null"],
+      "required": ["code", "text"],
+      "properties": {
+        "code": {
+          "enum": ["page-limit", "rate-limited", "unextractable", "rejected-by-store",
+                   "listed-not-acquired", "index-without-dump", "shortfall", "related-corpora",
+                   "crawl-uncounted", "no-enumeration", "legacy-unverified",
+                   "related-corpora-unknown"]
+        },
+        "text": {"type": "string"}
+      }
+    },
+    "count_basis": {
+      "enum": ["manifest", "manifest+links", "sitemap", "sitemap+links", "dump-file",
+               "repository", "api-spec", "spec-sections", "stated",
+               "crawl-frontier", "none", "legacy"]
+    },
+    "expected_pages": {"type": ["integer", "null"], "minimum": 0},
+    "stored_pages": {"type": "integer", "minimum": 0},
+    "not_stored": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unextractable", "refused_429", "rejected_by_store", "off_topic", "dead_404"],
+      "properties": {
+        "unextractable": {"$ref": "#/$defs/kind"},
+        "refused_429": {"$ref": "#/$defs/kind"},
+        "rejected_by_store": {"$ref": "#/$defs/kind"},
+        "off_topic": {"$ref": "#/$defs/kind"},
+        "dead_404": {"$ref": "#/$defs/kind"}
+      }
+    },
+    "generator": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"complete": {"const": true}}},
+      "then": {"properties": {"complete_reason": {"type": "null"},
+                              "expected_pages": {"type": "integer"}}},
+      "else": {"properties": {"complete_reason": {"type": "object"}}}
+    }
+  ],
+  "$defs": {
+    "utc": {"type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
+    "kind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "urls"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "urls": {"type": "array", "items": {"type": "string"}, "maxItems": 100}
+      }
+    }
+  }
+}

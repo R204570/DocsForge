@@ -10,11 +10,14 @@ the MCP endpoint at `/mcp` behind the bearer token. Same routes as
   runs the SDK's stateless mode: every request carries everything and answers
   are plain JSON. No session lives in memory between calls.
 
-* **Ephemeral.** Nothing runs after the response is sent, so a harvest that
-  outlives `DOCSFORGE_HARVEST_DEADLINE` is lost rather than continued in the
-  background, and the result says exactly that (`harvest_jobs.EPHEMERAL`).
-  Large harvests are done from a long-lived DocsForge — `python main.py` on
-  any machine — pointed at the same database; they are readable here at once.
+* **Ephemeral.** Nothing is *guaranteed* to run after the response is sent.
+  A harvest that outlives `DOCSFORGE_HARVEST_DEADLINE` may go on running
+  while the instance lives — Fluid compute reuses instances, and one was
+  seen doing it — or be cut off at any moment, and the result says exactly
+  that (`harvest_jobs.EPHEMERAL`) rather than promising either. It is
+  published whole or not at all, and `harvest_status` says which. Large
+  harvests are done from a long-lived DocsForge — `python main.py` on any
+  machine — pointed at the same database; they are readable here at once.
 
 * **Only /tmp is writable, and only by this instance.** The caches DocsForge
   keeps on disk (harvest status, resolution cache, selection policy, logs)

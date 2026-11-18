@@ -259,7 +259,7 @@ takes `kind`. See **Serving a purpose** below.
 deleting a harvest is the one irreversible thing here, and a model that has just
 mis-resolved a name is not the caller you want holding that lever.
 
-Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (60k default) with an explicit truncation marker.
+Results handed to a model are capped at `DOCSFORGE_MAX_CHARS` (200,000 characters by default) with an explicit truncation marker.
 
 ## 3. Web chat
 
@@ -355,6 +355,8 @@ Everything is optional; see `.env.example` for the full list.
 | `GITHUB_TOKEN` | — | Raises the GitHub API rate limit. |
 | `DOCSFORGE_MAX_CHARS` | `200000` | Largest tool result returned to a model. Not a storage limit — files and the knowledge base keep every page whole. Raise it if your provider's context window allows; the cap exists because a result that overflows the window fails the turn rather than truncating. |
 | `DOCSFORGE_OUT_ROOT` | `./docs_md` | Directory `save_docs` may write into. |
+| `DOCSFORGE_KEEP_HARVESTS` | `3` | Earlier revisions kept for each version when it is harvested again. They can be exported by `harvest_id`, and are never read or searched. `0` keeps none. |
+| `DOCSFORGE_HARVEST_KEEP_DAYS` | `7` | How long the database keeps the record of a harvest that ended, so `harvest_status` can still answer for it by id. |
 | `DOCSFORGE_ALLOW_PRIVATE` | unset | Allow fetching private/loopback addresses. |
 | `DOCSFORGE_ALLOW_DELETE` | unset | Let the **model** delete stored documentation. Off by default — see below. |
 | `DOCSFORGE_REASONING` | `off` | Allow a bounded number of model calls at four decision points — see below. |
@@ -448,6 +450,22 @@ name is the last caller who should hold that lever — 703 pages of Effect are
 one confident hallucination away. Set `DOCSFORGE_ALLOW_DELETE=1` to add a
 `forget_documentation` tool to the surface. Note that you do not need it to
 re-harvest: harvesting the same name again replaces that version on its own.
+The revision it replaces is kept (`DOCSFORGE_KEEP_HARVESTS`, three by default)
+and can be exported by its `harvest_id`, but nothing reads or searches it.
+Forgetting a version forgets its earlier revisions too.
+
+### When the database was down during a harvest
+
+If `DOCSFORGE_DB` is set but unreachable, a harvest is written to the local
+file store instead, and its result says so. Once the database is back, readers
+use it again and that harvest is not among what they see. Copy it across:
+
+```bash
+python -m docsforge --sync-store
+```
+
+Each revision is copied under its own harvest id. One the database already
+holds, or holds a newer harvest of, is left alone, so running it twice is safe.
 
 ### Endpoints
 
@@ -785,6 +803,31 @@ back into Postgres, so a site that took ten minutes to crawl is not crawled
 again.
 
 To read what is stored, open [DocsStore](#docsstore) at `/library`.
+
+### What a stored harvest says about itself
+
+Every stored harvest is a **contract-v1 revision**, specified in
+[`System Files/Contract.md`](System%20Files/Contract.md). Its frontmatter
+records:
+
+- `harvest_id`, a unique id for that one revision;
+- when it was harvested;
+- how many pages the site said exist, and how many were stored;
+- whether it is `complete` (`true`, `false` or `null`), and why not when it
+  isn't.
+
+Every page carries when it was captured, its byte length and its SHA-256, so
+an importer can check each page is the one that was stored. Export one from
+either backend:
+
+```bash
+python -m docsforge --export effect@v3 -o effect-v3.md
+```
+
+The local web app serves the same file at
+`/api/library/{tech}/{version}/export`. Files written before contract v1 still
+read. They export with `legacy` provenance, and
+`python -m docsforge --upgrade-store` rewrites them in place.
 
 ### Why the crawl is scoped
 
@@ -1204,12 +1247,16 @@ What a serverless host changes, and the code says so rather than pretending:
 
 - **Stateless.** `/mcp` runs the SDK's stateless mode — every request carries
   everything, answers are plain JSON. Nothing lives between requests.
-- **Ephemeral.** Nothing runs after a response. A harvest that finishes
-  inside `DOCSFORGE_HARVEST_DEADLINE` is stored as usual; one that does not
-  is *discarded*, and the result says exactly that instead of "it continues
-  in the background". Nothing partial is ever published. **Large harvests are
-  done from a long-lived DocsForge** — `python main.py` on your machine with
-  the same `DOCSFORGE_DB` — and are readable through Vercel at once. Raise the
+- **Ephemeral.** Nothing is *guaranteed* to run after a response. A harvest
+  that finishes inside `DOCSFORGE_HARVEST_DEADLINE` is stored as usual. One
+  that does not may keep running while the instance lives, because Fluid
+  compute reuses instances. It may also be cut off at any moment, and the
+  result says exactly that instead of promising it will finish.
+  `harvest_status` reports it as running, done or stopped, from any instance.
+  Nothing partial is ever published: a revision is published whole or not at
+  all, so a harvest that does finish is stored. **Large harvests are done
+  from a long-lived DocsForge** — `python main.py` on your machine with the
+  same `DOCSFORGE_DB` — and are readable through Vercel at once. Raise the
   deadline (to below `maxDuration`, 300 s by default here) if your client
   waits that long on a tool call.
 - **Only `/tmp` is writable, per instance.** Caches (resolution cache, logs)

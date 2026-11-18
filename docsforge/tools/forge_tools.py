@@ -149,6 +149,23 @@ def _coverage_note(complete: bool | None, expected=None, stored=None) -> str:
     return ""
 
 
+def _identity_line(entry: dict) -> str:
+    """One line saying which stored revision a response is about (contract v1).
+
+    First in the response, so truncation — which cuts from the end — never
+    removes it (Issues O2). `complete` is written as stored, and a missing one
+    as `null`, never `true` (O1).
+    """
+    def j(v):
+        return "null" if v is None else ("true" if v is True else
+                                         "false" if v is False else str(v))
+    return (f'<!-- docsforge: corpus="{entry.get("technology")}" '
+            f'version="{entry.get("version")}" '
+            f'harvest_id="{entry.get("harvest_id") or "none"}" '
+            f'complete={j(entry.get("complete"))} expected={j(entry.get("expected"))} '
+            f'stored={j(entry.get("stored_pages", entry.get("pages")))} -->\n')
+
+
 def _truncate(text: str, limit: int = MAX_CHARS) -> str:
     if len(text) <= limit:
         return text
@@ -467,6 +484,112 @@ def corpus_key(technology: str, corpus) -> str:
     return f"{_kb_slug(technology)}--{corpus.slug}"
 
 
+def _urls(items) -> list[str]:
+    """URLs from a stats list whose entries may read `url (why)`."""
+    return [str(x).split(" (", 1)[0] for x in (items or [])]
+
+
+def _contract_facts(stats: dict, strategy: str, *, url: str, opts, docs: list,
+                    label: str, version: str | None = None, release_hint: str = "",
+                    confirmed: bool = False, whole=None, role: str = "entry") -> dict:
+    """What a harvest knows that its writer does not, for the revision's
+    contract-v1 frontmatter (`kb_store._settle_meta`).
+
+    All of it read from `stats` keys the engine already sets — nothing here
+    measures anything new, it only stops the measurements being thrown away:
+
+    * `count_basis` — how `expected_pages` was established, because it counts
+      different things per strategy (Issues M4).
+    * `version_basis` — whether the label was declared, found in the path,
+      asked for and confirmed, or merely asked for (M6).
+    * `scope` — what `complete` is measured against (M5).
+    * the pages reached and not stored, by kind, and why `complete` is not
+      `true` when it is not.
+    """
+    s = (strategy or "").lower()
+    if "listed" in stats:
+        index = str(stats.get("index") or "sitemap").lower()
+        base = "sitemap" if "sitemap" in index else "manifest"
+        basis = f"{base}+links" if stats.get("found_by_links") else base
+    elif "frontier_drained" in stats:
+        basis = "crawl-frontier"
+    elif "github" in s:
+        basis = "repository"
+    elif "openapi" in s or "swagger" in s:
+        basis = "api-spec"
+    elif any(k in s for k in ("llms-full", "llms-medium", "llms-small", "raw")):
+        basis = "dump-file"
+    elif stats.get("failed_urls") is not None and stats.get("expected") is not None:
+        basis = "manifest"
+    elif "sitemap" in s and stats.get("discovered") is not None:
+        basis = "sitemap"
+    else:
+        basis = "none"
+
+    declared = stats.get("declared_version") or ""
+    site = stats.get("current_release") or ""
+    if version:
+        version_basis = "requested-confirmed" if confirmed else "requested-unconfirmed"
+    elif declared and label == _kb_slug(declared):
+        version_basis = "site-declared"
+    elif site and label == _kb_slug(site):
+        version_basis = "site-path"
+    elif release_hint and label == _kb_slug(release_hint):
+        version_basis = "registry-current"
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", label or ""):
+        version_basis = "harvest-date"
+    elif label and label == _version_from_url(url):
+        version_basis = "site-path"
+    else:
+        version_basis = "undated"
+
+    widened = stats.get("widened") or {}
+    topic = stats.get("topic") or {}
+    scope = {
+        "mode": getattr(opts, "scope", None) or "section",
+        "start": url,
+        "widened_to": widened.get("to"),
+        "topic": (getattr(opts, "topic", "") or None),
+        "max_pages": getattr(opts, "max_pages", 0) or None,
+    }
+
+    text = str(stats.get("reason") or "")
+    if stats.get("truncated"):
+        code = "page-limit"
+        left = stats.get("remaining") or 0
+        text = text or (f"stopped at the {opts.max_pages}-page limit"
+                        + (f", {left}+ pages still queued" if left else ""))
+    elif stats.get("rate_limited"):
+        code = "rate-limited"
+    elif whole is False and stats.get("failed_urls"):
+        code = "listed-not-acquired"
+    elif whole is False and "llms.txt index" in text:
+        code = "index-without-dump"
+    elif whole is False and stats.get("unextractable"):
+        code = "unextractable"
+    elif whole is False:
+        code = "shortfall"
+    elif whole is None and "frontier_drained" in stats:
+        code = "crawl-uncounted"
+    elif whole is None:
+        code = "no-enumeration"
+    else:
+        code = ""
+    reason = {"code": code, "text": text or code.replace("-", " ")} if code else None
+
+    return {
+        "count_basis": basis,
+        "version_basis": version_basis,
+        "scope": scope,
+        "corpus_role": role,
+        "unextractable": _urls(stats.get("unextractable")),
+        "refused": _urls(stats.get("refused")),
+        "dead": _urls(stats.get("dead")),
+        "off_topic": int(topic.get("left") or 0),
+        "reason": reason,
+    }
+
+
 def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
     """Fetch one federated corpus, store it, and settle its own count.
 
@@ -510,8 +633,18 @@ def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
             raise ForgeError(f"harvested nothing from {corpus.url}")
 
         label = corpus_label(corpus, docs, stats.get("declared_version", ""))
+        facts = _contract_facts(stats, strategy, url=corpus.url, opts=opts, docs=docs,
+                                label=label, whole=whole, role="federated")
+        if corpus.shape == "page":
+            facts["count_basis"] = "spec-sections"
+        declared = stats.get("declared_version") or ""
+        facts["version_basis"] = (
+            "site-declared" if declared and label == _kb_slug(declared)
+            else "site-path" if corpus.version and label == _kb_slug(corpus.version)
+            else "undated")
+        facts["technology"] = _kb_slug(technology)
         entry = writer.settle(complete=whole, expected=expected,
-                              version=label, strategy=strategy)
+                              version=label, strategy=strategy, facts=facts)
         stored = len(writer.titles)
 
     # Invariant 8: this corpus settles its own count. Nothing here touches any
@@ -524,6 +657,8 @@ def _harvest_corpus(technology: str, corpus, max_pages: int, js: bool) -> str:
     # pass a corpus whose stored record said nobody had counted it.
     corpus.complete = entry.get("complete")
     corpus.version = label
+    # What the planning decision points at (contract v1, §5.10).
+    corpus.harvest_id = entry.get("harvest_id")
     return entry["file"]
 
 
@@ -673,6 +808,8 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
         entry.settle(settled.get("stored_pages", settled.get("pages")) or 0,
                      settled.get("expected"))
         entry.complete = settled.get("complete")
+        entry.harvest_id = settled.get("harvest_id") or ""
+        entry.version = settled.get("version") or ""
     else:
         entry.settle(stats.get("fetched") or stats.get("discovered") or 0,
                      stats.get("discovered"))
@@ -720,6 +857,8 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
                           "unaffected. Nothing else was fetched."]
             if strict:
                 lines += ["", "`usable_for_planning: false` — selection unresolved."]
+                lines += _decision_block(name, chosen, sites.corpora, False,
+                                         f"selection unresolved: {chosen.reason}")
             return "\n".join(lines)
 
     if explicit or chosen.trigger == "":
@@ -747,6 +886,7 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
     if strict:
         ok, why = sel.usable_for_planning(chosen, sites.corpora)
         lines += ["", "", f"`usable_for_planning: {str(ok).lower()}` — {why}"]
+        lines += _decision_block(name, chosen, sites.corpora, ok, why)
 
     # Invariant 9's roll-up, recorded where the caller's headline can reach it.
     # `Federation.complete` was implemented and tested under PROPOSAL-II and
@@ -767,6 +907,37 @@ def _federate(name: str, harvested_url: str, stats: dict, intent: str = "",
         stats["reasoning"] = spent.record()
         lines += ["", "", spent.note()]
     return "\n".join(lines)
+
+
+def _decision_block(name: str, chosen, corpora: list, ok: bool, why: str) -> list[str]:
+    """The planning decision as a sidecar (contract v1, §5.10).
+
+    A decision is about an intent, several corpora and one moment, so it is
+    not stamped into any one revision; it points at the revisions it judged
+    by `harvest_id`, and every `complete` in it is the one the store
+    recorded, never a recount (Issues M2).
+    """
+    from docsforge.store.kb_store import CURRENT_RUN
+    from docsforge.store import contract
+
+    run = CURRENT_RUN.get()
+    judged = [{
+        "corpus": _kb_slug(name) if c.entry else corpus_key(name, c),
+        "version": c.version or None,
+        "harvest_id": c.harvest_id or None,
+        "kind": c.kind or None,
+        "complete": c.complete,
+    } for c in corpora if c.selected]
+    decision = {
+        "contract": contract.CONTRACT,
+        "decided_at": contract.utc(),
+        "run_id": run.run_id if run is not None else None,
+        "intent": getattr(chosen, "intent", None),
+        "usable_for_planning": bool(ok),
+        "reason": why,
+        "judged": judged,
+    }
+    return ["", "```json", json.dumps(decision, indent=2, ensure_ascii=False), "```"]
 
 
 class _StripSink:
@@ -1043,10 +1214,19 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
         # as "this is the whole thing", and must not be reported as one.
         whole = False if truncated else stats.get("whole")
         expected = stats.get("discovered")
+        facts = _contract_facts(stats, strategy, url=url, opts=opts, docs=docs,
+                                label=label, version=version, release_hint=release_hint,
+                                confirmed=bool(version) and (
+                                    bool(stats.get("release_confirmed"))
+                                    or bool(declared and versions.same_release(version, declared))),
+                                whole=whole)
+        if expected is None and facts["count_basis"] in ("repository", "api-spec", "dump-file"):
+            # One artifact that either arrived or did not: what arrived is the count.
+            expected = len(docs)
         with trace.stage("storing", message="writing pages to the knowledge base",
                          target=slug):
             entry = writer.settle(complete=whole, expected=expected,
-                                  version=label, strategy=strategy)
+                                  version=label, strategy=strategy, facts=facts)
 
     # The store is the last word on `complete`: it lowers `True` when it
     # refused pages or holds fewer than were counted, and the headline must
@@ -1054,7 +1234,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
     if entry.get("complete") is not whole:
         whole = entry.get("complete")
         if entry.get("complete_reason"):
-            stats["reason"] = entry["complete_reason"]
+            stats["reason"] = entry["complete_reason"]["text"]
 
     # Pages the store itself refused — too large to index, most often. They
     # were reached and extracted, so they are disclosed rather than lost.
@@ -1191,7 +1371,7 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
             f"time(s) (HTTP 429 with Retry-After) and was waited for each time; "
             f"every page was fetched.")
 
-    warning += note + release_claim + inferred_release
+    warning += note + release_claim + inferred_release + _fallback_note(entry)
 
     # What shape is this corpus? A caller who asked for "the documentation" and
     # received 560 pages averaging 490 characters -- one API symbol each -- has
@@ -1229,13 +1409,34 @@ def _harvest_now(url: str, name: str | None = None, max_pages: int = 0,
                "strategy": strategy, "complete": whole, "truncated": truncated,
                "seconds": round(time.time() - started, 1)})
     return (
+        _identity_line(entry) +
         f"Harvested **{slug}** {label} — {len(docs)} pages, "
         f"{entry['characters']:,} characters, "
         f"via {strategy}, in {time.time() - started:.0f}s.\n"
-        f"Stored in {store().kind}: `{where}`.{warning}\n\n"
+        # Where the writer put it, not where `store()` points now: a database
+        # that came back mid-harvest switched `store()` while this went to files.
+        f"Stored in {entry.get('store') or store().kind}: `{where}`.{warning}\n\n"
         f"Read it back with `read_knowledge_base(name=\"{slug}\", version=\"{label}\")` "
         f"— do NOT re-harvest to answer questions about it.\n\n"
         f"Pages:\n{listing}{more}"
+    )
+
+
+def _fallback_note(entry: dict) -> str:
+    """What to say when a revision went to files because the database was down.
+
+    Readers follow the database the moment it is back, so this harvest —
+    stored, and reported done — stops being what anyone reads (Issues B9).
+    Said where it happened, with the one command that fixes it.
+    """
+    if not entry.get("fallback"):
+        return ""
+    return (
+        "\n\n**Stored in the local file store, not the database.** "
+        "DOCSFORGE_DB was unreachable when this harvest started, so it went to "
+        "files. Once the database is back, readers use it and will not see this "
+        "harvest: run `python -m docsforge --sync-store` then to copy it across "
+        "under the same harvest id."
     )
 
 
@@ -1421,6 +1622,12 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
         raise ForgeError(str(e)) from e
 
     label = entry.get("version", "")
+    identity = _identity_line(entry)
+    # On every read, full ones included — a full read used to carry no
+    # coverage warning at all (Issues O1). A missing `complete` is unknown,
+    # not complete: the default used to be `True`.
+    note = _coverage_note(entry.get("complete"), entry.get("expected"),
+                          entry.get("pages"))
     if how == "all":
         if len(body) > MAX_CHARS:
             from docsforge.core import passages as psg
@@ -1432,20 +1639,18 @@ def tool_read_knowledge_base(name: str, section: str | None = None,
             header = (
                 f"<!-- {slug} {label} is {len(body):,} characters; showing the first "
                 f"{MAX_CHARS:,}. Omitted {len(body) - MAX_CHARS:,} characters ({omitted_count} sections including {omitted_desc}). "
-                f"Pass `section` to read specific pages/sections. -->\n\n"
+                f"Pass `section` to read specific pages/sections. -->\n"
             )
-            return _truncate(header + body)
-        return body
+            return _truncate(identity + header + note + "\n" + body)
+        return identity + (note + "\n" if note else "") + body
 
     header = (
         f"# {slug} {label}: {found} page{'s' if found != 1 else ''} "
         f"matching {section!r} (by {how})\n"
     )
-    note = _coverage_note(entry.get("complete", True), entry.get("expected"),
-                          entry.get("pages"))
     if note:
         header += note
-    return _truncate(header + "\n" + body)
+    return _truncate(identity + header + "\n" + body)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1588,6 +1793,7 @@ def _already_stored(filed: str, name: str, version: str | None,
                     result={"technology": known, "version": entry["version"],
                             "pages": entry["pages"]})
         return (
+            _identity_line(entry) +
             f"**{known}** {entry['version']} is already stored — "
             f"{entry['pages']} pages, harvested {entry['harvested']}.\n\n"
             f"Read it with `read_knowledge_base(name=\"{known}\", "
@@ -1930,20 +2136,61 @@ def _elapsed_label(seconds: float) -> str:
     return f"{seconds:.0f}s" if seconds < 90 else f"{seconds / 60:.0f}m"
 
 
+def _revision_lines(revisions: list[dict]) -> str:
+    """The revisions a run stored, one line each, with their ids."""
+    out = []
+    for r in revisions:
+        c = r.get("complete")
+        cover = ("complete" if c is True else
+                 "INCOMPLETE" if c is False else "coverage unknown")
+        pages = r.get("stored_pages")
+        out.append(f"- **{r.get('technology')}** {r.get('version')} — "
+                   f"{pages if pages is not None else '?'} pages, {cover}; "
+                   f"revision `{r.get('harvest_id') or 'unknown'}`")
+    return "\n".join(out)
+
+
+def _stored_by(job: harvest_jobs.Job) -> tuple[list[dict], bool]:
+    """What a run stored, and whether the store itself was asked.
+
+    The record lists each revision as it is published, but a process can die
+    between publishing and writing that down — so the store is asked too, by
+    the run id every revision now carries. `False` when it could not be: a
+    record from before runs had ids, or a store that did not answer.
+    """
+    revisions = list(job.published)
+    if not job.run_id:
+        return revisions, False
+    try:
+        found = getattr(store(), "revisions_of_run", None)
+        found = found(job.run_id) if found is not None else None
+    except Exception:                                   # noqa: BLE001
+        found = None
+    if found is None:
+        return revisions, False
+    have = {r.get("harvest_id") for r in revisions}
+    revisions += [r for r in found if r.get("harvest_id") not in have]
+    return revisions, True
+
+
 def _status_of(job: harvest_jobs.Job) -> str:
     """One harvest, in full — what `harvest_status` says about it."""
     slug = _kb_slug(_normalise(job.label) or job.label)
     where = f" from {job.progress.url}" if job.progress.url else ""
     when = _elapsed_label(job.elapsed)
-    head = f"**{job.label}**{where} — harvest id `{job.id}`"
+    head = (f"**{job.label}**{where} — harvest id `{job.id}`"
+            + (f" (run `{job.run_id}`)" if job.run_id else ""))
 
     if job.state == harvest_jobs.RUNNING:
         p = job.progress
         lines = [f"{head}: **running**, {p.line()}, {when} elapsed."]
-        if p.phase == "harvesting" and p.expected and job.elapsed > 0:
+        if p.phase == "harvesting" and p.expected:
             done = p.fraction() or 0.0
             lines.append(f"About {done:.0%} of the pages the site lists are in.")
-            rate = p.pages / job.elapsed
+            # Only the rate needs time to have passed. On Windows a status read
+            # in the clock tick the job started sees `elapsed == 0`, and gating
+            # the share on it too dropped the share from the answer.
+            rate = p.pages / job.elapsed if job.elapsed > 0 else 0
             if p.pages >= 5 and rate > 0:
                 left = (p.expected - p.pages) / rate
                 lines.append(f"At that rate, roughly {_elapsed_label(left)} more "
@@ -1960,13 +2207,28 @@ def _status_of(job: harvest_jobs.Job) -> str:
 
     if job.state == harvest_jobs.DONE:
         body = job.result.strip()
+        stored = (f"\n\nStored by this run:\n{_revision_lines(job.published)}"
+                  if job.published else "")
+        fallback = next((_fallback_note(r) for r in job.published if r.get("fallback")), "")
         return (
             f"{head}: **done** in {when}. It is stored; read it with "
             f"`read_knowledge_base(name=\"{slug}\")`."
+            + stored + fallback
             + (f"\n\nWhat the harvest reported:\n\n{_truncate(body)}" if body else "")
         )
 
     if job.state == harvest_jobs.FAILED:
+        if job.published:
+            # Failed *after* publishing: the entry corpus is stored before
+            # related corpora are fetched, so "nothing was stored" was false.
+            return (
+                f"{head}: **failed** after {when}, after storing part of what it "
+                f"set out to.\n\n{job.error or 'No reason was recorded.'}"
+                f"\n\nStored before it failed, and readable now:\n"
+                f"{_revision_lines(job.published)}\n\nNothing after those was "
+                f"stored. Tell the user what was stored and what went wrong "
+                f"rather than trying the same call again."
+            )
         return (
             f"{head}: **failed** after {when}.\n\n{job.error or 'No reason was recorded.'}"
             f"\n\nNothing was stored. If that names candidates or asks for a "
@@ -1977,21 +2239,36 @@ def _status_of(job: harvest_jobs.Job) -> str:
     # STALLED: a record whose process stopped reporting. Documentation is only
     # ever published whole, so nothing partial exists — but the main corpus is
     # published *before* related corpora are fetched, so a process that died
-    # during that second stage left the main one stored. Say both.
+    # during that second stage left the main one stored. The run id says which.
+    stopped = (f"{head}: **stopped reporting** after {when}, last seen "
+               f"{job.progress.line()}. The process running it most likely exited")
+    revisions, asked = _stored_by(job)
+    if revisions:
+        return (
+            f"{stopped}, after it had stored:\n{_revision_lines(revisions)}\n\n"
+            f"Those are whole and readable now. Anything it had not yet "
+            f"published is not stored — documentation is only ever published "
+            f"whole — and has to be harvested again on a DocsForge that stays up."
+        )
+    if asked:
+        return (
+            f"{stopped}, and nothing from this run is in the store — "
+            f"documentation is only ever published whole, so a harvest cut off "
+            f"part-way leaves nothing behind. It has to be started again on a "
+            f"DocsForge that stays up."
+        )
     return (
-        f"{head}: **stopped reporting** after {when}, last seen {job.progress.line()}. "
-        f"The process running it most likely exited, and nothing partial was "
-        f"stored — but if it was cut off while fetching related corpora, the main "
-        f"documentation was already stored whole. `list_knowledge_base` shows "
-        f"whether it landed; if not, it has to be started again on a DocsForge "
-        f"that stays up."
+        f"{stopped}, and nothing partial was stored — but if it was cut off "
+        f"while fetching related corpora, the main documentation was already "
+        f"stored whole. `list_knowledge_base` shows whether it landed; if not, "
+        f"it has to be started again on a DocsForge that stays up."
     )
 
 
 def _matches(job: harvest_jobs.Job, wanted: str) -> bool:
     if not wanted:
         return True
-    if job.id == wanted:
+    if wanted in (job.id, job.run_id):
         return True
     slug = _kb_slug(_normalise(wanted) or wanted)
     return _kb_slug(_normalise(job.label) or job.label) == slug
@@ -2017,6 +2294,12 @@ def tool_harvest_status(harvest: str = "", wait: int = 0) -> str:
     jobs = [j for j in live_now + ended if _matches(j, wanted)]
 
     if wanted and not jobs:
+        # Not in the listing window, but an id names one run exactly, and the
+        # shared ledger keeps ended runs for days: a harvest that stored
+        # nothing is still answerable by id (Issues I3).
+        older = harvest_jobs.attempts(wanted)
+        if older:
+            return _status_of(older[0])
         known = stored_name(wanted)
         others = live_now
         note = ""

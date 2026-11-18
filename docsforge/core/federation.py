@@ -111,6 +111,9 @@ class Corpus:
     status: str = ""               # "", "not requested", "host not admitted"
     evidence: str = ""
     votes: float = 0.0
+    #: The stored revision this corpus became, once it is stored (contract v1):
+    #: what a planning decision points at.
+    harvest_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.host:

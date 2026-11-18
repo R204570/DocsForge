@@ -843,10 +843,12 @@ an index of one. Measured: three technologies on disk, one in the index. Now
 a damaged index is kept as `index.json.damaged-<time>` and rebuilt from the
 Markdown headers, with `complete` unknown for every recovered entry.
 
-### B6 — a page body shaped like a page header splits the page · open (Phase 2)
+### B6 — a page body shaped like a page header split the page · fixed (Phase 2)
 
-`## X` followed by `Source: <url>` inside a page reads as two pages. Needs the
-length-delimited page line of contract v1; tracked by an `xfail` test.
+`## X` followed by `Source: <url>` inside a page read as two pages. A
+contract-v1 file is now read by length: each page line carries the body's
+byte count, and the parser reads exactly that many bytes. Files written before
+v1 still split by pattern until `--upgrade-store` rewrites them.
 
 ### B7 — a newline in a title merged the page into the one before · fixed (Phase 0)
 
@@ -888,12 +890,145 @@ and for `usable_for_planning`. Both now read the value the store recorded.
 It was unselected, so the roll-up read complete beside a note saying it could
 not be harvested. It now stays selected and counts as incomplete.
 
-### I4 — an error after publishing reported "Nothing was stored" · fixed (Phase 0)
+### I4 — an error after publishing reported "Nothing was stored" · fixed (Phase 0, Phase 1)
 
 The entry corpus is published before related corpora are fetched, and an
 error in that second stage failed the whole job. It is now reported as what
-it is — the documentation stored, related corpora unknown — and a harvest that
-stopped reporting says the main documentation may already be stored.
+it is — the documentation stored, related corpora unknown. Since Phase 1 the
+run's record lists every revision as it is published, so a run that failed
+after storing names what it stored, and a stopped run is checked against the
+store by its `run_id`: "stopped after storing …" or "nothing from this run is
+in the store", no longer "may already be stored".
+
+---
+
+## What a revision says about itself (contract v1, Phase 2)
+
+The format is specified in `System Files/Contract.md`; tests in
+`tests/test_contract_v1.py`.
+
+### M4 — `expected_pages` counted different things per strategy · recorded (Phase 2)
+
+A manifest's count, a sitemap's, a crawl frontier's and a dump file's are not
+the same claim. They still are not, but each revision now says which it is
+(`count_basis`), and `complete: true` requires one that states a number
+independently of the harvest.
+
+### M5 — the scope `complete` was measured against was not recorded · fixed (Phase 2)
+
+`scope`: the mode, the start URL, where it widened to, the topic, the page
+limit.
+
+### M6 — whether the version label was confirmed was not recorded · fixed (Phase 2)
+
+`version_basis`, including `requested-unconfirmed` for a label that was asked
+for and that nothing in the harvest confirmed.
+
+### M7 — older records claim `complete: true` with nothing counted · fixed for exports (Phase 2)
+
+A writer can no longer store that (§5.6). A revision stored before contract v1
+exports it as `null`, `legacy-unverified`; `--upgrade-store` writes the same
+into the file. Postgres rows keep their stored value; only the export says
+`null`.
+
+### M9 — `harvested_at` meant different things in each store · fixed (Phase 2)
+
+The frontmatter's `harvested_at` is when the revision was published, in both
+stores, and `started_at` when its writer opened. The Postgres column still
+records when the row was opened; nothing in the contract reads it.
+
+### O1 — a full read carried no coverage warning · fixed (Phase 2)
+
+And a missing `complete` was read as `True`. Every read now carries the
+coverage note, and a missing value is unknown.
+
+### O2 — a truncated response did not say what it was cut from · fixed (Phase 2)
+
+Every harvest and read response starts with an identity line — corpus,
+version, `harvest_id`, `complete`, expected and stored — which truncation,
+cutting from the end, cannot remove.
+
+### R1 — a re-harvest deleted the revision it replaced · fixed (Phase 3)
+
+So a `harvest_id` recorded by an importer named nothing the moment the same
+version was harvested again — promise 3 of the contract. The replaced revision
+is now superseded rather than deleted: Postgres keeps the row in state
+`superseded`, which no reader selects; the file store hard-links the old file
+into `<version>.history/<harvest_id>.md` before replacing it. The newest
+`DOCSFORGE_KEEP_HARVESTS` (3) are kept and export by id; forgetting a version
+forgets them. Tests in `tests/test_history.py`, on both stores.
+
+### I5 — the docs said a hosted harvest past the deadline is discarded · corrected (Phase 4)
+
+The README ("is *discarded*"), `vercel.py` ("is lost") and H6 promised more
+than the code does: the thread can go on running on a reused instance and the
+harvest can finish and publish. All three now say what holds — nothing is
+guaranteed after the response, a revision is published whole or not at all,
+and `harvest_status` says which.
+
+### I6 — the duplicate-harvest guard keys on the label, the store on slug and version · accepted
+
+`_as_harvest` compares the label a caller passed; the store files by the slug
+and the version the harvest settles on. Since Phase 0 two writers of one
+version are safe whatever the guard decides, so it stays what it is: a
+courtesy that saves a second crawl, not a lock.
+
+### M8 — federated corpora can store the same pages more than once · open (T2)
+
+Counts in a revision are per corpus and say so; deduplicating across corpora
+is outside contract v1.
+
+### O4 — the README contradicted itself on the response cap · fixed (Phase 4)
+
+One passage said `DOCSFORGE_MAX_CHARS` defaults to 60k, the table and the code
+200,000. Both now say 200,000.
+
+### O3 — there was no export for Postgres · fixed (Phase 2)
+
+`python -m docsforge --export NAME[@VERSION][#HARVEST_ID]` exports from either
+store through one renderer, and both give the same document; the local web
+app serves it at `/api/library/{tech}/{version}/export`.
+
+---
+
+## Harvest identity (contract v1, Phase 1)
+
+Each was reproduced or traced against `633ae8e`; tests in
+`tests/test_harvest_identity.py`.
+
+### I1 — job ids are handed out again · fixed (Phase 1)
+
+`effect-1` is free again once its record is swept and the counter restarts,
+so it cannot name anything that outlives the record. Every tracked run now
+has a `run_id` (`run-<UTC second>-<8 hex>`) and every stored revision a
+`harvest_id` (`hv-…`), both unique for good. The revision carries both, in
+`index.json` and in `doc_version` (migration v7). The job id stays as the
+handle people quote, and `harvest_status` accepts a run id too.
+
+### I2 — two instances can mint the same job id at once · fixed (Phase 1)
+
+See H5. A new id is claimed in the ledger with `insert … on conflict do
+nothing`; the loser takes the next number.
+
+### I3 — a failed or stopped attempt was visible for 15 minutes · fixed (Phase 1)
+
+A harvest that stores nothing leaves no revision, so once its record was
+swept it looked like a harvest that never happened. The shared ledger now
+keeps ended records for `DOCSFORGE_HARVEST_KEEP_DAYS` (7), with the result
+text dropped after 15 minutes, and `harvest_status` finds them by job id or
+run id. Listings still show the last 15 minutes. Records on a machine's own
+disk are still swept after 15 minutes, so this needs a database.
+
+### B9 — a harvest made while the database was down disappeared when it came back · fixed (Phase 1)
+
+`store()` falls back to files while `DOCSFORGE_DB` is unreachable and
+switches back once it answers, so a harvest written during the outage — and
+reported done — was no longer what anyone read. The result and the status
+now say it went to the file store, and `python -m docsforge --sync-store`
+copies each such revision into the database under its own `harvest_id`,
+leaving alone any the database already has or has a newer harvest of. The
+headline also says where the writer stored it, not where `store()` points
+by the time it is written.
 
 ---
 
@@ -975,17 +1110,26 @@ a model asked, among other things, whether a new host documents the
 project. Bounded (12 calls per harvest, veto-only for most decisions), but
 the admission question runs against attacker-controlled text.
 
-### H5 — two processes can mint the same harvest id · open, low
+### H5 — two processes can mint the same harvest id · fixed with a database (Phase 1)
 
 `_new_id` scans the on-disk records and the ledger under a lock that is
 per-process. Two serverless invocations for the same name at the same
-instant can collide, and one status record overwrites the other.
+instant could collide, and one status record overwrote the other. Where the
+ledger is a database, the id is now claimed with an insert only one caller
+can win. Two processes on one machine with no database can still collide;
+the `run_id` each carries keeps their revisions apart regardless.
 
-### H6 — a hosted harvest past the deadline is lost · by design
+### H6 — a hosted harvest past the deadline is not guaranteed to finish · by design
 
-Vercel runs nothing after the response. `harvest_jobs.EPHEMERAL` makes the
-answer say so, and `harvest_status` discloses it on every call. Large
+Vercel guarantees nothing after the response. `harvest_jobs.EPHEMERAL` makes
+the answer say so, and `harvest_status` discloses it on every call. Large
 harvests are done offline against the same database.
+
+This used to say such a harvest "is lost", and the README that it "is
+discarded", which is stronger than the code: Fluid compute reuses instances,
+so the thread can go on running and the harvest can finish and publish — one
+was seen doing it (Issues I5, contract v1 Phase 4). What holds is that it is
+published whole or not at all, and that `harvest_status` says which.
 
 ---
 
