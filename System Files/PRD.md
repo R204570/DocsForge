@@ -64,7 +64,7 @@ project — because the model then stops checking.
 | N3 | **A read-only tool answers within 10 s hosted, 1 s offline.** | Offline: every store call under 1 s. Hosted: 4–15 s — the function runs in `iad1`, the database in Singapore (Issues H1). |
 | N4 | **A harvest is polite**: per-host delay and concurrency cap, `Retry-After` honoured, stop after three refusals. | Held (`test_rate_limit.py`); measured live on Read the Docs. |
 | N5 | **Nothing destructive by default.** Deletion opt-in; benchmarks write only offline. | Held. |
-| N6 | **Zero-key path works**: `pipx install docsforge`, files as the store, no model key needed for the MCP server. | Held. |
+| N6 | **Zero-key path works**: `pipx install git+https://github.com/R204570/DocsForge` (the PyPI name `docsforge` is another project), files as the store, no model key needed for the MCP server. | Held. |
 | N7 | **Every defect found live becomes a test that names the real case.** | 1,260 tests; the 2026-09 fixes each carry one, the field-test ones in `tests/test_realworld.py` and the held-out ones in `tests/test_resolver_heldout.py`. |
 
 ## 4. What it must not do

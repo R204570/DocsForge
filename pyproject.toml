@@ -1,11 +1,14 @@
 # Packaging for DocsForge.
 #
 # Until this file existed there was no way to install DocsForge except to clone
-# it, which made `pipx install docsforge` impossible rather than merely
-# unimplemented. Both commands below are the product surface:
+# it. Both commands below are the product surface:
 #
-#   pipx install docsforge                     # docsforge + docsforge-mcp
-#   uvx --from docsforge docsforge-mcp         # MCP server, no install
+#   pipx install git+https://github.com/R204570/DocsForge                 # docsforge + docsforge-mcp
+#   uvx --from git+https://github.com/R204570/DocsForge docsforge-mcp     # MCP server, no install
+#
+# Not `pipx install docsforge`: that name on PyPI belongs to an unrelated
+# project (a MkDocs replacement), so publishing there needs another
+# distribution name — `docsforge-mcp` was free on 2026-11-27.
 #
 # Dependency policy: the four packages whose float has actually broken a build
 # carry upper bounds here. requirements.txt pins them exactly for CI and

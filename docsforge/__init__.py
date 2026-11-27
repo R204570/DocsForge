@@ -29,6 +29,19 @@ __version__ = "1.1.0"
 #: root anchors to this instead, so moving the modules moved none of the data.
 ROOT = Path(__file__).resolve().parent.parent
 
+#: Running from a clone (or an editable install of one): `main.py` sits
+#: beside the package. An installed copy — `pipx install` — has no such
+#: directory: ROOT is then `site-packages`, a store kept there is invisible
+#: and goes with the next `pipx reinstall`, and a relative `logs/` lands in
+#: whatever folder the MCP client launched it from. So an installed copy
+#: writes under `~/.docsforge/` instead, beside the caches already there.
+CHECKOUT = (ROOT / "main.py").is_file()
+
+
+def home() -> Path:
+    """Where an installed DocsForge keeps what it writes: `~/.docsforge`."""
+    return Path.home() / ".docsforge"
+
 #: The public site's one canonical address. Every page names it as its
 #: canonical URL, and robots.txt and sitemap.xml point search engines at it,
 #: so a self-hosted copy or a preview deployment never competes with it.

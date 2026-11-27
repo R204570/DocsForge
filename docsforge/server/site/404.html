@@ -59,6 +59,8 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* `hidden` must win over a component's own display, or a hidden row shows. */
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 html, body { overflow-x: clip; }
 body {
@@ -96,6 +98,8 @@ code, kbd, pre { font-family: var(--mono); }
 @media (min-width: 820px) { .nav .wide { display: inline; } }
 .nav .ext { display: inline-flex; align-items: center; gap: 4px; }
 .nav .ext svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.7; }
+/* On the smallest phones Tools, Setup and Connect are what fits; GitHub stays in the footer. */
+@media (max-width: 420px) { .nav .ext { display: none; } }
 .chip { display: none; font-family: var(--mono); font-size: 11px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-2); background: var(--surface); }
 @media (min-width: 640px) { .chip { display: inline-block; } }
 
@@ -107,6 +111,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .lead { color: var(--text-2); font-size: clamp(17px, 1.7vw, 20px); line-height: 1.55; max-width: 62ch; text-wrap: pretty; }
 .prose { max-width: 66ch; color: var(--text-2); font-size: 16px; line-height: 1.65; text-wrap: pretty; }
 .prose strong { color: var(--text); font-weight: 600; }
+.prose code { font-size: 0.875em; color: var(--text); }
 
 /* ── buttons ──────────────────────────────────────────── */
 .btn {
@@ -191,6 +196,38 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .close .clients { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .close .clients span { font-family: var(--mono); font-size: 11.5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-2); }
 
+/* ── try the resolver ─────────────────────────────────── */
+/* The form reads as the call it makes: find_docs(name=…). It is the well a
+   snippet sits in, and its border lights as the token input's does. */
+.try .lead code { font-size: 0.85em; color: var(--text); }
+.tryform { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; max-width: 640px; padding: 8px 8px 8px 18px; background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); font-family: var(--mono); font-size: 14px; color: var(--text-2); transition: border-color 150ms var(--ease); }
+.tryform:focus-within { border-color: var(--accent); }
+.tryform .fn { color: var(--accent); }
+/* The input is as wide as the name in it, so the closing paren follows the
+   name; the button keeps the right-hand end. Without field-sizing it is the
+   browser's default width, and the paren simply sits a little further on. */
+.tryform input { flex: 0 1 auto; field-sizing: content; min-width: 8ch; max-width: 100%; background: transparent; border: 0; padding: 6px 0; font: inherit; color: var(--text); }
+.tryform .btn { margin-left: auto; }
+.tryform input:focus { outline: none; }
+.tryform input::placeholder { color: var(--text-3); }
+.tryform .btn:disabled { opacity: 0.55; cursor: progress; }
+.trypicks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text-3); }
+.trypicks > span { margin-right: 4px; }
+.tryout { margin-top: 22px; max-width: 860px; }
+.tryout .body { padding: 4px 20px 18px; }
+.tryout .wait { margin: 14px 0 0; font-family: var(--mono); font-size: 13px; color: var(--text-2); }
+.cands { list-style: none; margin: 0; padding: 0; }
+.cand { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.cand .u { font-family: var(--mono); font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.cand a.u:hover { text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+.cand.dim .u { color: var(--text-2); }
+.cand .meta { margin-top: 4px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.cand.best .meta { color: var(--accent); }
+.cand.alt .meta b { color: var(--text); font-weight: 600; }
+.cand .ev { margin-top: 3px; font-size: 13px; line-height: 1.5; color: var(--text-3); overflow-wrap: anywhere; }
+.tryout .next { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: var(--text-2); text-wrap: pretty; }
+.tryout .next code { font-size: 13px; color: var(--accent); }
+
 /* ── diagrams ─────────────────────────────────────────── */
 .diagram text { fill: var(--text); }
 .diagram .nt { fill: var(--text); }
@@ -272,6 +309,32 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .codeblock pre { margin: 0; padding: 16px 18px; font-size: 13px; line-height: 1.7; overflow-x: auto; color: var(--text); }
 .codeblock.wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .codeblock pre .c { color: var(--text-3); }
+/* Copy, added by script to every code block: in the title bar when there is
+   one, else at the top right of the well. Quiet — a hairline, not a lavender
+   slab, since a page can carry a dozen — lit only for the moment it worked. */
+.codeblock { position: relative; }
+.codeblock .copy { flex: none; height: 24px; padding: 0 10px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); cursor: pointer; transition: color 150ms var(--ease), border-color 150ms var(--ease); }
+.codeblock .copy:hover { color: var(--text); border-color: var(--text-3); }
+.codeblock .copy.done { color: var(--accent); border-color: var(--accent-line); }
+.codeblock .bar .copy { margin: -4px -6px -4px 12px; }
+.codeblock > .copy { position: absolute; top: 15px; right: 12px; }
+.codeblock.has-copy > pre { padding-right: 96px; }
+
+/* setup */
+/* The page's contents: the steps as mono-numbered links, two columns when
+   there is room, on soft hairlines like any list of rows. */
+.toc { display: grid; gap: 0 40px; max-width: 768px; margin: -20px 0 0; border-top: 1px solid var(--line-soft); }
+@media (min-width: 640px) { .toc { grid-template-columns: 1fr 1fr; } }
+.toc a { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 14.5px; color: var(--text-2); transition: color 150ms var(--ease); }
+.toc a:hover { color: var(--text); }
+.toc a span { width: 1.5ch; font-family: var(--mono); font-size: 12.5px; color: var(--accent); line-height: 1.75; }
+.section > h2[id], .section[id] { scroll-margin-top: calc(var(--nav) + 16px); }
+.platforms { display: grid; gap: 12px; }
+@media (min-width: 900px) { .platforms { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 720px) { .platforms.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.section > .codeblock + .note, .section > .platforms + .note { margin-top: 12px; }
+.section .callout { margin-top: 22px; }
+.card .codeblock pre { font-size: 12.5px; }
 
 /* connect */
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -279,13 +342,15 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .tab:hover { color: var(--text); }
 .tab.is-active, .tab[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
 .tokenrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 18px 0; }
-.tokenrow label { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.tokenrow label, .tokenrow .label { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 .tokenrow input { flex: 1 1 auto; min-width: 0; background: var(--deep); border: 1px solid var(--line); border-radius: var(--r-s); padding: 9px 12px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .tokenrow input::placeholder { color: var(--text-3); }
 .tokenrow input:focus { outline: none; border-color: var(--accent); }
 .tokenrow .eye { flex: none; font-family: var(--mono); font-size: 12px; color: var(--text-2); background: transparent; border: 1px solid var(--line); border-radius: var(--r-s); padding: 9px 12px; cursor: pointer; }
 .tokenrow .eye:hover { color: var(--text); }
 .snippet { background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+/* run locally, the server and token rows are hidden and the snippet follows the tabs */
+#clients .snippet { margin-top: 18px; }
 .snippet .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); }
 .snippet .bar .t { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 .snippet .bar .k { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
@@ -309,6 +374,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 @media (max-width: 640px) { .kv > div { grid-template-columns: 1fr; gap: 2px; } }
 .kv code { color: var(--accent); font-size: 13px; }
 .kv span { color: var(--text-2); }
+.kv span code { color: var(--text); font-size: 12.5px; }
 
 /* ── reveals ──────────────────────────────────────────── */
 /* Content is visible by default. `.rv` becomes a reveal only once the
@@ -409,8 +475,8 @@ a.inline:hover { text-decoration-color: var(--accent); }
     <nav class="nav" aria-label="Site">
       <a href="/#how-it-works" class="wide">How it works</a>
       <a href="/tools">Tools</a>
+      <a href="/setup">Setup</a>
       <a href="/connect">Connect</a>
-      <a href="/connect#storage" class="wide">Storage</a>
       <a href="/contributors" class="wide">Contributors</a>
       <a href="https://github.com/R204570/DocsForge" class="ext" target="_blank" rel="noopener noreferrer">GitHub <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 8 L8 2 M3.5 2 H8 V6.5"/></svg></a>
     </nav>
@@ -503,6 +569,195 @@ a.inline:hover { text-decoration-color: var(--accent); }
       });
     }, { threshold: 0.4 });
     counters.forEach(function (el) { tick.observe(el); });
+  }
+
+  // ── a copy button on every code block ──
+  // What is copied is what to run: the `# …` notes beside a command are for
+  // reading (cmd.exe would choke on them), so they are left out, along with
+  // the padding that lines them up.
+  var copyText = function (value) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(value);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = value; ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+      if (ok) resolve(); else reject();
+    });
+  };
+  var runnable = function (pre) {
+    var clone = pre.cloneNode(true);
+    clone.querySelectorAll(".c").forEach(function (note) { note.remove(); });
+    return clone.textContent.split("\n").map(function (line) { return line.replace(/\s+$/, ""); })
+      .join("\n").replace(/^\n+|\n+$/g, "");
+  };
+  document.querySelectorAll(".codeblock").forEach(function (block) {
+    var pre = block.querySelector("pre");
+    if (!pre) return;
+    var bar = block.querySelector(".bar");
+    var first = runnable(pre).split("\n")[0];
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "copy";
+    button.textContent = "Copy";
+    button.setAttribute("aria-label", "Copy " + first);
+    var timer = null;
+    var flash = function (label, done) {
+      button.textContent = label;
+      button.classList.toggle("done", done);
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        button.textContent = "Copy";
+        button.classList.remove("done");
+      }, 1600);
+    };
+    button.addEventListener("click", function () {
+      copyText(runnable(pre)).then(function () { flash("Copied", true); }, function () {
+        // No clipboard here: select the text so Ctrl+C finishes the job.
+        var range = document.createRange();
+        range.selectNodeContents(pre);
+        var sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+        flash("Press Ctrl+C", false);
+      });
+    });
+    if (bar) bar.appendChild(button);
+    else { block.classList.add("has-copy"); block.appendChild(button); }
+  });
+
+  // ── the live resolver on the home page: find_docs, from this server ──
+  // Without script the form still works: it submits to /find-docs and the
+  // browser shows the answer as JSON.
+  var form = document.getElementById("try-form");
+  if (form && window.fetch) {
+    var input = document.getElementById("try-name");
+    var go = form.querySelector("button");
+    var out = document.getElementById("try-out");
+    var REGISTRY = { pypi: "PyPI", npm: "npm", crates: "crates.io" };
+    var busy = false;
+
+    var el = function (tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+    var shell = function (name) {
+      out.hidden = false;
+      out.textContent = "";
+      var box = el("div", "snippet"), bar = el("div", "bar"), kind = el("span", "k", "resolving");
+      bar.appendChild(el("span", "t", 'find_docs(name="' + name + '")'));
+      bar.appendChild(kind);
+      var body = el("div", "body");
+      box.appendChild(bar);
+      box.appendChild(body);
+      out.appendChild(box);
+      return { kind: kind, body: body };
+    };
+    var line = function (view, cls, text) {
+      view.body.textContent = "";
+      view.body.appendChild(el("p", cls, text));
+    };
+    var show = function (name, d, view) {
+      var rivals = d.candidates.filter(function (c) { return c.alternative; }).length;
+      view.kind.textContent = (d.ambiguous ? "ambiguous · " + rivals + " projects · " : "")
+        + (d.remembered ? "from memory · " : "live · ")
+        + d.seconds.toFixed(d.seconds < 1 ? 2 : 1) + " s";
+      if (!d.candidates.length) {
+        line(view, "next", d.note || "Nothing found for " + name + ".");
+        return;
+      }
+      view.body.textContent = "";
+      var list = el("ol", "cands");
+      d.candidates.forEach(function (c) {
+        var best = c.url === d.best;
+        var li = el("li", "cand" + (best ? " best" : "") + (c.alternative ? " alt" : "")
+          + (c.verified ? "" : " dim"));
+        if (/^https?:\/\//i.test(c.url)) {
+          var a = el("a", "u", c.url);
+          a.href = c.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer nofollow";
+          li.appendChild(a);
+        } else {
+          li.appendChild(el("span", "u", c.url));
+        }
+        var verdict = c.verified === true ? "verified" : c.verified === false ? "unverified" : "not checked";
+        var meta = el("div", "meta");
+        if (c.alternative) meta.appendChild(el("b", "", c.label));
+        meta.appendChild(document.createTextNode((c.alternative ? " · " : "") + (best ? "best · " : "")
+          + verdict + " · confidence " + c.confidence.toFixed(2)));
+        li.appendChild(meta);
+        if (c.evidence) li.appendChild(el("div", "ev", c.evidence));
+        if (c.reason) li.appendChild(el("div", "ev", c.reason));
+        list.appendChild(li);
+      });
+      view.body.appendChild(list);
+      var next = el("p", "next");
+      if (d.best) {
+        next.appendChild(document.createTextNode("Next, "));
+        next.appendChild(el("code", "", 'learn_technology(name="' + name + '")'));
+        next.appendChild(document.createTextNode(" harvests the best one and stores it."
+          + (d.release ? " " + (REGISTRY[d.ecosystem] || d.ecosystem) + "'s current release: " + d.release + "." : "")));
+      } else if (d.ambiguous) {
+        next.appendChild(document.createTextNode(rivals + " different projects are called " + name
+          + ", and nothing says which one is meant, so none was picked. Your assistant picks from context — or name one: "));
+        next.appendChild(el("code", "", "ecosystem="));
+        next.appendChild(document.createTextNode(" for a package, or the URL you mean to "));
+        next.appendChild(el("code", "", "harvest_docs"));
+        next.appendChild(document.createTextNode("."));
+      } else {
+        next.textContent = "Nothing verified, so DocsForge would ask for a URL rather than guess.";
+      }
+      view.body.appendChild(next);
+      // An ambiguous answer's note lists the same projects again; the rows say it.
+      if (d.note && !d.ambiguous) view.body.appendChild(el("p", "next", d.note));
+      // The answer is the moment someone wants the rest: say where it is.
+      var setup = el("p", "next");
+      var guide = el("a", "inline", "Set it up on your machine");
+      guide.href = "/setup";
+      setup.appendChild(guide);
+      setup.appendChild(document.createTextNode(" to harvest and read the docs from your own AI coding assistant."));
+      view.body.appendChild(setup);
+    };
+    var run = function (raw) {
+      var name = String(raw || "").replace(/\s+/g, " ").trim();
+      if (!name || busy) return;
+      busy = true;
+      go.disabled = true;
+      input.value = name;
+      var view = shell(name), t0 = Date.now();
+      var wait = function () {
+        line(view, "wait", "Asking npm, PyPI and crates.io, then reading the pages they name … "
+          + Math.round((Date.now() - t0) / 1000) + " s");
+      };
+      wait();
+      var clock = setInterval(wait, 1000);
+      var ctl = window.AbortController ? new AbortController() : null;
+      var stop = setTimeout(function () { if (ctl) ctl.abort(); }, 90000);
+      fetch("/find-docs?name=" + encodeURIComponent(name),
+            { headers: { Accept: "application/json" }, signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          clearInterval(clock);
+          if (res.ok) { show(name, res.d, view); return; }
+          view.kind.textContent = "not answered";
+          line(view, "next", res.d.message || "The lookup failed.");
+        })
+        .catch(function () {
+          clearInterval(clock);
+          view.kind.textContent = "not answered";
+          line(view, "next", "No answer from the server. Try again in a moment.");
+        })
+        .then(function () { clearTimeout(stop); busy = false; go.disabled = false; });
+    };
+    form.addEventListener("submit", function (e) { e.preventDefault(); run(input.value); });
+    document.querySelectorAll("#try-picks [data-name]").forEach(function (b) {
+      b.addEventListener("click", function () { run(b.getAttribute("data-name")); });
+    });
   }
 })();
 

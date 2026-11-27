@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /mcp
+Disallow: /find-docs
 Disallow: /oauth/
 Disallow: /authorize
 Disallow: /token

@@ -92,6 +92,13 @@ DECIDERS = (
     "_follow_client_redirect",  # where a refresh stub leads
     "_sibling_docs",        # which sibling hosts a docs hub sends readers to
     "_docs_host_candidate", # whether one of them is the documentation host
+    "from_wikidata",        # which page Wikidata says a name's thing lives at
+    "rival_projects",       # when several projects share a name and none wins
+    "project_groups",       # which verified pages are one project
+    "_project_marks",       # what identifies the project behind a URL
+    "_nominated_by",        # which source put a project forward
+    "_standing",            # what a page claims on the name itself
+    "_with_wikidata",       # when Wikidata's page replaces the registries' answer
 )
 
 
@@ -168,8 +175,14 @@ def fingerprint() -> str:
 #: finding, and language editions read from manifests, hubs and compound
 #: segments -- see `resolver.RULES`. Not released between the two days, so
 #: one number.
-FINGERPRINT = "6ece429bba93d2bb"
-EXPECTED_RULES = 9
+#:
+#: RULES 10 (2026-11-28): several projects sharing a name are listed rather
+#: than one picked in silence, and Wikidata's official website is consulted
+#: when the registries offer only a README or nothing at all. `piet` was an
+#: npm package at 0.0.11 under 9; under 10 it is the language, the Rust crate
+#: and that package, none chosen.
+FINGERPRINT = "619dd9aa98314152"
+EXPECTED_RULES = 10
 
 
 def test_rules_is_bumped_when_the_decision_logic_changes():

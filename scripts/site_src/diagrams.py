@@ -17,8 +17,16 @@ Classes and the custom property `--d` (delay) are the whole contract:
     .wire-lit the route that fired, in lavender once drawn
 
 Every figure the diagrams show is a recorded run: the pydantic resolution
-and its 85 pages, effect's 703 pages and 0.11 s, the 36/813 progress line —
-all from the README and the evaluation log, none invented.
+and its 93 pages, effect's 703 pages and 0.11 s, the 36/813 progress line —
+all from the README, the evaluation log and recorded runs, none invented.
+
+The pydantic run is `learn_technology(name="pydantic")` with no version,
+recorded 2026-11-27 (harvest hv-20261127T072827Z-3557e229): resolved through
+PyPI's Documentation link to pydantic.dev/docs/validation/latest/, which
+names the package 80 times; 93 of 93 pages from its llms-full.txt; stored
+complete as pydantic `latest`, the current docs, since none older was asked
+for. It replaced a run that had been pinned to 1.10 and was drawn without
+its `version` argument, which read as the tool picking an old release.
 """
 
 from __future__ import annotations
@@ -70,13 +78,18 @@ def _svg(w, h, cls, label, body):
 
 
 # ── the hero: a name goes in; verified, measured documentation comes out ──
-HERO_LABEL = ("learn_technology resolves pydantic through PyPI, verifies docs.pydantic.dev "
-              "names it 214 times, harvests 85 pages and stores them complete as pydantic 1.10")
+HERO_LABEL = ("learn_technology, given only the name pydantic, resolves it through PyPI, "
+              "verifies that pydantic.dev names it 80 times, harvests all 93 pages of its "
+              "llms-full.txt and stores them complete as pydantic latest, the current docs")
+SITE_HOST = "pydantic.dev/docs/validation"
+NAMED = "names 'pydantic' 80 times"
+STORED = "pydantic latest"
+DONE = "complete — every page llms-full.txt holds"
 
 
 def hero() -> str:
     # wide: the call, the registries as a tree beneath it, the verified site beside
-    # the one that answered, and the 85 pages spanning the whole stage
+    # the one that answered, and the 93 pages spanning the whole stage
     s = []
     s.append('<g class="d-in" style="--d:0ms"><rect x="8" y="14" width="282" height="40" rx="10" class="nd nd-call"/>'
              f'<text x="22" y="39" {MONO} font-size="12.5" class="nt"><tspan class="hi">$</tspan> learn_technology(name="pydantic")</text></g>')
@@ -86,15 +99,18 @@ def hero() -> str:
     for name, y, dd in (("npm", 80, 500), ("PyPI", 124, 560), ("crates.io", 168, 620)):
         s.append(_node(46, y, 100, 36, name, d=dd, cls="d-hi" if name == "PyPI" else "", mono=True))
     s.append(_wire("M146 142 L 200 142", d=1100, lit=True))
-    s.append(_node(200, 106, 353, 72, "docs.pydantic.dev", sub="names 'pydantic' 214 times", d=1300, mono=True, sub_size=12))
+    s.append(_node(200, 106, 353, 72, SITE_HOST, sub=NAMED, d=1300, mono=True, sub_size=12))
     s.append(_tick(531, 126, 1900))
     s.append(_wire("M376 178 L 376 232", d=2000, lit=True))
     s.append(f'<text x="8" y="244" {MONO} font-size="11.5" class="ns d-in" style="--d:2050ms">harvesting</text>')
-    s.append(_grid(8, 254, 22, 4, 20, 5, d0=2100, step=12, count=85))
+    # 93 pages: 24 to a row across exactly the 545 the bar spans (eighths, so
+    # every coordinate prints as a short exact decimal)
+    s.append(_grid(8, 258, 24, 4, 18.875, 4, d0=2100, step=11, count=93))
     s.append('<rect x="8" y="364" width="545" height="4" rx="2" class="bar-track d-in" style="--d:3000ms"/>')
     s.append('<rect x="8" y="364" width="545" height="4" rx="2" class="bar-fill d-bar" style="--d:3100ms;--to:1"/>')
-    s.append(f'<text x="8" y="392" {MONO} font-size="12" class="nt d-in" style="--d:3500ms"><tspan class="hi">complete</tspan> — every page the sitemap lists</text>')
-    s.append(f'<text x="553" y="392" {MONO} font-size="12" text-anchor="end" class="ns d-in" style="--d:3600ms">stored as <tspan class="nt">pydantic 1.10</tspan></text>')
+    head, rest = DONE.split(" ", 1)
+    s.append(f'<text x="8" y="392" {MONO} font-size="12" class="nt d-in" style="--d:3500ms"><tspan class="hi">{head}</tspan> {rest}</text>')
+    s.append(f'<text x="553" y="392" {MONO} font-size="12" text-anchor="end" class="ns d-in" style="--d:3600ms">stored as <tspan class="nt">{STORED}</tspan></text>')
     wide = _svg(560, 404, "wide", HERO_LABEL, s)
 
     # narrow: the same run, top to bottom, drawn at a size a phone can read
@@ -105,15 +121,15 @@ def hero() -> str:
         n.append(_wire(f"M170 50 C 170 70, {x + w / 2} 70, {x + w / 2} 92", d=300 + i * 60, lit=(name == "PyPI")))
         n.append(_node(x, 92, w, 36, name, d=d, cls="d-hi" if name == "PyPI" else "", mono=True))
     n.append(_wire("M140 128 L 140 166", d=1100, lit=True))
-    n.append(_node(10, 166, 320, 60, "docs.pydantic.dev", sub="names 'pydantic' 214 times", d=1300, mono=True))
+    n.append(_node(10, 166, 320, 60, SITE_HOST, sub=NAMED, d=1300, mono=True))
     n.append(_tick(312, 184, 1900))
     n.append(_wire("M170 226 L 170 258", d=2000, lit=True))
     n.append(f'<text x="10" y="278" {MONO} font-size="11" class="ns d-in" style="--d:2050ms">harvesting</text>')
-    n.append(f'<text x="330" y="278" {MONO} font-size="11" text-anchor="end" class="ns d-in" style="--d:3500ms">stored as pydantic 1.10</text>')
-    n.append(_grid(10, 286, 17, 5, 16, 3, d0=2100, step=12))
+    n.append(f'<text x="330" y="278" {MONO} font-size="11" text-anchor="end" class="ns d-in" style="--d:3500ms">stored as {STORED}</text>')
+    n.append(_grid(10, 290, 19, 5, 14, 3, d0=2100, step=11, count=93))
     n.append('<rect x="10" y="392" width="320" height="4" rx="2" class="bar-track d-in" style="--d:3000ms"/>')
     n.append('<rect x="10" y="392" width="320" height="4" rx="2" class="bar-fill d-bar" style="--d:3100ms;--to:1"/>')
-    n.append(f'<text x="10" y="418" {MONO} font-size="11.5" class="nt d-in" style="--d:3500ms"><tspan class="hi">complete</tspan> — every page the sitemap lists</text>')
+    n.append(f'<text x="10" y="418" {MONO} font-size="11.5" class="nt d-in" style="--d:3500ms"><tspan class="hi">{head}</tspan> {rest}</text>')
     narrow = _svg(340, 430, "narrow", HERO_LABEL, n)
     return wide + narrow
 
@@ -134,7 +150,7 @@ def resolve() -> str:
 def verify() -> str:
     s = []
     s.append('<g class="d-in" style="--d:0ms"><rect x="18" y="16" width="230" height="198" rx="12" class="nd"/>')
-    s.append(f'<text x="34" y="42" {MONO} font-size="11" class="ns">docs.pydantic.dev</text></g>')
+    s.append(f'<text x="34" y="42" {MONO} font-size="11" class="ns">pydantic.dev</text></g>')
     lines = [(62, 150, [(70, 26)]), (78, 190, [(110, 26), (160, 26)]), (94, 170, []), (110, 200, [(52, 26)]),
              (126, 140, []), (142, 196, [(140, 26)]), (158, 176, [(34, 26)]), (174, 120, []), (190, 188, [(96, 26)])]
     for k, (y, wl, marks) in enumerate(lines):
@@ -143,11 +159,11 @@ def verify() -> str:
             # the mark is its own lit node: the selector is `.d-hi .mark`
             s.append(f'<g class="d-hi" style="--d:{700 + k * 90}ms"><rect x="{mx}" y="{y - 2}" width="{mw}" height="10" rx="3" class="mark"/></g>')
     s.append(f'<text x="270" y="86" {MONO} font-size="11" class="ns d-in" style="--d:1500ms">names it</text>')
-    s.append(f'<text x="270" y="122" {MONO} font-size="30" font-weight="600" class="nt hi d-in" style="--d:1600ms"><tspan class="count" data-to="214">214</tspan>×</text>')
+    s.append(f'<text x="270" y="122" {MONO} font-size="30" font-weight="600" class="nt hi d-in" style="--d:1600ms"><tspan class="count" data-to="80">80</tspan>×</text>')
     s.append(_tick(282, 156, 2000))
     s.append(f'<text x="298" y="160" {MONO} font-size="11.5" class="nt d-in" style="--d:2000ms">verified</text>')
     s.append(f'<text x="270" y="196" {MONO} font-size="10.5" class="ns d-in" style="--d:2100ms">one mention is noise</text>')
-    return _svg(420, 230, "", "A page is trusted only when it names the package repeatedly: docs.pydantic.dev names pydantic 214 times", s)
+    return _svg(420, 230, "", "A page is trusted only when it names the package repeatedly: pydantic.dev names pydantic 80 times", s)
 
 
 def harvest() -> str:
@@ -160,7 +176,7 @@ def harvest() -> str:
     s.append(_wire("M166 42 C 200 42, 200 66, 226 66", d=700, lit=True))
     s.append(_grid(226, 36, 8, 6, 12, 4, d0=900, step=18))
     s.append(_wire("M290 130 L 290 150", d=2000, lit=True))
-    s.append(_node(226, 150, 150, 44, "pydantic/1.10.md", sub="one file per version", d=2100, mono=True))
+    s.append(_node(226, 150, 150, 44, "pydantic/latest.md", sub="one file per version", d=2100, mono=True))
     return _svg(420, 230, "", "Best strategy first: llms-full.txt, then a docs-scoped sitemap, then a scoped crawl; every page lands as Markdown", s)
 
 

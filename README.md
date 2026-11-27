@@ -104,10 +104,22 @@ System Files/           Architecture, PRD, Design, Workflow, Issues, Audit
 ## Installation
 
 ```bash
-pipx install docsforge          # the `docsforge` CLI and `docsforge-mcp` server
+pipx install git+https://github.com/R204570/DocsForge    # the `docsforge` CLI and `docsforge-mcp` server
+uv tool install git+https://github.com/R204570/DocsForge  # the same, with uv
 ```
 
-Or from a clone, which is what you want if you intend to change anything:
+Install from GitHub as shown: the `docsforge` package on PyPI is an unrelated
+project, so `pipx install docsforge` gets you something else. Then add it to
+your client — `claude mcp add docsforge -- docsforge-mcp` for Claude Code; the
+[connect page](https://docsforge.vercel.app/connect) has a line for every
+other client. An installed copy keeps its knowledge base, logs and caches in
+`~/.docsforge/`.
+
+There is no public hosted DocsForge: the server behind the site is a private
+development deployment. Run it on your machine, or host your own (below).
+
+Or from a clone, which is what you want if you intend to change anything
+(a clone keeps its knowledge base in `knowledge_base/` beside `main.py`):
 
 ```bash
 git clone https://github.com/R204570/DocsForge.git
@@ -530,9 +542,11 @@ learn_technology(name="pydantic", version="1.10")
 ```
 
 It asks the package registries — npm, PyPI, crates.io, all keyless — where the
-library declares its documentation, probes the site for an `llms.txt` or a docs
-root, and then **confirms the page actually documents that package** before
-harvesting anything.
+library declares its documentation (and Wikidata, for languages and tools no
+registry carries), probes the site for an `llms.txt` or a docs root, and then
+**confirms the page actually documents that package** before harvesting
+anything. A name that several unrelated projects share is reported as such,
+with each of them, rather than answered with one picked in silence.
 
 ### How a name is resolved
 
@@ -545,6 +559,7 @@ so reaching further never means believing more:
 | **language** | When the name *is* a language or runtime — `go`, `python`, `rust`, `node` — its own manual (`go.dev/doc/`), verified like anything else. A language is not a package: asked for `go`, a registry offered a Rust crate. |
 | **domain** | `{name}.dev` / `.io` / `.org` / `.com`, and the docs root beneath whichever answers. |
 | **registries** | Exact-name lookup in npm, PyPI and crates.io. A winning GitHub repository gives way to the documentation site it declares as its homepage — or, failing that, to `docs.rs` / `pkg.go.dev`, or to the docs its README names. A package that is a language binding (`docker-py`, `redis-py`) never unseats the project's own site, and a package index's page (`pypi.org/project/…`) is never documentation. |
+| **Wikidata** | The official website Wikidata records for a language or piece of software of exactly that name — the one with the most Wikipedia articles, when several share it. Asked when the registries offer only a README or a package index's page, and first among the fallbacks when they have nothing: Piet (an esoteric language) lives at `dangermouse.net/esoteric/piet.html`, which no registry or domain probe could find. A keyless JSON API, never a search engine. Skipped when you name a registry. |
 | **name shapes** | For multi-word names: `opentelemetry.io`, `airflow.apache.org`, `tanstack.com/query`, `docs.spring.io/spring-boot`. |
 | **search** | npm and crates.io fuzzy search — only the registry you named, if you named one — then `DOCSFORGE_SEARCH` if you configure one. Never a search engine's HTML. |
 | **what the name usually means** | The most-starred GitHub repository named exactly that — when it is the search's top result — and the site it declares, verified like anything else. Above 2,000 stars it overrules a same-named package the ladder reached: `redis` is redis.io, not the Python client; `helm` is helm.sh, not a Rust crate. Skipped when you name a registry. |
@@ -578,6 +593,28 @@ not exist refuses promptly instead of wandering.
 forget_resolution(name="polars")   # resolved to the wrong site? start over
 forget_resolution()                # clear every remembered lookup
 ```
+
+### One name, several projects
+
+Verification proves a page documents *a* project with that name, not *the* one
+you meant — and some names are honestly several. `piet` is an esoteric
+programming language, a Rust 2D-graphics crate and an unrelated npm package, and
+all three verify. When the verified answers are different projects (told apart by
+repository, package and site) and none makes a stronger claim to the name itself —
+owning its domain, being its docs host — none is picked:
+
+```
+find_docs(name="piet")
+  -> 'piet' names 3 different projects, and nothing says which one is meant:
+     Piet, esoteric programming language, per Wikidata (https://dangermouse.net/esoteric/piet.html);
+     the npm package (https://github.com/silvandiepen/piet#readme);
+     the crates.io crate (https://github.com/linebender/piet). None was chosen.
+```
+
+`learn_technology` refuses the same way and harvests nothing. Name the registry —
+`learn_technology(name="piet", ecosystem="crates")` — or hand the URL you mean to
+`harvest_docs`. A project that does own the name still wins outright: `requests`
+is requests.readthedocs.io, not the Rust crate on docs.rs that shares the word.
 
 ### Verification is the point
 

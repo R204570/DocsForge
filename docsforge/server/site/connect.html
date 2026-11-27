@@ -78,6 +78,8 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* `hidden` must win over a component's own display, or a hidden row shows. */
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 html, body { overflow-x: clip; }
 body {
@@ -115,6 +117,8 @@ code, kbd, pre { font-family: var(--mono); }
 @media (min-width: 820px) { .nav .wide { display: inline; } }
 .nav .ext { display: inline-flex; align-items: center; gap: 4px; }
 .nav .ext svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.7; }
+/* On the smallest phones Tools, Setup and Connect are what fits; GitHub stays in the footer. */
+@media (max-width: 420px) { .nav .ext { display: none; } }
 .chip { display: none; font-family: var(--mono); font-size: 11px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-2); background: var(--surface); }
 @media (min-width: 640px) { .chip { display: inline-block; } }
 
@@ -126,6 +130,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .lead { color: var(--text-2); font-size: clamp(17px, 1.7vw, 20px); line-height: 1.55; max-width: 62ch; text-wrap: pretty; }
 .prose { max-width: 66ch; color: var(--text-2); font-size: 16px; line-height: 1.65; text-wrap: pretty; }
 .prose strong { color: var(--text); font-weight: 600; }
+.prose code { font-size: 0.875em; color: var(--text); }
 
 /* ── buttons ──────────────────────────────────────────── */
 .btn {
@@ -210,6 +215,38 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .close .clients { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .close .clients span { font-family: var(--mono); font-size: 11.5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-2); }
 
+/* ── try the resolver ─────────────────────────────────── */
+/* The form reads as the call it makes: find_docs(name=…). It is the well a
+   snippet sits in, and its border lights as the token input's does. */
+.try .lead code { font-size: 0.85em; color: var(--text); }
+.tryform { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; max-width: 640px; padding: 8px 8px 8px 18px; background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); font-family: var(--mono); font-size: 14px; color: var(--text-2); transition: border-color 150ms var(--ease); }
+.tryform:focus-within { border-color: var(--accent); }
+.tryform .fn { color: var(--accent); }
+/* The input is as wide as the name in it, so the closing paren follows the
+   name; the button keeps the right-hand end. Without field-sizing it is the
+   browser's default width, and the paren simply sits a little further on. */
+.tryform input { flex: 0 1 auto; field-sizing: content; min-width: 8ch; max-width: 100%; background: transparent; border: 0; padding: 6px 0; font: inherit; color: var(--text); }
+.tryform .btn { margin-left: auto; }
+.tryform input:focus { outline: none; }
+.tryform input::placeholder { color: var(--text-3); }
+.tryform .btn:disabled { opacity: 0.55; cursor: progress; }
+.trypicks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text-3); }
+.trypicks > span { margin-right: 4px; }
+.tryout { margin-top: 22px; max-width: 860px; }
+.tryout .body { padding: 4px 20px 18px; }
+.tryout .wait { margin: 14px 0 0; font-family: var(--mono); font-size: 13px; color: var(--text-2); }
+.cands { list-style: none; margin: 0; padding: 0; }
+.cand { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.cand .u { font-family: var(--mono); font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.cand a.u:hover { text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+.cand.dim .u { color: var(--text-2); }
+.cand .meta { margin-top: 4px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.cand.best .meta { color: var(--accent); }
+.cand.alt .meta b { color: var(--text); font-weight: 600; }
+.cand .ev { margin-top: 3px; font-size: 13px; line-height: 1.5; color: var(--text-3); overflow-wrap: anywhere; }
+.tryout .next { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: var(--text-2); text-wrap: pretty; }
+.tryout .next code { font-size: 13px; color: var(--accent); }
+
 /* ── diagrams ─────────────────────────────────────────── */
 .diagram text { fill: var(--text); }
 .diagram .nt { fill: var(--text); }
@@ -291,6 +328,32 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .codeblock pre { margin: 0; padding: 16px 18px; font-size: 13px; line-height: 1.7; overflow-x: auto; color: var(--text); }
 .codeblock.wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .codeblock pre .c { color: var(--text-3); }
+/* Copy, added by script to every code block: in the title bar when there is
+   one, else at the top right of the well. Quiet — a hairline, not a lavender
+   slab, since a page can carry a dozen — lit only for the moment it worked. */
+.codeblock { position: relative; }
+.codeblock .copy { flex: none; height: 24px; padding: 0 10px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); cursor: pointer; transition: color 150ms var(--ease), border-color 150ms var(--ease); }
+.codeblock .copy:hover { color: var(--text); border-color: var(--text-3); }
+.codeblock .copy.done { color: var(--accent); border-color: var(--accent-line); }
+.codeblock .bar .copy { margin: -4px -6px -4px 12px; }
+.codeblock > .copy { position: absolute; top: 15px; right: 12px; }
+.codeblock.has-copy > pre { padding-right: 96px; }
+
+/* setup */
+/* The page's contents: the steps as mono-numbered links, two columns when
+   there is room, on soft hairlines like any list of rows. */
+.toc { display: grid; gap: 0 40px; max-width: 768px; margin: -20px 0 0; border-top: 1px solid var(--line-soft); }
+@media (min-width: 640px) { .toc { grid-template-columns: 1fr 1fr; } }
+.toc a { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 14.5px; color: var(--text-2); transition: color 150ms var(--ease); }
+.toc a:hover { color: var(--text); }
+.toc a span { width: 1.5ch; font-family: var(--mono); font-size: 12.5px; color: var(--accent); line-height: 1.75; }
+.section > h2[id], .section[id] { scroll-margin-top: calc(var(--nav) + 16px); }
+.platforms { display: grid; gap: 12px; }
+@media (min-width: 900px) { .platforms { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 720px) { .platforms.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.section > .codeblock + .note, .section > .platforms + .note { margin-top: 12px; }
+.section .callout { margin-top: 22px; }
+.card .codeblock pre { font-size: 12.5px; }
 
 /* connect */
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -298,13 +361,15 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .tab:hover { color: var(--text); }
 .tab.is-active, .tab[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
 .tokenrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 18px 0; }
-.tokenrow label { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.tokenrow label, .tokenrow .label { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 .tokenrow input { flex: 1 1 auto; min-width: 0; background: var(--deep); border: 1px solid var(--line); border-radius: var(--r-s); padding: 9px 12px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .tokenrow input::placeholder { color: var(--text-3); }
 .tokenrow input:focus { outline: none; border-color: var(--accent); }
 .tokenrow .eye { flex: none; font-family: var(--mono); font-size: 12px; color: var(--text-2); background: transparent; border: 1px solid var(--line); border-radius: var(--r-s); padding: 9px 12px; cursor: pointer; }
 .tokenrow .eye:hover { color: var(--text); }
 .snippet { background: var(--deep); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+/* run locally, the server and token rows are hidden and the snippet follows the tabs */
+#clients .snippet { margin-top: 18px; }
 .snippet .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); }
 .snippet .bar .t { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 .snippet .bar .k { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
@@ -328,6 +393,7 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 @media (max-width: 640px) { .kv > div { grid-template-columns: 1fr; gap: 2px; } }
 .kv code { color: var(--accent); font-size: 13px; }
 .kv span { color: var(--text-2); }
+.kv span code { color: var(--text); font-size: 12.5px; }
 
 /* ── reveals ──────────────────────────────────────────── */
 /* Content is visible by default. `.rv` becomes a reveal only once the
@@ -428,8 +494,8 @@ a.inline:hover { text-decoration-color: var(--accent); }
     <nav class="nav" aria-label="Site">
       <a href="/#how-it-works" class="wide">How it works</a>
       <a href="/tools">Tools</a>
+      <a href="/setup">Setup</a>
       <a href="/connect" aria-current="page">Connect</a>
-      <a href="/connect#storage" class="wide">Storage</a>
       <a href="/contributors" class="wide">Contributors</a>
       <a href="https://github.com/R204570/DocsForge" class="ext" target="_blank" rel="noopener noreferrer">GitHub <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 8 L8 2 M3.5 2 H8 V6.5"/></svg></a>
     </nav>
@@ -440,12 +506,30 @@ a.inline:hover { text-decoration-color: var(--accent); }
 <main class="wrap doc">
   <header class="lede">
     <h1>Connect your MCP client.</h1>
-    <p class="lead">Streamable HTTP. One URL, one bearer token. The same thirteen tools whichever client you use.</p>
+    <p class="lead">DocsForge runs on your own machine. Install it once, add one line to your client, and the client starts it whenever it needs it — no URL, no token, no account. The same thirteen tools whichever client you use.</p>
   </header>
 
-  <section class="section" id="clients" style="margin-top:0">
-    <h2>Pick your client. Paste your token. Copy.</h2>
-    <p class="prose">One command or one config block per client, already pointed at this server. The token is spliced in on this page only — it is never sent anywhere.</p>
+  <div class="callout" id="no-public-server">
+    <p><strong>There is no public server to connect to.</strong> The DocsForge behind this site, at <code>docsforge.vercel.app/mcp</code>, is a private development deployment: it answers only to its owner's token, and tokens are not given out. Run DocsForge on your own machine, as below — or host your own, and point your clients at that.</p>
+  </div>
+
+  <section class="section" id="install">
+    <h2>1. Install</h2>
+    <div class="codeblock"><pre>pipx install git+https://github.com/R204570/DocsForge</pre></div>
+    <p class="note">New to pipx or MCP? The <a class="inline" href="/setup">setup guide</a> walks through every step on Windows, macOS and Linux. Python 3.11 or newer. With uv instead: <code>uv tool install git+https://github.com/R204570/DocsForge</code>. Install from GitHub as shown: the <code>docsforge</code> package on PyPI is an unrelated project. Either way you get two commands, <code>docsforge-mcp</code> (the MCP server) and <code>docsforge</code> (a command-line harvester).</p>
+  </section>
+
+  <section class="section" id="clients">
+    <h2>2. Add it to your client</h2>
+    <p class="prose">One command or one config block per client. On your machine, the client starts <code>docsforge-mcp</code> itself and harvested docs are kept in <code>~/.docsforge/knowledge_base</code>. For a server you host, paste its address and token — both are spliced in on this page only and never sent anywhere.</p>
+
+    <div class="tokenrow">
+      <span class="label" id="mode-label">Runs</span>
+      <div class="tabs" id="mode-tabs" role="group" aria-labelledby="mode-label">
+        <button type="button" data-mode="local" class="tab is-active" aria-pressed="true">On this machine</button>
+        <button type="button" data-mode="hosted" class="tab" aria-pressed="false">On a server you host</button>
+      </div>
+    </div>
 
     <div class="tabs rv-list" id="client-tabs">
       <button type="button" data-client="claude-code" class="tab" aria-pressed="false">Claude Code</button>
@@ -460,7 +544,11 @@ a.inline:hover { text-decoration-color: var(--accent); }
       <button type="button" data-client="json" class="tab" aria-pressed="false">Any client (JSON)</button>
     </div>
 
-    <div class="tokenrow" id="token-row">
+    <div class="tokenrow hosted-only" hidden>
+      <label for="server">Server</label>
+      <input id="server" type="url" autocomplete="off" spellcheck="false" placeholder="https://your-server/mcp">
+    </div>
+    <div class="tokenrow hosted-only" id="token-row" hidden>
       <label for="token">Your token</label>
       <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="paste DOCSFORGE_MCP_TOKEN">
       <button type="button" id="token-eye" class="eye">show</button>
@@ -471,30 +559,18 @@ a.inline:hover { text-decoration-color: var(--accent); }
         <span class="t" id="snippet-title">Claude Code</span>
         <span style="display:flex;align-items:center;gap:12px"><span class="k" id="snippet-kind">terminal</span><button type="button" id="copy" class="btn btn-primary btn-sm">Copy</button></span>
       </div>
-      <pre id="snippet"></pre>
+      <pre id="snippet">claude mcp add docsforge -- docsforge-mcp</pre>
     </div>
-    <p class="note" id="snippet-note"></p>
+    <p class="note" id="snippet-note">One command. Scope defaults to the current project; add --scope user to have it everywhere.</p>
   </section>
 
-  <section class="section">
-    <h2 class="rv">Run it yourself</h2>
-    <div class="stepsv rv-list">
-      <div class="st">
-        <div class="n">01<b>Install</b></div>
-        <div class="codeblock"><pre>pipx install docsforge</pre></div>
-      </div>
-      <div class="st">
-        <div class="n">02<b>Stdio, for a local client</b></div>
-        <div class="codeblock"><pre>claude mcp add docsforge -- docsforge-mcp</pre></div>
-      </div>
-      <div class="st">
-        <div class="n">03<b>HTTP, for a shared server</b></div>
-        <div class="codeblock"><pre>export DOCSFORGE_MCP_TOKEN=…
+  <section class="section" id="host">
+    <h2 class="rv">Host it for a team</h2>
+    <p class="prose rv">One server and one shared store for several people or machines: DocsForge over HTTP, behind a bearer token you choose, with PostgreSQL as the store. Then pick <strong>On a server you host</strong> above — or open <code>/connect</code> on your server, where the snippets already point at it.</p>
+    <div class="codeblock rv"><pre>export DOCSFORGE_MCP_TOKEN=…        <span class="c"># any long random string; clients send it</span>
 export DOCSFORGE_DB=postgresql://…
-python main.py --http --host 0.0.0.0 --port 8765</pre></div>
-      </div>
-    </div>
-    <p class="note">Binding a public address without a token is refused. Set <code>DOCSFORGE_MCP_INSECURE=1</code> only on a network you own.</p>
+docsforge-mcp --http --host 0.0.0.0 --port 8765</pre></div>
+    <p class="note">Binding a public address without a token is refused. Set <code>DOCSFORGE_MCP_INSECURE=1</code> only on a network you own. The repository's <code>Containerfile</code> runs the same thing in a container.</p>
   </section>
 
   <section class="section">
@@ -512,7 +588,7 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
     <div class="twocol rv-list">
       <div class="card">
         <h3>Markdown files — the default.</h3>
-        <p><code>knowledge_base/&lt;tech&gt;/&lt;version&gt;.md</code>, one file per version plus an index. Zero setup, and the file is a deliverable you can hand to anyone.</p>
+        <p><code>~/.docsforge/knowledge_base/&lt;tech&gt;/&lt;version&gt;.md</code> (<code>knowledge_base/</code> beside <code>main.py</code> in a clone), one file per version plus an index. Zero setup, and the file is a deliverable you can hand to anyone.</p>
       </div>
       <div class="card">
         <h3>PostgreSQL — set <code>DOCSFORGE_DB</code>.</h3>
@@ -529,8 +605,9 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
       <div><code>DOCSFORGE_DB / DATABASE_URL</code><span>Postgres DSN; files otherwise</span></div>
       <div><code>DOCSFORGE_MAX_CHARS</code><span>cap on what a tool hands back (60,000)</span></div>
       <div><code>DOCSFORGE_HARVEST_DEADLINE</code><span>seconds before a harvest goes to the background (25)</span></div>
-      <div><code>DOCSFORGE_KB_ROOT</code><span>where the file store lives</span></div>
+      <div><code>DOCSFORGE_KB_ROOT</code><span>where the file store lives (~/.docsforge/knowledge_base)</span></div>
       <div><code>DOCSFORGE_ALLOW_DELETE</code><span>enables forget_documentation (off)</span></div>
+      <div><code>DOCSFORGE_TRY</code><span>0 turns off the live find_docs box on the home page (on)</span></div>
     </div>
   </section>
 </main>
@@ -555,88 +632,170 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
 </footer>
   <script>
   (function () {
-    // The server fills BASE_URL in from the request that asked for this page.
+    // The server fills BASE_URL in from the request that asked for this page,
+    // so a server you host serves this page already pointed at itself.
     var MCP = "{{BASE_URL}}/mcp";
-    var T = "__TOKEN__";
-    var CLIENTS = {
+    // The public site's own address, stamped at build. Its /mcp is a private
+    // deployment, so the page never offers it as somewhere to connect to.
+    var PUBLIC = "https://docsforge.vercel.app";
+    var T = "__TOKEN__", U = "__URL__";
+    var CMD = "docsforge-mcp";
+    var PATH_HINT = " If the client says it cannot find docsforge-mcp, put its full path in \"command\" instead: run where docsforge-mcp on Windows, which docsforge-mcp on macOS and Linux.";
+    var stdioJson = '{\n  "mcpServers": {\n    "docsforge": {\n      "command": "' + CMD + '"\n    }\n  }\n}';
+
+    // On this machine: the client starts docsforge-mcp itself and talks to it
+    // over stdio. No URL, no token.
+    var LOCAL = {
       "claude-code": {
         title: "Claude Code", kind: "terminal",
         note: "One command. Scope defaults to the current project; add --scope user to have it everywhere.",
-        text: 'claude mcp add --transport http docsforge ' + MCP + ' --header "Authorization: Bearer ' + T + '"'
+        text: "claude mcp add docsforge -- " + CMD
       },
       "codex": {
         title: "Codex CLI", kind: "terminal",
-        note: "Codex reads the token from an environment variable rather than the command line, so export it in the shell that launches codex (PowerShell: $env:DOCSFORGE_MCP_TOKEN = \"…\").",
-        text: 'export DOCSFORGE_MCP_TOKEN=' + T + '\ncodex mcp add docsforge --url ' + MCP + ' --bearer-token-env-var DOCSFORGE_MCP_TOKEN'
+        note: "Codex starts the server itself whenever a session needs it.",
+        text: "codex mcp add docsforge -- " + CMD
       },
       "chatgpt": {
-        title: "ChatGPT", kind: "Settings → Apps & Connectors (OAuth)",
-        note: "Plus, Pro, Business, Enterprise or Edu. Profile → Settings → Apps & Connectors → Advanced settings → Developer Mode on → back in Apps & Connectors, Create → fill in the fields above, leave the OAuth endpoints alone (ChatGPT discovers them from the server) → Create. A DocsForge sign-in page opens: paste the server's token, Allow — once; ChatGPT keeps its own access token from then on. In a chat: + → Developer Mode → tick DocsForge. Reopen the chat after adding it so the tool list refreshes.",
-        text: 'Name             DocsForge\nDescription      Documentation for technologies the model was not trained on\nMCP Server URL   ' + MCP + '\nAuthentication   OAuth\nRegistration     Dynamic Client Registration  (the default)\n\nSign-in page     paste ' + T + '  →  Allow'
+        title: "ChatGPT", kind: "remote servers only", prose: true,
+        note: "Every other client on this list can run DocsForge on your machine.",
+        text: "ChatGPT connects only to MCP servers on the internet: it cannot start\na command on your machine. To use DocsForge from ChatGPT, host it on a\nserver with an https address, then pick \"On a server you host\" above."
       },
       "cursor": {
         title: "Cursor", kind: "~/.cursor/mcp.json",
-        note: "Cursor Settings → MCP → Add new global MCP server opens this file; paste the block (merge into mcpServers if you already have one).",
-        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "url": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+        note: "Cursor Settings → MCP → Add new global MCP server opens this file; paste the block (merge into mcpServers if you already have one)." + PATH_HINT,
+        text: stdioJson
       },
       "windsurf": {
         title: "Windsurf", kind: "~/.codeium/windsurf/mcp_config.json",
-        note: "Windsurf uses serverUrl, not url. Cascade → MCP servers → Configure opens this file.",
-        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "serverUrl": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+        note: "Cascade → MCP servers → Configure opens this file." + PATH_HINT,
+        text: stdioJson
       },
       "antigravity": {
         title: "Antigravity", kind: "mcp_config.json",
-        note: "Agent panel → ⋯ → MCP Servers → Manage → View raw config, paste, save. Same serverUrl shape as Windsurf.",
-        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "serverUrl": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+        note: "Agent panel → ⋯ → MCP Servers → Manage → View raw config, paste, save." + PATH_HINT,
+        text: stdioJson
       },
       "gemini": {
         title: "Gemini CLI", kind: "terminal",
         note: "Writes the server into ~/.gemini/settings.json for you.",
-        text: 'gemini mcp add --transport http docsforge ' + MCP + ' --header "Authorization: Bearer ' + T + '"'
+        text: "gemini mcp add docsforge " + CMD
       },
       "vscode": {
         title: "VS Code (Copilot agent mode)", kind: "terminal",
         note: "Registers the server in your user profile; VS Code asks to trust it the first time.",
-        text: "code --add-mcp '{\"name\":\"docsforge\",\"type\":\"http\",\"url\":\"" + MCP + "\",\"headers\":{\"Authorization\":\"Bearer " + T + "\"}}'"
+        text: "code --add-mcp '{\"name\":\"docsforge\",\"command\":\"" + CMD + "\"}'"
       },
       "claude-desktop": {
         title: "Claude Desktop", kind: "claude_desktop_config.json",
-        note: "Desktop speaks stdio only, so mcp-remote bridges to the HTTP server. Settings → Developer → Edit Config opens the file; restart Claude Desktop after saving.",
-        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "command": "npx",\n      "args": ["-y", "mcp-remote", "' + MCP + '", "--header", "Authorization:${AUTH_HEADER}"],\n      "env": { "AUTH_HEADER": "Bearer ' + T + '" }\n    }\n  }\n}'
+        note: "Settings → Developer → Edit Config opens the file; restart Claude Desktop after saving." + PATH_HINT,
+        text: stdioJson
+      },
+      "json": {
+        title: "Any MCP client", kind: "JSON",
+        note: "The common shape for a local server: a command the client starts and speaks to over stdio.",
+        text: stdioJson
+      }
+    };
+
+    // On a server you host: streamable HTTP, one URL, one bearer token.
+    var HOSTED = {
+      "claude-code": {
+        title: "Claude Code", kind: "terminal",
+        note: "One command. Scope defaults to the current project; add --scope user to have it everywhere.",
+        text: 'claude mcp add --transport http docsforge ' + U + ' --header "Authorization: Bearer ' + T + '"'
+      },
+      "codex": {
+        title: "Codex CLI", kind: "terminal",
+        note: "Codex reads the token from an environment variable rather than the command line, so export it in the shell that launches codex (PowerShell: $env:DOCSFORGE_MCP_TOKEN = \"…\").",
+        text: 'export DOCSFORGE_MCP_TOKEN=' + T + '\ncodex mcp add docsforge --url ' + U + ' --bearer-token-env-var DOCSFORGE_MCP_TOKEN'
+      },
+      "chatgpt": {
+        title: "ChatGPT", kind: "Settings → Apps & Connectors (OAuth)",
+        note: "Plus, Pro, Business, Enterprise or Edu, and a server with an https address. Profile → Settings → Apps & Connectors → Advanced settings → Developer Mode on → back in Apps & Connectors, Create → fill in the fields above, leave the OAuth endpoints alone (ChatGPT discovers them from the server) → Create. A DocsForge sign-in page opens: paste the server's token, Allow — once; ChatGPT keeps its own access token from then on. In a chat: + → Developer Mode → tick DocsForge. Reopen the chat after adding it so the tool list refreshes.",
+        text: 'Name             DocsForge\nDescription      Documentation for technologies the model was not trained on\nMCP Server URL   ' + U + '\nAuthentication   OAuth\nRegistration     Dynamic Client Registration  (the default)\n\nSign-in page     paste ' + T + '  →  Allow'
+      },
+      "cursor": {
+        title: "Cursor", kind: "~/.cursor/mcp.json",
+        note: "Cursor Settings → MCP → Add new global MCP server opens this file; paste the block (merge into mcpServers if you already have one).",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "url": "' + U + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "windsurf": {
+        title: "Windsurf", kind: "~/.codeium/windsurf/mcp_config.json",
+        note: "Windsurf uses serverUrl, not url. Cascade → MCP servers → Configure opens this file.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "serverUrl": "' + U + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "antigravity": {
+        title: "Antigravity", kind: "mcp_config.json",
+        note: "Agent panel → ⋯ → MCP Servers → Manage → View raw config, paste, save. Same serverUrl shape as Windsurf.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "serverUrl": "' + U + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+      },
+      "gemini": {
+        title: "Gemini CLI", kind: "terminal",
+        note: "Writes the server into ~/.gemini/settings.json for you.",
+        text: 'gemini mcp add --transport http docsforge ' + U + ' --header "Authorization: Bearer ' + T + '"'
+      },
+      "vscode": {
+        title: "VS Code (Copilot agent mode)", kind: "terminal",
+        note: "Registers the server in your user profile; VS Code asks to trust it the first time.",
+        text: "code --add-mcp '{\"name\":\"docsforge\",\"type\":\"http\",\"url\":\"" + U + "\",\"headers\":{\"Authorization\":\"Bearer " + T + "\"}}'"
+      },
+      "claude-desktop": {
+        title: "Claude Desktop", kind: "claude_desktop_config.json",
+        note: "For a remote server Desktop needs a bridge: mcp-remote speaks stdio to Desktop and HTTP to the server. Settings → Developer → Edit Config opens the file; restart Claude Desktop after saving.",
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "command": "npx",\n      "args": ["-y", "mcp-remote", "' + U + '", "--header", "Authorization:${AUTH_HEADER}"],\n      "env": { "AUTH_HEADER": "Bearer ' + T + '" }\n    }\n  }\n}'
       },
       "json": {
         title: "Any MCP client", kind: "JSON",
         note: "The common shape: a streamable-HTTP URL plus one header. Some clients name the key serverUrl or httpUrl instead of url.",
-        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "url": "' + MCP + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
+        text: '{\n  "mcpServers": {\n    "docsforge": {\n      "url": "' + U + '",\n      "headers": { "Authorization": "Bearer ' + T + '" }\n    }\n  }\n}'
       }
     };
-    var current = "claude-code";
+
+    var mode = "local", current = "claude-code";
+    var modes = document.querySelectorAll("#mode-tabs .tab");
     var tabs = document.querySelectorAll("#client-tabs .tab");
+    var serverEl = document.getElementById("server");
     var tokenEl = document.getElementById("token");
     var snippet = document.getElementById("snippet");
     var copy = document.getElementById("copy");
+    var hostedRows = document.querySelectorAll(".hosted-only");
+
+    // A server you host fills its own address in; the public site leaves the
+    // field for yours.
+    serverEl.value = MCP.indexOf(PUBLIC + "/") === 0 ? "" : MCP;
 
     function text() {
+      var c = (mode === "local" ? LOCAL : HOSTED)[current];
       var tok = tokenEl.value.trim() || "<token>";
-      return CLIENTS[current].text.split(T).join(tok);
+      var url = serverEl.value.trim() || "https://<your-server>/mcp";
+      return c.text.split(T).join(tok).split(U).join(url);
     }
     function render() {
-      var c = CLIENTS[current];
+      var c = (mode === "local" ? LOCAL : HOSTED)[current];
       document.getElementById("snippet-title").textContent = c.title;
       document.getElementById("snippet-kind").textContent = c.kind;
       document.getElementById("snippet-note").textContent = c.note;
       snippet.textContent = text();
-      tabs.forEach(function (b) {
-        var on = b.getAttribute("data-client") === current;
-        b.classList.toggle("is-active", on);
-        b.setAttribute("aria-pressed", on ? "true" : "false");
+      copy.hidden = !!c.prose;
+      hostedRows.forEach(function (row) { row.hidden = mode !== "hosted"; });
+      [[modes, "data-mode", mode], [tabs, "data-client", current]].forEach(function (group) {
+        group[0].forEach(function (b) {
+          var on = b.getAttribute(group[1]) === group[2];
+          b.classList.toggle("is-active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
       });
       copy.textContent = "Copy";
     }
+    modes.forEach(function (b) {
+      b.addEventListener("click", function () { mode = b.getAttribute("data-mode"); render(); });
+    });
     tabs.forEach(function (b) {
       b.addEventListener("click", function () { current = b.getAttribute("data-client"); render(); });
     });
     tokenEl.addEventListener("input", render);
+    serverEl.addEventListener("input", render);
     document.getElementById("token-eye").addEventListener("click", function () {
       var hidden = tokenEl.type === "password";
       tokenEl.type = hidden ? "text" : "password";
@@ -656,12 +815,15 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
       try { document.execCommand("copy"); } catch (e) {}
       document.body.removeChild(ta);
     }
-    // Deep link: /connect#cursor etc. opens on that client.
+    // Deep links: /connect#cursor opens on that client, run locally;
+    // /connect#hosted, or #hosted-cursor, on a server you host.
     var want = (location.hash || "").slice(1);
-    if (CLIENTS[want]) current = want;
+    if (want.indexOf("hosted") === 0) { mode = "hosted"; want = want.replace(/^hosted-?/, ""); }
+    if (LOCAL[want]) current = want;
     render();
   })();
   </script>
+
 <script>
 /* Shared behaviour for the public site. Everything here is enhancement:
    the pages read fully with this script never running. */
@@ -715,6 +877,195 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
       });
     }, { threshold: 0.4 });
     counters.forEach(function (el) { tick.observe(el); });
+  }
+
+  // ── a copy button on every code block ──
+  // What is copied is what to run: the `# …` notes beside a command are for
+  // reading (cmd.exe would choke on them), so they are left out, along with
+  // the padding that lines them up.
+  var copyText = function (value) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(value);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = value; ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+      if (ok) resolve(); else reject();
+    });
+  };
+  var runnable = function (pre) {
+    var clone = pre.cloneNode(true);
+    clone.querySelectorAll(".c").forEach(function (note) { note.remove(); });
+    return clone.textContent.split("\n").map(function (line) { return line.replace(/\s+$/, ""); })
+      .join("\n").replace(/^\n+|\n+$/g, "");
+  };
+  document.querySelectorAll(".codeblock").forEach(function (block) {
+    var pre = block.querySelector("pre");
+    if (!pre) return;
+    var bar = block.querySelector(".bar");
+    var first = runnable(pre).split("\n")[0];
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "copy";
+    button.textContent = "Copy";
+    button.setAttribute("aria-label", "Copy " + first);
+    var timer = null;
+    var flash = function (label, done) {
+      button.textContent = label;
+      button.classList.toggle("done", done);
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        button.textContent = "Copy";
+        button.classList.remove("done");
+      }, 1600);
+    };
+    button.addEventListener("click", function () {
+      copyText(runnable(pre)).then(function () { flash("Copied", true); }, function () {
+        // No clipboard here: select the text so Ctrl+C finishes the job.
+        var range = document.createRange();
+        range.selectNodeContents(pre);
+        var sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+        flash("Press Ctrl+C", false);
+      });
+    });
+    if (bar) bar.appendChild(button);
+    else { block.classList.add("has-copy"); block.appendChild(button); }
+  });
+
+  // ── the live resolver on the home page: find_docs, from this server ──
+  // Without script the form still works: it submits to /find-docs and the
+  // browser shows the answer as JSON.
+  var form = document.getElementById("try-form");
+  if (form && window.fetch) {
+    var input = document.getElementById("try-name");
+    var go = form.querySelector("button");
+    var out = document.getElementById("try-out");
+    var REGISTRY = { pypi: "PyPI", npm: "npm", crates: "crates.io" };
+    var busy = false;
+
+    var el = function (tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+    var shell = function (name) {
+      out.hidden = false;
+      out.textContent = "";
+      var box = el("div", "snippet"), bar = el("div", "bar"), kind = el("span", "k", "resolving");
+      bar.appendChild(el("span", "t", 'find_docs(name="' + name + '")'));
+      bar.appendChild(kind);
+      var body = el("div", "body");
+      box.appendChild(bar);
+      box.appendChild(body);
+      out.appendChild(box);
+      return { kind: kind, body: body };
+    };
+    var line = function (view, cls, text) {
+      view.body.textContent = "";
+      view.body.appendChild(el("p", cls, text));
+    };
+    var show = function (name, d, view) {
+      var rivals = d.candidates.filter(function (c) { return c.alternative; }).length;
+      view.kind.textContent = (d.ambiguous ? "ambiguous · " + rivals + " projects · " : "")
+        + (d.remembered ? "from memory · " : "live · ")
+        + d.seconds.toFixed(d.seconds < 1 ? 2 : 1) + " s";
+      if (!d.candidates.length) {
+        line(view, "next", d.note || "Nothing found for " + name + ".");
+        return;
+      }
+      view.body.textContent = "";
+      var list = el("ol", "cands");
+      d.candidates.forEach(function (c) {
+        var best = c.url === d.best;
+        var li = el("li", "cand" + (best ? " best" : "") + (c.alternative ? " alt" : "")
+          + (c.verified ? "" : " dim"));
+        if (/^https?:\/\//i.test(c.url)) {
+          var a = el("a", "u", c.url);
+          a.href = c.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer nofollow";
+          li.appendChild(a);
+        } else {
+          li.appendChild(el("span", "u", c.url));
+        }
+        var verdict = c.verified === true ? "verified" : c.verified === false ? "unverified" : "not checked";
+        var meta = el("div", "meta");
+        if (c.alternative) meta.appendChild(el("b", "", c.label));
+        meta.appendChild(document.createTextNode((c.alternative ? " · " : "") + (best ? "best · " : "")
+          + verdict + " · confidence " + c.confidence.toFixed(2)));
+        li.appendChild(meta);
+        if (c.evidence) li.appendChild(el("div", "ev", c.evidence));
+        if (c.reason) li.appendChild(el("div", "ev", c.reason));
+        list.appendChild(li);
+      });
+      view.body.appendChild(list);
+      var next = el("p", "next");
+      if (d.best) {
+        next.appendChild(document.createTextNode("Next, "));
+        next.appendChild(el("code", "", 'learn_technology(name="' + name + '")'));
+        next.appendChild(document.createTextNode(" harvests the best one and stores it."
+          + (d.release ? " " + (REGISTRY[d.ecosystem] || d.ecosystem) + "'s current release: " + d.release + "." : "")));
+      } else if (d.ambiguous) {
+        next.appendChild(document.createTextNode(rivals + " different projects are called " + name
+          + ", and nothing says which one is meant, so none was picked. Your assistant picks from context — or name one: "));
+        next.appendChild(el("code", "", "ecosystem="));
+        next.appendChild(document.createTextNode(" for a package, or the URL you mean to "));
+        next.appendChild(el("code", "", "harvest_docs"));
+        next.appendChild(document.createTextNode("."));
+      } else {
+        next.textContent = "Nothing verified, so DocsForge would ask for a URL rather than guess.";
+      }
+      view.body.appendChild(next);
+      // An ambiguous answer's note lists the same projects again; the rows say it.
+      if (d.note && !d.ambiguous) view.body.appendChild(el("p", "next", d.note));
+      // The answer is the moment someone wants the rest: say where it is.
+      var setup = el("p", "next");
+      var guide = el("a", "inline", "Set it up on your machine");
+      guide.href = "/setup";
+      setup.appendChild(guide);
+      setup.appendChild(document.createTextNode(" to harvest and read the docs from your own AI coding assistant."));
+      view.body.appendChild(setup);
+    };
+    var run = function (raw) {
+      var name = String(raw || "").replace(/\s+/g, " ").trim();
+      if (!name || busy) return;
+      busy = true;
+      go.disabled = true;
+      input.value = name;
+      var view = shell(name), t0 = Date.now();
+      var wait = function () {
+        line(view, "wait", "Asking npm, PyPI and crates.io, then reading the pages they name … "
+          + Math.round((Date.now() - t0) / 1000) + " s");
+      };
+      wait();
+      var clock = setInterval(wait, 1000);
+      var ctl = window.AbortController ? new AbortController() : null;
+      var stop = setTimeout(function () { if (ctl) ctl.abort(); }, 90000);
+      fetch("/find-docs?name=" + encodeURIComponent(name),
+            { headers: { Accept: "application/json" }, signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          clearInterval(clock);
+          if (res.ok) { show(name, res.d, view); return; }
+          view.kind.textContent = "not answered";
+          line(view, "next", res.d.message || "The lookup failed.");
+        })
+        .catch(function () {
+          clearInterval(clock);
+          view.kind.textContent = "not answered";
+          line(view, "next", "No answer from the server. Try again in a moment.");
+        })
+        .then(function () { clearTimeout(stop); busy = false; go.disabled = false; });
+    };
+    form.addEventListener("submit", function (e) { e.preventDefault(); run(input.value); });
+    document.querySelectorAll("#try-picks [data-name]").forEach(function (b) {
+      b.addEventListener("click", function () { run(b.getAttribute("data-name")); });
+    });
   }
 })();
 

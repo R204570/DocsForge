@@ -2808,7 +2808,10 @@ TOOLS: list[Tool] = [
         "Returns candidate URLs with evidence and whether each was confirmed to "
         "actually document that package. Use it when you want to check what would "
         "be harvested first, or when learn_technology could not resolve a name and "
-        "you want to see what it considered.",
+        "you want to see what it considered. When several different projects share "
+        "the name (piet: a language, a Rust crate, an npm package), it lists each "
+        "and picks none — choose from the user's context, then pass ecosystem= or "
+        "the URL to harvest_docs.",
         {
             "type": "object",
             "properties": {

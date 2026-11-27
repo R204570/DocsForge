@@ -32,7 +32,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <p class="lead" style="margin-top:22px">DocsForge finds a library's official docs from its name alone, verifies the page really documents it, harvests the whole thing, and hands it to any MCP client — Claude Code, Cursor, Codex and other AI coding assistants — with a coverage figure you can gate on.</p>
       <div class="cta">
         <a class="btn btn-primary" href="/connect">Connect your client</a>
-        <a class="btn btn-ghost" href="https://github.com/R204570/DocsForge" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+        <a class="btn btn-ghost" href="/#try">Try it in your browser</a>
       </div>
       <div class="facts"><span>MCP server</span><span>open source</span><span>MIT</span></div>
     </div>
@@ -45,6 +45,19 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
   <div class="figures rv-list"><span><b>13</b>tools</span><span><b>5</b>source types</span><span><b>0</b>API keys to resolve a name</span><span><b>1</b>file per version</span></div>
 
+  <section class="band try" id="try">
+    <h2 class="rv">Try the resolver</h2>
+    <p class="lead rv">Type a library's name. DocsForge asks the package registries, and Wikidata, where it documents itself and checks that each page really documents it — the <code>find_docs</code> tool, live on this server. Nothing is harvested or stored.</p>
+    <form class="tryform rv" id="try-form" action="/find-docs" method="get" role="search">
+      <label for="try-name"><span class="fn" aria-hidden="true">find_docs(</span>name<span aria-hidden="true">=</span></label>
+      <input id="try-name" name="name" type="text" required maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="zod">
+      <span class="paren" aria-hidden="true">)</span>
+      <button type="submit" class="btn btn-primary btn-sm">Resolve</button>
+    </form>
+    <div class="trypicks rv" id="try-picks"><span>or one of</span><button type="button" class="tab" data-name="zod">zod</button><button type="button" class="tab" data-name="pydantic">pydantic</button><button type="button" class="tab" data-name="tokio">tokio</button><button type="button" class="tab" data-name="langgraph">langgraph</button><button type="button" class="tab" data-name="effect">effect</button></div>
+    <div class="tryout" id="try-out" aria-live="polite" hidden></div>
+  </section>
+
   <section class="band" id="how-it-works">
     <h2 class="rv">How it works</h2>
     <p class="lead rv">Name a library. DocsForge works out where it documents itself, confirms the page really documents it, and harvests the whole set.</p>
@@ -52,7 +65,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <div class="row">
       <div class="rv">
         <h3><span class="n">01</span>Resolve</h3>
-        <p>Asks the package registries — npm, PyPI, crates.io, all keyless — where the library declares its documentation, then probes the site for an llms.txt or a docs root.</p>
+        <p>Asks the package registries — npm, PyPI, crates.io, all keyless — where the library declares its documentation, and Wikidata for languages and tools no registry carries, then probes the site for an llms.txt or a docs root.</p>
       </div>
       <div class="figure rv"><!--SVG:resolve--></div>
     </div>
@@ -107,14 +120,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <section class="close rv" id="connect">
     <div>
       <h2>Connect your MCP client.</h2>
-      <p class="lead" style="margin-top:12px">Streamable HTTP. One URL, one bearer token. The same thirteen tools whichever client you use.</p>
+      <p class="lead" style="margin-top:12px">Install once, add one line to your client, and DocsForge runs on your own machine — no URL, no token, no account. The same thirteen tools whichever client you use.</p>
       <div class="clients"><span>Claude Code</span><span>Codex</span><span>ChatGPT</span><span>Cursor</span><span>Windsurf</span><span>Antigravity</span><span>Gemini CLI</span><span>VS Code</span><span>Claude Desktop</span></div>
     </div>
     <div class="close-side">
       <!--MASCOT:close-fox-->
       <div class="cta">
         <a class="btn btn-primary" href="/connect">Connect your client</a>
-        <a class="btn btn-ghost" href="/tools">See the thirteen tools</a>
+        <a class="btn btn-ghost" href="/setup">Read the setup guide</a>
       </div>
     </div>
   </section>

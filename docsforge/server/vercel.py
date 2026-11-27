@@ -2,8 +2,9 @@
 The DocsForge server as a Vercel Function.
 
 Vercel loads the `app` below (named in `[tool.vercel] entrypoint`) and routes
-every request to it: the site at `/`, `/tools`, `/connect` and `/contributors`, `/health`, and
-the MCP endpoint at `/mcp` behind the bearer token. Same routes as
+every request to it: the site at `/`, `/tools`, `/setup`, `/connect` and `/contributors`, `/health`,
+the home page's live resolver at `/find-docs`, and the MCP endpoint at `/mcp` behind the
+bearer token. Same routes as
 `python main.py`, with three differences that a serverless host forces:
 
 * **Stateless.** No two requests are promised the same process, so `/mcp`
