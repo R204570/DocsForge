@@ -177,7 +177,7 @@ never a page.
 ### 4.1 Locally, as a person
 
 ```
-pipx install docsforge                # or: pip install -e . from a clone
+pipx install git+https://github.com/R204570/DocsForge   # or: pip install -e . from a clone
 python main.py                        # site + /mcp on http://127.0.0.1:8765, files as the store
 DOCSFORGE_DB=postgresql://… python main.py    # the same on Postgres
 python -m docsforge https://docs.x.dev --crawl # one-shot extraction to ./docs_md

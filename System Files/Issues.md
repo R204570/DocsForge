@@ -130,6 +130,34 @@ every `pydantic_*` version case pass). RULES 7.
 now, entities decoded, "looks like documentation" judged by the URL's own
 words with a never-documentation list (`checkout`, `login`, …).
 
+### R12 — two projects called `piet` both verified, one was returned in silence, and the one meant was never a candidate · fixed (2026-11-28)
+
+Found from the home page's try-it box. `find_docs("piet")` returned
+`github.com/silvandiepen/piet#readme` — an npm package at 0.0.11 — and said
+nothing else. Two packages of that name verified, that one and the Rust crate
+`linebender/piet`, each against its own registry's claims; `evidence` then
+compared how well each page agreed with *its own* registry (three strong
+signals to one) and returned npm's. Neither is what was asked for: Piet the
+esoteric programming language is not a package, owns no `piet.*` domain, and
+lives at `dangermouse.net/esoteric/piet.html`, where no lap could look.
+
+**Fixed:** `rival_projects` — when the verified, registry- or
+Wikidata-nominated answers are different projects (told apart by repository,
+package and site, across each page and its source's claims) and none makes a
+stronger claim to the *name* (`name_authority`, `docs-host`), `best` is None,
+`alternatives` lists one page per project, and the note says what each is and
+how to pick (`ecosystem=`, or the URL to `harvest_docs`). A project that owns
+the name still wins outright (`requests`: readthedocs over docs.rs). And
+`from_wikidata` — Wikidata's "official website" for a language or software
+item of exactly that name (label or alias, at least one Wikipedia article, the
+best-known of several) — asked when the registries' best is a README or a
+package index's page, and first among the fallbacks when they have nothing.
+Popularity below 2,000 stars no longer fills an ambiguous answer. Live after
+the fix: `piet` → the language, the crate and the npm package, none chosen;
+`befunge` → catseye.tc and an npm interpreter; `markdownify` → the Python and
+the JavaScript libraries; `requests`, `click`, `pydantic`, `tokio`, `zod`,
+`koa` unchanged. `tests/test_ambiguity.py`. RULES 10.
+
 ---
 
 ## Real-world acquisition (field test, 2026-09-24)

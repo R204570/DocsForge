@@ -51,6 +51,7 @@ def open_app():
 @pytest.mark.parametrize("path,marker", [
     ("/", "Documentation for technologies"),
     ("/tools", "Thirteen tools, defined once."),
+    ("/setup", "Set up DocsForge on your machine."),
     ("/connect", "Connect your MCP client."),
 ])
 def test_site_pages_are_public_and_self_contained(gated, path, marker):
@@ -84,7 +85,7 @@ def _contributors():
 def test_site_pages_link_only_to_each_other_github_and_the_developer(gated):
     import re
     profiles = {c["profile"] for c in _contributors()["contributors"]}
-    for path in ("/", "/tools", "/connect", "/contributors"):
+    for path in ("/", "/tools", "/setup", "/connect", "/contributors"):
         hrefs = set(re.findall(r'href="([^"]+)"', gated.get(path).text))
         for h in hrefs:
             assert (h.startswith(("/", "https://github.com/R204570/DocsForge",
@@ -113,13 +114,13 @@ def test_the_logo_and_favicon_are_public_and_are_the_ones_in_logo(gated, path, k
     logo_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Logo")
     with open(os.path.join(logo_dir, drawn), "rb") as f:
         assert r.content == f.read()
-    for page in ("/", "/tools", "/connect"):
+    for page in ("/", "/tools", "/setup", "/connect"):
         html = gated.get(page).text
         assert '<link rel="icon" href="/favicon.ico"' in html and 'src="/logo.svg"' in html, page
 
 
 # ── search engines ───────────────────────────────────────
-PUBLIC = ("/", "/tools", "/connect", "/contributors")
+PUBLIC = ("/", "/tools", "/setup", "/connect", "/contributors")
 
 
 @pytest.mark.parametrize("path", PUBLIC)

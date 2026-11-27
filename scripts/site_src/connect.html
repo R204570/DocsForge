@@ -20,12 +20,30 @@
 <main class="wrap doc">
   <header class="lede">
     <h1>Connect your MCP client.</h1>
-    <p class="lead">Streamable HTTP. One URL, one bearer token. The same thirteen tools whichever client you use.</p>
+    <p class="lead">DocsForge runs on your own machine. Install it once, add one line to your client, and the client starts it whenever it needs it — no URL, no token, no account. The same thirteen tools whichever client you use.</p>
   </header>
 
-  <section class="section" id="clients" style="margin-top:0">
-    <h2>Pick your client. Paste your token. Copy.</h2>
-    <p class="prose">One command or one config block per client, already pointed at this server. The token is spliced in on this page only — it is never sent anywhere.</p>
+  <div class="callout" id="no-public-server">
+    <p><strong>There is no public server to connect to.</strong> The DocsForge behind this site, at <code>docsforge.vercel.app/mcp</code>, is a private development deployment: it answers only to its owner's token, and tokens are not given out. Run DocsForge on your own machine, as below — or host your own, and point your clients at that.</p>
+  </div>
+
+  <section class="section" id="install">
+    <h2>1. Install</h2>
+    <div class="codeblock"><pre>pipx install git+https://github.com/R204570/DocsForge</pre></div>
+    <p class="note">New to pipx or MCP? The <a class="inline" href="/setup">setup guide</a> walks through every step on Windows, macOS and Linux. Python 3.11 or newer. With uv instead: <code>uv tool install git+https://github.com/R204570/DocsForge</code>. Install from GitHub as shown: the <code>docsforge</code> package on PyPI is an unrelated project. Either way you get two commands, <code>docsforge-mcp</code> (the MCP server) and <code>docsforge</code> (a command-line harvester).</p>
+  </section>
+
+  <section class="section" id="clients">
+    <h2>2. Add it to your client</h2>
+    <p class="prose">One command or one config block per client. On your machine, the client starts <code>docsforge-mcp</code> itself and harvested docs are kept in <code>~/.docsforge/knowledge_base</code>. For a server you host, paste its address and token — both are spliced in on this page only and never sent anywhere.</p>
+
+    <div class="tokenrow">
+      <span class="label" id="mode-label">Runs</span>
+      <div class="tabs" id="mode-tabs" role="group" aria-labelledby="mode-label">
+        <button type="button" data-mode="local" class="tab is-active" aria-pressed="true">On this machine</button>
+        <button type="button" data-mode="hosted" class="tab" aria-pressed="false">On a server you host</button>
+      </div>
+    </div>
 
     <div class="tabs rv-list" id="client-tabs">
       <button type="button" data-client="claude-code" class="tab" aria-pressed="false">Claude Code</button>
@@ -40,7 +58,11 @@
       <button type="button" data-client="json" class="tab" aria-pressed="false">Any client (JSON)</button>
     </div>
 
-    <div class="tokenrow" id="token-row">
+    <div class="tokenrow hosted-only" hidden>
+      <label for="server">Server</label>
+      <input id="server" type="url" autocomplete="off" spellcheck="false" placeholder="https://your-server/mcp">
+    </div>
+    <div class="tokenrow hosted-only" id="token-row" hidden>
       <label for="token">Your token</label>
       <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="paste DOCSFORGE_MCP_TOKEN">
       <button type="button" id="token-eye" class="eye">show</button>
@@ -51,30 +73,18 @@
         <span class="t" id="snippet-title">Claude Code</span>
         <span style="display:flex;align-items:center;gap:12px"><span class="k" id="snippet-kind">terminal</span><button type="button" id="copy" class="btn btn-primary btn-sm">Copy</button></span>
       </div>
-      <pre id="snippet"></pre>
+      <pre id="snippet">claude mcp add docsforge -- docsforge-mcp</pre>
     </div>
-    <p class="note" id="snippet-note"></p>
+    <p class="note" id="snippet-note">One command. Scope defaults to the current project; add --scope user to have it everywhere.</p>
   </section>
 
-  <section class="section">
-    <h2 class="rv">Run it yourself</h2>
-    <div class="stepsv rv-list">
-      <div class="st">
-        <div class="n">01<b>Install</b></div>
-        <div class="codeblock"><pre>pipx install docsforge</pre></div>
-      </div>
-      <div class="st">
-        <div class="n">02<b>Stdio, for a local client</b></div>
-        <div class="codeblock"><pre>claude mcp add docsforge -- docsforge-mcp</pre></div>
-      </div>
-      <div class="st">
-        <div class="n">03<b>HTTP, for a shared server</b></div>
-        <div class="codeblock"><pre>export DOCSFORGE_MCP_TOKEN=…
+  <section class="section" id="host">
+    <h2 class="rv">Host it for a team</h2>
+    <p class="prose rv">One server and one shared store for several people or machines: DocsForge over HTTP, behind a bearer token you choose, with PostgreSQL as the store. Then pick <strong>On a server you host</strong> above — or open <code>/connect</code> on your server, where the snippets already point at it.</p>
+    <div class="codeblock rv"><pre>export DOCSFORGE_MCP_TOKEN=…        <span class="c"># any long random string; clients send it</span>
 export DOCSFORGE_DB=postgresql://…
-python main.py --http --host 0.0.0.0 --port 8765</pre></div>
-      </div>
-    </div>
-    <p class="note">Binding a public address without a token is refused. Set <code>DOCSFORGE_MCP_INSECURE=1</code> only on a network you own.</p>
+docsforge-mcp --http --host 0.0.0.0 --port 8765</pre></div>
+    <p class="note">Binding a public address without a token is refused. Set <code>DOCSFORGE_MCP_INSECURE=1</code> only on a network you own. The repository's <code>Containerfile</code> runs the same thing in a container.</p>
   </section>
 
   <section class="section">
@@ -92,7 +102,7 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
     <div class="twocol rv-list">
       <div class="card">
         <h3>Markdown files — the default.</h3>
-        <p><code>knowledge_base/&lt;tech&gt;/&lt;version&gt;.md</code>, one file per version plus an index. Zero setup, and the file is a deliverable you can hand to anyone.</p>
+        <p><code>~/.docsforge/knowledge_base/&lt;tech&gt;/&lt;version&gt;.md</code> (<code>knowledge_base/</code> beside <code>main.py</code> in a clone), one file per version plus an index. Zero setup, and the file is a deliverable you can hand to anyone.</p>
       </div>
       <div class="card">
         <h3>PostgreSQL — set <code>DOCSFORGE_DB</code>.</h3>
@@ -109,8 +119,9 @@ python main.py --http --host 0.0.0.0 --port 8765</pre></div>
       <div><code>DOCSFORGE_DB / DATABASE_URL</code><span>Postgres DSN; files otherwise</span></div>
       <div><code>DOCSFORGE_MAX_CHARS</code><span>cap on what a tool hands back (60,000)</span></div>
       <div><code>DOCSFORGE_HARVEST_DEADLINE</code><span>seconds before a harvest goes to the background (25)</span></div>
-      <div><code>DOCSFORGE_KB_ROOT</code><span>where the file store lives</span></div>
+      <div><code>DOCSFORGE_KB_ROOT</code><span>where the file store lives (~/.docsforge/knowledge_base)</span></div>
       <div><code>DOCSFORGE_ALLOW_DELETE</code><span>enables forget_documentation (off)</span></div>
+      <div><code>DOCSFORGE_TRY</code><span>0 turns off the live find_docs box on the home page (on)</span></div>
     </div>
   </section>
 </main>

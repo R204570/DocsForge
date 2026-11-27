@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote, urlencode, urljoin, urlparse
 
+from docsforge import __version__
 from docsforge.core import languages
 from docsforge.core.engine import Fetcher, ForgeError, Options
 from docsforge.core.instrument import Budget, ResolveState
@@ -121,12 +122,19 @@ class Resolution:
     #: The programming language the caller asked for ("javascript"), and what
     #: resolution found about it -- see `resolve(language=)`.
     language: str = ""
+    #: When the name belongs to several different projects and nothing says
+    #: which one is meant: the best page of each, best-evidenced first, and
+    #: `best` is None. See `rival_projects`.
+    alternatives: list[Candidate] = field(default_factory=list)
+    #: Served from the resolution cache rather than worked out just now.
+    remembered: bool = False
 
     def as_dict(self) -> dict:
         return {
             "name": self.name, "ecosystem": self.ecosystem,
             "best": self.best.as_dict() if self.best else None,
             "candidates": [c.as_dict() for c in self.candidates],
+            "alternatives": [c.as_dict() for c in self.alternatives],
             "note": self.note, "resolved_via": self.resolved_via,
             "release": self.release, "language": self.language,
         }
@@ -1230,7 +1238,10 @@ def _repo_identity(body: str, slug: str) -> str:
 
 #: Registry fields that are a nomination rather than a mention: the registry
 #: was asked where this package documents itself and answered with this URL.
-_NOMINATING = ("pypi:", "npm:", "crates:")
+#: Sources that name one exact URL as a project's own. Wikidata is one: its
+#: "official website" statement is a curated claim about a specific thing,
+#: which is what a registry's homepage field is too.
+_NOMINATING = ("pypi:", "npm:", "crates:", "wikidata:")
 
 
 def _path_identity(candidate: "Candidate", slug: str) -> str:
@@ -1912,7 +1923,17 @@ REJECT_TTL = 7 * 86400
 #:      `guides.` host is tried; a docs path that redirects out of itself
 #:      means the site is the manual; and GitHub's search window is waited
 #:      out rather than given up on.
-RULES = 9
+#:  10  one name, several projects, and names no registry carries. When the
+#:      verified answers are different projects -- told apart by repository,
+#:      package and site -- and none makes a stronger claim to the name, none
+#:      is returned and all are listed (`rival_projects`); and Wikidata's
+#:      "official website" is consulted when the registries' best is only a
+#:      README or a package index's page, and as the first fallback when they
+#:      have nothing (`from_wikidata`). Found from the try-it box, 2026-11-27:
+#:      `piet` resolved to an npm package at 0.0.11 -- one of two packages of
+#:      that name, chosen in silence -- while Piet, the language, was never a
+#:      candidate. An entry cached under 9 can be that answer.
+RULES = 10
 
 
 def _cache_file() -> Path:
@@ -1958,8 +1979,19 @@ def recall(name: str, language: str = "") -> Resolution | None:
     result = Resolution(name=name, ecosystem=entry.get("ecosystem", ""),
                         language=entry.get("language", "") or "")
     result.resolved_via = entry.get("resolved_via", "") or "memory"
+    result.remembered = True
     if not entry.get("url"):
         result.note = entry.get("note") or f"Recently could not resolve {name!r}."
+        # An ambiguous name is remembered with the projects that share it, so
+        # a repeat still says which they are rather than only that they exist.
+        for kept in entry.get("alternatives") or []:
+            cand = Candidate(kept.get("url", ""), kept.get("source", "") or "memory",
+                             kept.get("confidence", 0.5), kept.get("evidence", ""), True,
+                             kept.get("reason", ""), registry=kept.get("registry", "") or "")
+            cand.signals = list(kept.get("signals") or [])
+            if cand.url:
+                result.alternatives.append(cand)
+        result.candidates = list(result.alternatives)
         return result
     cand = Candidate(entry["url"], "memory", 0.95, entry.get("evidence", ""),
                      True, entry.get("reason", "remembered from an earlier run"),
@@ -2021,6 +2053,12 @@ def remember(name: str, result: Resolution, language: str = "") -> None:
         "release": result.release,
         "note": result.note,
     }
+    if result.alternatives and best is None:
+        data[_cache_key(name, language)]["alternatives"] = [
+            {"url": c.url, "source": c.source, "confidence": round(c.confidence, 2),
+             "evidence": c.evidence, "reason": c.reason, "registry": c.registry,
+             "signals": list(c.signals)}
+            for c in result.alternatives]
     _save_cache(data)
 
 
@@ -2123,6 +2161,263 @@ def from_search(name: str, fetcher: Fetcher, budget=None,
     return out
 
 
+# ─────────────────────────────────────────────────────────────
+# Wikidata — what a name is when no registry carries it
+# ─────────────────────────────────────────────────────────────
+#: Every source above is a place where *packages* are listed. A programming
+#: language with no package, a tool documented on its author's own site, a
+#: standard: none of them is anywhere a registry or a domain probe can see.
+#: `piet` resolved to an npm package at 0.0.11 while Piet, the language, lives
+#: at dangermouse.net/esoteric/piet.html (found 2026-11-27, from the try-it
+#: box). Wikidata records that page as Piet's official website (Q1886145).
+#: A documented JSON API, keyless, and curated -- the same standard
+#: `from_search` holds itself to, and never a search engine's results page.
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+#: Wikimedia asks automated clients to name themselves and say where they live.
+WIKIDATA_HEADERS = {"User-Agent": f"DocsForge/{__version__} (+https://github.com/R204570/DocsForge)",
+                    "Accept": "application/json"}
+#: What a documentation lookup can mean, by Wikidata's "instance of". A plain
+#: search for `piet` is the painter Piet Mondrian and the first name; these
+#: keep it to things that have documentation.
+WIKIDATA_KINDS = {
+    "Q9143": "programming language", "Q610140": "esoteric programming language",
+    "Q683111": "visual programming language", "Q12772052": "multi-paradigm programming language",
+    "Q37045": "markup language", "Q188860": "software library", "Q21127166": "Java software library",
+    "Q271680": "software framework", "Q1330336": "web framework", "Q7397": "software",
+    "Q341": "free software", "Q1130645": "open-source software", "Q166142": "application software",
+    "Q9135": "operating system",
+}
+#: An entity no Wikipedia in any language has an article on is not what a
+#: bare name means: `django` also matches a lute maker's site (Q5285233,
+#: no articles) beside the web framework (Q842014, 47).
+WIKIDATA_MIN_SITELINKS = 1
+#: Official websites taken from the one entity: Pandoc lists pandoc.org and
+#: an older address, Coq its old and new homes. Verification picks.
+WIKIDATA_SITES = 2
+
+
+def _wikidata(fetcher: Fetcher, params: dict) -> dict | None:
+    url = WIKIDATA_API + "?" + urlencode(dict(params, format="json"))
+    try:
+        r = fetcher.get(url, timeout=REGISTRY_TIMEOUT, headers=WIKIDATA_HEADERS)
+    except (ForgeError, TypeError):
+        return None
+    if getattr(r, "status_code", 0) != 200:
+        return None
+    try:
+        data = json.loads(r.text)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _claim_values(entity: dict, prop: str) -> list:
+    """A property's values: preferred statements first, deprecated never."""
+    claims = [c for c in (entity.get("claims") or {}).get(prop) or []
+              if c.get("rank") != "deprecated"
+              and (c.get("mainsnak") or {}).get("snaktype") == "value"]
+    claims.sort(key=lambda c: c.get("rank") != "preferred")
+    return [((c.get("mainsnak") or {}).get("datavalue") or {}).get("value") for c in claims]
+
+
+def from_wikidata(name: str, fetcher: Fetcher, budget=None) -> list[Candidate]:
+    """The official website Wikidata records for the thing called `name`.
+
+    Two requests: a search for entities labelled `name` that are a language
+    or software, then those entities. Only an exact label or alias counts
+    (`inlabel` matches inside labels: "SSSOM Pydantic" for `pydantic`), only
+    one with a Wikipedia article somewhere, and of several, the one with the
+    most -- what the name usually means. Its candidates still face `verify`
+    like anything else; this only says where to look.
+    """
+    term = " ".join(name.strip().split())
+    slug = normalise(term)
+    if len(slug) < 2 or (budget is not None and budget.exhausted):
+        return []
+    kinds = "|".join(f"P31={q}" for q in WIKIDATA_KINDS)
+    if budget is not None:
+        budget.charge()
+    found = _wikidata(fetcher, {"action": "query", "list": "search", "srlimit": "8",
+                                "srsearch": f'inlabel:"{term}@en" haswbstatement:{kinds}'})
+    ids = [h.get("title", "") for h in ((found or {}).get("query") or {}).get("search") or []]
+    ids = [i for i in ids if re.fullmatch(r"Q\d+", i or "")]
+    if not ids:
+        return []
+    if budget is not None:
+        budget.charge()
+    data = _wikidata(fetcher, {"action": "wbgetentities", "ids": "|".join(ids),
+                               "props": "labels|aliases|claims|sitelinks", "languages": "en"})
+    entities = (data or {}).get("entities") or {}
+    chosen = None
+    for qid in ids:
+        entity = entities.get(qid) or {}
+        label = ((entity.get("labels") or {}).get("en") or {}).get("value", "")
+        called = [label] + [a.get("value", "") for a in (entity.get("aliases") or {}).get("en") or []]
+        if not any(c and normalise(c) == slug for c in called):
+            continue
+        sites = [u for u in _claim_values(entity, "P856") if isinstance(u, str) and u.startswith("http")]
+        links = len(entity.get("sitelinks") or {})
+        if not sites or links < WIKIDATA_MIN_SITELINKS:
+            continue
+        if chosen is None or links > chosen[1]:
+            chosen = (qid, links, entity, label or term, sites)
+    if chosen is None:
+        return []
+    qid, _, entity, label, sites = chosen
+    kinds_of = [WIKIDATA_KINDS[v["id"]] for v in _claim_values(entity, "P31")
+                if isinstance(v, dict) and v.get("id") in WIKIDATA_KINDS]
+    kind = kinds_of[0] if kinds_of else "software"
+    repo = next((r for r in (_clean_repo(u) for u in _claim_values(entity, "P1324")
+                             if isinstance(u, str)) if r), "")
+    out = []
+    for site in sites[:WIKIDATA_SITES]:
+        url = _declared(site) or site
+        cand = Candidate(url, f"wikidata:{qid}", 0.85,
+                         f"Wikidata {qid} ({label}, {kind}) gives this as its official website")
+        cand.facts = {k: v for k, v in (("homepage", url), ("repository", repo)) if v}
+        out.append(cand)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────
+# Ambiguity — one name, several projects
+# ─────────────────────────────────────────────────────────────
+#: What each source calls the project it nominated, for saying which is which.
+_REGISTRY_THING = {"npm": "the npm package", "pypi": "the PyPI package",
+                   "crates": "the crates.io crate"}
+
+
+def _project_marks(url: str) -> set[str]:
+    """What identifies the project behind a URL, comparably: the repository
+    on a code host, the package on a package host, otherwise the site."""
+    if not url or not url.startswith("http"):
+        return set()
+    host = _host(url).removeprefix("www.")
+    path = [p for p in urlparse(url).path.split("/") if p]
+    if is_forge(url):
+        if len(path) < 2:
+            return set()
+        return {f"repo:{host}/{path[0].lower()}/{path[1].lower().removesuffix('.git')}"}
+    if is_package_host(url):
+        return {f"pkg:{host}/{path[0].lower()}"} if path else set()
+    if in_shared_namespace(url):
+        owner = path[0].lower() if path and host.endswith(_OWNER_PAGES) else ""
+        return {f"site:{host}/{owner}"}
+    return {f"site:{_registrable(host)}"}
+
+
+def _nominated_by(candidate: Candidate) -> str:
+    """Which source put this project forward: a registry, Wikidata, or none."""
+    if candidate.registry in REGISTRIES:
+        return candidate.registry
+    if candidate.source.startswith("wikidata:"):
+        return candidate.source
+    return ""
+
+
+def rival_projects(candidates: list[Candidate], picked: Candidate | None,
+                   facts_of=lambda c: c.facts, exclude: frozenset = frozenset()
+                   ) -> list[Candidate]:
+    """Several *different* projects answering to this name, none of which
+    the evidence prefers -- or an empty list.
+
+    Each source verifies its own nominee against its own claims, so two
+    unrelated packages can both pass: npm's `piet` README names its package,
+    and so does the Rust crate's repository, and both are right about what
+    they document. Ranking them then measured how well each page agrees with
+    its own registry -- three strong signals to one -- and returned npm's
+    0.0.11 package for `piet` with nothing to say there were others.
+
+    Projects are told apart by what identifies them -- repository, package,
+    site -- across a candidate's own URL and its source's claims, so a
+    project's docs site and its repository are one project however they were
+    reached. One project wins outright only on a claim to the *name* itself
+    (`name_authority`, or being the name's own docs host); otherwise every
+    project at the top standing is returned, best-evidenced first.
+
+    Only what a registry or Wikidata nominated takes part: a page the domain
+    lap found is already weighed against the registries by `_settle_held`.
+    """
+    if picked is None or not _nominated_by(picked):
+        return []
+    groups = project_groups(candidates, facts_of, exclude)
+    if len(groups) < 2 or not any(c is picked for g in groups for c in g):
+        return []
+    heads = sorted((max(g, key=evidence) for g in groups), key=evidence, reverse=True)
+    top = _standing(heads[0])
+    level = [c for c in heads if _standing(c) == top]
+    return level if len(level) > 1 else []
+
+
+def _standing(candidate: Candidate) -> tuple:
+    """The claim a page makes on the *name*, which is all that can rank two
+    different projects: owning it, and being its own docs host."""
+    return (name_authority(candidate), 1 if "docs-host" in candidate.signals else 0)
+
+
+def project_groups(candidates: list[Candidate], facts_of=lambda c: c.facts,
+                   exclude: frozenset = frozenset()) -> list[list[Candidate]]:
+    """The verified, nominated candidates, one list per project."""
+    pool = [c for c in candidates
+            if c.verified and _nominated_by(c) and id(c) not in exclude]
+    marks = {}
+    for c in pool:
+        own = set(_project_marks(c.url))
+        for claim in ("repository", "homepage"):
+            own |= _project_marks((facts_of(c) or {}).get(claim) or "")
+        # Everything one registry entry or one Wikidata item names is one project.
+        own.add(f"from:{_nominated_by(c)}")
+        marks[id(c)] = own
+    groups: list[list[Candidate]] = []
+    for c in pool:
+        joined = [g for g in groups if any(marks[id(c)] & marks[id(o)] for o in g)]
+        groups = ([g for g in groups if all(g is not j for j in joined)]
+                  + [[c] + [o for g in joined for o in g]])
+    return groups
+
+
+def _with_wikidata(picked: Candidate, candidates: list[Candidate], facts_of,
+                   exclude: frozenset = frozenset()) -> tuple[Candidate, bool]:
+    """What Wikidata changes about an answer that is not ambiguous, and
+    whether the answer is now a different project.
+
+    Either it names a better page for the very project the registries
+    answered with -- a site where they gave only a README -- or it names a
+    different project that makes a claim to the name the answer does not,
+    and that project is what the name means.
+    """
+    groups = project_groups(candidates, facts_of, exclude)
+    mine = next((g for g in groups if any(c is picked for c in g)), None)
+    if mine is None:
+        return picked, False
+    heads = sorted((max(g, key=evidence) for g in groups), key=evidence, reverse=True)
+    top = heads[0] if heads else picked
+    if (top.source.startswith("wikidata:") and all(c is not top for c in mine)
+            and _standing(top) > _standing(picked)):
+        return top, True
+    better = [c for c in mine if c.source.startswith("wikidata:")
+              and evidence(c) > evidence(picked)]
+    return (max(better, key=evidence) if better else picked), False
+
+
+def project_label(candidate: Candidate) -> str:
+    """What one of several same-named projects is, in a few words."""
+    found = re.match(r"Wikidata (Q\d+) \((.*)\) gives", candidate.evidence or "")
+    if found:
+        return f"{found.group(2)}, per Wikidata"
+    return _REGISTRY_THING.get(candidate.registry, candidate.source)
+
+
+def ambiguity_note(name: str, rivals: list[Candidate]) -> str:
+    listed = "; ".join(f"{project_label(c)} ({c.url})" for c in rivals)
+    registries = sorted({c.registry for c in rivals if c.registry in REGISTRIES})
+    how = (f"For a package, name its registry with ecosystem= ({', '.join(registries)}); "
+           f"for anything else, pass the URL you mean to harvest_docs."
+           if registries else "Pass the URL you mean to harvest_docs.")
+    return (f"{name!r} names {len(rivals)} different projects, and nothing says which one "
+            f"is meant: {listed}. None was chosen. {how}")
+
+
 def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
                  verify_best: bool, limit: int) -> Resolution:
     """The laps that run only once domains and registries have both failed.
@@ -2135,6 +2430,30 @@ def _ladder_tail(result: Resolution, name: str, fetcher: Fetcher, state, budget,
     """
     if not verify_best:
         return result
+
+    # ── L2b: what Wikidata says the name is ──
+    # First of the fallbacks, because it is the only one that is not a guess:
+    # a curated statement that this page is that thing's official website.
+    # Not when the caller named a registry -- then a package was meant.
+    if not result.asked_ecosystem and (budget is None or not budget.exhausted):
+        registered = any(c.registry in REGISTRIES for c in result.candidates)
+        known = from_wikidata(name, fetcher, budget=budget)
+        for cand in known:
+            verify(cand, name, fetcher, dict(cand.facts), state=state)
+        passed = best_verified(known)
+        if known:
+            result.candidates = dedupe(known + result.candidates)[:limit]
+        if passed is not None:
+            result.best = passed
+            result.resolved_via = "wikidata"
+            # Neither belongs to a page no registry nominated.
+            result.release = result.ecosystem = ""
+            result.note = (
+                f"Resolved {name!r} through Wikidata, which records {passed.url} as the "
+                f"official website of {project_label(passed).removesuffix(', per Wikidata')}. "
+                + ("What the package registries named could not be confirmed to document it."
+                   if registered else "No package registry carries it."))
+            return result
 
     # ── L3: the shape of the name ──
     if budget is None or not budget.exhausted:
@@ -2793,6 +3112,11 @@ def _weigh_popularity(result: Resolution, name: str, fetcher: Fetcher,
         popular = _popular_repo(name, fetcher, "")
     if popular is None:
         return
+    if result.alternatives and popular["stars"] < POPULAR_OVERRIDE_STARS:
+        # Several projects share the name and nothing preferred one. An
+        # absence of `best` here is a finding, not a gap to fill: only what
+        # the name clearly means may settle it.
+        return
     if result.unexamined and popular["stars"] < POPULAR_OVERRIDE_STARS:
         # A refusal because the strongest candidate could not be read is not
         # an absence for just anything to fill: the answer may be that very
@@ -2839,6 +3163,10 @@ def _weigh_popularity(result: Resolution, name: str, fetcher: Fetcher,
     result.candidates = dedupe([chosen] + result.candidates)
     result.best = chosen
     result.unexamined = False
+    if result.alternatives:
+        # "None was chosen" is no longer true; what follows says why.
+        result.note = f"Several projects are called {name!r}."
+        result.alternatives = []
     result.resolved_via = (f"{result.resolved_via}+popular" if result.resolved_via
                            else "popular")
     if not own_repo:
@@ -3517,6 +3845,57 @@ def _resolve_uncached(name: str, ecosystem: str = "", fetcher: Fetcher | None = 
                     f"harvest_docs."
                 )
                 return result
+            if picked is not None and not ecosystem:
+                def facts_of(c: Candidate) -> dict:
+                    return (c.facts if c.source.startswith("wikidata:")
+                            else _facts_for(c, found, facts))
+                asked_wikidata = False
+                if is_forge(picked.url) or is_package_host(picked.url):
+                    # A package documented only by its code host or a package
+                    # index is the thinnest answer the registries give, and the
+                    # likeliest to be a stranger that shares the word: `piet`
+                    # was an npm README while Piet the language has a site of
+                    # its own. Ask what the name is before settling for it.
+                    seen = {_same_page(c.url) for c in result.candidates}
+                    more = [c for c in from_wikidata(name, fetcher, budget=budget)
+                            if _same_page(c.url) not in seen]
+                    for cand in more:
+                        verify(cand, name, fetcher, dict(cand.facts), state=state)
+                    result.candidates = result.candidates + more
+                    asked_wikidata = bool(more)
+                rivals = rival_projects(result.candidates, picked, facts_of, clients)
+                if rivals:
+                    result.best = None
+                    result.alternatives = rivals
+                    result.resolved_via = "ambiguous"
+                    result.release = ""
+                    result.note = ambiguity_note(name, rivals)
+                    return result
+                if asked_wikidata:
+                    was = picked
+                    picked, elsewhere = _with_wikidata(picked, result.candidates, facts_of, clients)
+                    if picked is not was:
+                        what = project_label(picked).removesuffix(", per Wikidata")
+                        result.best = picked
+                        if elsewhere:
+                            # A page no registry nominated carries no
+                            # registry's ecosystem or release.
+                            result.resolved_via = "wikidata"
+                            result.ecosystem = result.release = ""
+                            result.note = (
+                                f"Wikidata records {picked.url} as the official website of "
+                                f"{what}, which makes a claim to the name that the packages "
+                                f"called {name!r} do not.")
+                        else:
+                            # The registry's own project, at the site it did not name.
+                            result.resolved_via = "registry+wikidata"
+                            result.ecosystem = was.registry or result.ecosystem
+                            result.release = was.release or release_from(found, result.ecosystem)
+                            thing = _REGISTRY_THING.get(was.registry, "the registry")
+                            result.note = (
+                                f"{thing[0].upper()}{thing[1:]} gave only {was.url}; Wikidata "
+                                f"records {picked.url} as the official website of {what}.")
+                        return result
             if picked is not None:
                 result.best = picked
                 result.resolved_via = ("domain" if picked.source.startswith("domain:")

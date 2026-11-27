@@ -2511,10 +2511,12 @@ def build_store(root: Path | str | None = None, dsn: str | None = None) -> Store
 
     # The repository root, not this module's folder: the store has always
     # been `knowledge_base/` beside `main.py`, and the modules moving into a
-    # package must not move the data.
-    from docsforge import ROOT
+    # package must not move the data. An installed copy has no such root —
+    # see `docsforge.CHECKOUT` — and keeps it in the user's home.
+    from docsforge import CHECKOUT, ROOT, home
     files = FileStore(Path(root) if root else Path(
-        os.environ.get("DOCSFORGE_KB_ROOT") or (ROOT / "knowledge_base")))
+        os.environ.get("DOCSFORGE_KB_ROOT")
+        or ((ROOT if CHECKOUT else home()) / "knowledge_base")))
     files.degraded = problem
     files.wanted_dsn = dsn if problem else ""
     return files

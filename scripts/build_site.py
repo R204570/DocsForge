@@ -55,9 +55,10 @@ REPO = "https://github.com/R204570/DocsForge"
 SRC = ROOT / "scripts" / "site_src"
 SITE = ROOT / "docsforge" / "server" / "site"
 
-PAGES = ("index", "tools", "connect", "contributors")
+PAGES = ("index", "tools", "setup", "connect", "contributors")
 #: Where each page is served, for its canonical URL.
-PATHS = {"index": "/", "tools": "/tools", "connect": "/connect", "contributors": "/contributors"}
+PATHS = {"index": "/", "tools": "/tools", "setup": "/setup", "connect": "/connect",
+         "contributors": "/contributors"}
 
 #: The person behind DocsForge. `rel="me"` on these links, and `sameAs` in the
 #: structured data, tie the three profiles to the site.
@@ -103,17 +104,24 @@ FAQ = (
      "Claude Desktop."),
     ("How does it avoid handing the model the wrong documentation?",
      "A page must name the package repeatedly before it is trusted; if nothing "
-     "verifies, DocsForge says so and asks for a URL instead of guessing. Versions are "
+     "verifies, DocsForge says so and asks for a URL instead of guessing. When a name "
+     "belongs to several different projects, it lists them and picks none. Versions are "
      "stored apart, so v2 and v3 are never mixed, and a harvest that stopped early is "
      "marked incomplete every time it is read."),
     ("Does it need an API key?",
      "Not to resolve a name: npm, PyPI and crates.io are asked without a key. A hosted "
      "DocsForge asks clients for a bearer token; running it yourself on your own "
      "machine needs none."),
+    ("Is there a hosted DocsForge I can connect to?",
+     "Not a public one. The server behind this site is a private development deployment, "
+     "so its MCP endpoint answers only to its owner's token. Run DocsForge on your own "
+     "machine, which needs no account and no key (the setup page walks through it), or "
+     "host your own for a team. The resolver on this page is the one part of this server "
+     "anyone can use."),
     ("Is DocsForge free and open source?",
-     "Yes. DocsForge is MIT-licensed. Install it with `pipx install docsforge`, run it "
-     "on your own machine or host it yourself, and keep harvested documentation as "
-     "Markdown files or in PostgreSQL."),
+     "Yes. DocsForge is MIT-licensed. Install it with "
+     f"`pipx install git+{REPO}`, run it on your own machine or host it yourself, and "
+     "keep harvested documentation as Markdown files or in PostgreSQL."),
 )
 
 #: Logo/ holds the brand as it was drawn; the server serves these copies.
@@ -160,8 +168,8 @@ def nav(active: str) -> str:
     """One nav for every page. `active` is the page's file name."""
     items = [("How it works", "/#how-it-works", "wide", ""),
              ("Tools", "/tools", "", "tools"),
+             ("Setup", "/setup", "", "setup"),
              ("Connect", "/connect", "", "connect"),
-             ("Storage", "/connect#storage", "wide", ""),
              ("Contributors", "/contributors", "wide", "contributors")]
     links = []
     for label, href, cls, page in items:
@@ -432,6 +440,9 @@ def seo(page: str, html: str) -> str:
 
 def build(page: str, css: str, js: str, picker: str) -> str:
     listed = page in PATHS
+    # The picker never offers the public site's own /mcp as somewhere to
+    # connect: that deployment is private. It learns the address from here.
+    picker = picker.replace("__SITE_URL__", SITE_URL)
     html = (SRC / f"{page}.html").read_text(encoding="utf-8")
     html = html.replace("<!--SEO-->", seo(page, html) if listed else f"{NOINDEX}\n  {HOME_ICONS}")
     html = html.replace("<!--DEVELOPER-->", developer() if page == "index" else "")
@@ -501,15 +512,16 @@ def llms_txt() -> str:
 
 > An open-source documentation MCP server. Given the name of a library, framework or tool, DocsForge finds its official documentation through the package registries, verifies that the page really documents it, harvests the whole set as Markdown, and serves it to AI agents and coding assistants over the Model Context Protocol, with a coverage figure that says when a harvest is incomplete.
 
-Built by {DEVELOPER["name"]} ({DEVELOPER["links"][0][1]}). MIT licensed. Install with `pipx install docsforge`.
+Built by {DEVELOPER["name"]} ({DEVELOPER["links"][0][1]}). MIT licensed. Install with `pipx install git+{REPO}` (the `docsforge` package on PyPI is an unrelated project). It runs on your own machine; there is no public hosted server.
 
 Its {len(tools)} MCP tools: {", ".join(tools)}.
 
 ## Site
 
-- [Home]({SITE_URL}/): how a name is resolved, verified and harvested, coverage reporting, and a FAQ
+- [Home]({SITE_URL}/): how a name is resolved, verified and harvested, a live find_docs resolver to try, coverage reporting, and a FAQ
 - [Tools]({SITE_URL}/tools): every MCP tool, its arguments and what it returns
-- [Connect]({SITE_URL}/connect): one command or config block per MCP client (Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code, Claude Desktop), running it yourself, and storage
+- [Setup]({SITE_URL}/setup): the step-by-step guide to running it on your own machine (Windows, macOS, Linux): install with pipx, check it runs, add it to a client, the first question, where the docs are kept, updating, optional extras, working from a clone, and troubleshooting
+- [Connect]({SITE_URL}/connect): installing it, one command or config block per MCP client (Claude Code, Codex, ChatGPT, Cursor, Windsurf, Antigravity, Gemini CLI, VS Code, Claude Desktop) to run it on your own machine or reach a server you host, and storage
 - [Contributors]({SITE_URL}/contributors): the maintainer, everyone who has contributed code, and how to become a contributor
 
 ## Source
@@ -520,10 +532,12 @@ Its {len(tools)} MCP tools: {", ".join(tools)}.
 
 
 #: Everything public may be crawled; the tool surface and its sign-in may not
-#: — they answer only to a token and carry nothing to index.
+#: — they answer only to a token and carry nothing to index — and nor may the
+#: live resolver, which is a page's widget, not a page, and costs a lookup.
 ROBOTS = f"""User-agent: *
 Allow: /
 Disallow: /mcp
+Disallow: /find-docs
 Disallow: /oauth/
 Disallow: /authorize
 Disallow: /token

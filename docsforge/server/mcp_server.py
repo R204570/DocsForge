@@ -19,10 +19,11 @@ Run:
   python main.py --http | --stdio       # force either
   DOCSFORGE_MCP_TOKEN=… python main.py --http --host 0.0.0.0   # hosted
 
-Over HTTP the process serves the public site (`/`, `/tools`, `/connect`,
+Over HTTP the process serves the public site (`/`, `/tools`, `/setup`, `/connect`,
 `/contributors`, its icons, `/og.png`, `/site.webmanifest`, `/llms.txt`, and `/robots.txt` and
-`/sitemap.xml` for search engines), `/health`, and `/mcp`; only `/mcp` needs
-the bearer token. Any other address a browser asks for gets the site's 404.
+`/sitemap.xml` for search engines), `/health`, `/find-docs` (the home page's
+live resolver), and `/mcp`; only `/mcp` needs the bearer token. Any other
+address a browser asks for gets the site's 404.
 
 Register with Claude Code:
   claude mcp add docsforge -- python E:/DocsForge/main.py
@@ -38,6 +39,9 @@ import ipaddress
 import os
 import re
 import sys
+import threading
+import time
+from collections import deque
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -51,6 +55,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, R
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from docsforge.core import resolver
 from docsforge.tools import forge_tools
 from docsforge.tools import harvest_jobs
 from docsforge import __version__
@@ -190,8 +195,8 @@ register()
 #: local testing and is not part of the hosted process. Package data, so it
 #: ships in the wheel. Every file here is written by scripts/build_site.py.
 SITE = Path(__file__).resolve().parent / "site"
-PAGES = {"/": "index.html", "/tools": "tools.html", "/connect": "connect.html",
-         "/contributors": "contributors.html"}
+PAGES = {"/": "index.html", "/tools": "tools.html", "/setup": "setup.html",
+         "/connect": "connect.html", "/contributors": "contributors.html"}
 #: What any other address a browser asks for gets, with a 404 and noindex.
 NOT_FOUND = "404.html"
 #: Everything else the site serves, at the path it is asked for by. The logo
@@ -294,6 +299,11 @@ async def tools_page(request: Request) -> Response:
     return page(PAGES["/tools"], request)
 
 
+@server.custom_route("/setup", methods=["GET"], include_in_schema=False)
+async def setup_page(request: Request) -> Response:
+    return page(PAGES["/setup"], request)
+
+
 @server.custom_route("/connect", methods=["GET"], include_in_schema=False)
 async def connect_page(request: Request) -> Response:
     return page(PAGES["/connect"], request)
@@ -349,6 +359,150 @@ async def health(request: Request) -> Response:
     return JSONResponse({"status": "degraded" if degraded else "ok",
                          "version": __version__, "store": backend.kind,
                          "degraded": degraded})
+
+
+# ─────────────────────────────────────────────────────────────
+# /find-docs — the home page's try-it box
+#
+# The resolver, live, for someone who has installed nothing: a name in, the
+# candidates `find_docs` would hand a model out. Without it the only way to
+# see DocsForge work was to install it and wire up a client first. It is
+# public because it is cheap and inert: it fetches a few registry and docs
+# pages through the same SSRF-guarded fetcher as everything else, harvests
+# nothing, and writes only the resolution cache. Bounded anyway — a name of
+# sane length and shape, a few lookups a minute per visitor, a few at once —
+# and off entirely with DOCSFORGE_TRY=0.
+# ─────────────────────────────────────────────────────────────
+TRY_VAR = "DOCSFORGE_TRY"
+#: A package or technology name as people type one: `zod`, `@tanstack/query`,
+#: `scikit-learn`, `next.js`, `react router`. Not a URL, not a sentence.
+TRY_NAME = re.compile(r"[A-Za-z0-9@][A-Za-z0-9@/._+ -]{0,63}")
+TRY_PER_MINUTE = 10
+TRY_AT_ONCE = 4
+
+
+class RateLimit:
+    """At most `per_minute` calls in any 60 seconds, per caller.
+
+    In memory, so per process: on a serverless host each instance keeps its
+    own count. That bounds a loop from one browser, which is what it is for;
+    it is not a quota.
+    """
+
+    def __init__(self, per_minute: int, clock=time.monotonic):
+        self.per_minute, self.clock = per_minute, clock
+        self.seen: dict[str, deque] = {}
+        self.lock = threading.Lock()
+
+    def wait(self, who: str) -> float:
+        """0 and the call is counted, or how many seconds until it would be."""
+        with self.lock:
+            now = self.clock()
+            if len(self.seen) > 4096:      # forget callers who have gone quiet
+                self.seen = {k: q for k, q in self.seen.items() if q and now - q[-1] < 60}
+            calls = self.seen.setdefault(who, deque())
+            while calls and now - calls[0] >= 60:
+                calls.popleft()
+            if len(calls) >= self.per_minute:
+                return 60 - (now - calls[0])
+            calls.append(now)
+            return 0.0
+
+
+_try_limit = RateLimit(TRY_PER_MINUTE)
+#: A threading semaphore rather than an async one: the lookup runs in a
+#: worker thread, and a serverless adapter may serve each request on a fresh
+#: event loop, which an asyncio primitive would be bound to.
+_try_slots = threading.BoundedSemaphore(TRY_AT_ONCE)
+
+
+def try_enabled(env=os.environ) -> bool:
+    return (env.get(TRY_VAR) or "").strip().lower() not in ("0", "off", "false", "no")
+
+
+def _caller(request: Request) -> str:
+    """Who to count a lookup against. Vercel overwrites `x-forwarded-for`
+    with the real client address, so there it can be believed; anywhere
+    else a client could write it themselves, so the socket's peer is used."""
+    if os.environ.get("VERCEL"):
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    return request.client.host if request.client else "?"
+
+
+def try_answer(name: str, found, seconds: float) -> dict:
+    """A resolution as the try-it box shows it: the same candidates, evidence
+    and verdicts `find_docs` reports, as data rather than prose. When the
+    name belongs to several projects, those come first, each said for what
+    it is."""
+    rivals = list(found.alternatives)
+    rest = [c for c in found.candidates if all(c is not r and c.url != r.url for r in rivals)]
+
+    def shown(c, alternative: bool) -> dict:
+        return {"url": c.url, "verified": c.verified,
+                "confidence": round(c.confidence, 2),
+                "evidence": c.evidence, "reason": c.reason,
+                "alternative": alternative,
+                "label": resolver.project_label(c) if alternative else ""}
+
+    return {
+        "name": name,
+        "best": found.best.url if found.best else None,
+        "ambiguous": bool(rivals),
+        "resolved_via": found.resolved_via,
+        "ecosystem": found.ecosystem,
+        "release": found.release,
+        "note": found.note,
+        "remembered": bool(getattr(found, "remembered", False))
+                      or any(c.source == "memory" for c in found.candidates),
+        "seconds": round(seconds, 2),
+        "candidates": [shown(c, True) for c in rivals] + [shown(c, False) for c in rest],
+    }
+
+
+def _try_refusal(status: int, error: str, message: str, retry: float = 0) -> Response:
+    headers = {"Cache-Control": "no-store"}
+    if retry:
+        headers["Retry-After"] = str(max(1, int(retry + 0.999)))
+    return JSONResponse({"error": error, "message": message}, status_code=status,
+                        headers=headers)
+
+
+@server.custom_route("/find-docs", methods=["GET"], include_in_schema=False)
+async def find_docs_live(request: Request) -> Response:
+    if not try_enabled():
+        return _try_refusal(503, "disabled", "The live resolver is turned off on this server.")
+    name = " ".join((request.query_params.get("name") or "").split())
+    if not TRY_NAME.fullmatch(name):
+        return _try_refusal(400, "bad_name", "Give a package or technology name: letters, "
+                            "digits and @ / . _ + -, up to 64 characters.")
+    wait = _try_limit.wait(_caller(request))
+    if wait:
+        return _try_refusal(429, "slow_down", f"Too many lookups from here — try again in "
+                            f"{int(wait + 0.999)} s.", retry=wait)
+    if not _try_slots.acquire(blocking=False):
+        return _try_refusal(503, "busy", "The resolver is busy — try again in a moment.", retry=5)
+    try:
+        started = time.monotonic()
+        found = await anyio.to_thread.run_sync(lambda: resolve_name(name))
+        seconds = time.monotonic() - started
+    except Exception as e:                          # a lookup that broke, not a refusal
+        print(f"DocsForge: /find-docs {name!r} failed: {e!r}", file=sys.stderr)
+        return _try_refusal(502, "failed", "The lookup failed on the server. Try again, "
+                            "or try another name.")
+    finally:
+        _try_slots.release()
+    # The same name resolves the same way for a while — the resolver itself
+    # remembers it — so a CDN may answer repeats without waking a function.
+    # Not when a site could not be read: that answer changes once it can.
+    cache = ("no-store" if found.unexamined else "public, max-age=0, s-maxage=3600")
+    return JSONResponse(try_answer(name, found, seconds), headers={"Cache-Control": cache})
+
+
+def resolve_name(name: str):
+    """`find_docs`'s resolution, without its prose. A seam for the tests."""
+    return resolver.resolve(name)
 
 
 class BearerGate:

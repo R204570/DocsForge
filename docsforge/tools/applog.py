@@ -24,9 +24,14 @@ import logging.handlers
 import os
 import time
 
+from docsforge import CHECKOUT, home
+
 #: Overridable so a container or a test can point this somewhere writable
-#: without patching the module.
-LOG_DIR = os.environ.get("DOCSFORGE_LOG_DIR", "logs")
+#: without patching the module. A clone logs to `logs/` where it runs, as it
+#: always has; an installed copy is started by an MCP client in whatever
+#: folder the client chose — often the user's own project — so it logs under
+#: `~/.docsforge/` rather than leave a `logs/` folder there.
+LOG_DIR = os.environ.get("DOCSFORGE_LOG_DIR") or ("logs" if CHECKOUT else str(home() / "logs"))
 LOG_FILE = os.path.join(LOG_DIR, "docsforge.log")
 
 _logger = logging.getLogger("docsforge.applog")

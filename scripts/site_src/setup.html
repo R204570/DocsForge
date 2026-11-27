@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--GTAG-->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Set up DocsForge locally: install, connect, first question</title>
+  <meta name="description" content="Step-by-step setup for DocsForge on Windows, macOS or Linux: install it with pipx, check it runs, add it to Claude Code, Cursor or any MCP client, and ask a question.">
+  <!--SEO-->
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+  <!--STYLE-->
+</head>
+<body>
+<!--NAV-->
+
+<main class="wrap doc">
+  <header class="lede">
+    <h1>Set up DocsForge on your machine.</h1>
+    <p class="lead">Install it, check it runs, add it to your AI coding assistant, and ask your first question. DocsForge runs on your own computer with no account, no API key and no server: your client starts it whenever it needs it.</p>
+  </header>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="/setup#before"><span>0</span>What you need</a>
+    <a href="/setup#pipx"><span>1</span>Install pipx</a>
+    <a href="/setup#install"><span>2</span>Install DocsForge</a>
+    <a href="/setup#check"><span>3</span>Check it runs</a>
+    <a href="/setup#client"><span>4</span>Add it to your client</a>
+    <a href="/setup#first"><span>5</span>Your first question</a>
+    <a href="/setup#files"><span>6</span>Where your docs live</a>
+    <a href="/setup#update"><span>7</span>Update or remove</a>
+    <a href="/setup#extras"><span>8</span>Optional extras</a>
+    <a href="/setup#clone"><span>9</span>From a clone</a>
+    <a href="/setup#trouble"><span>?</span>Troubleshooting</a>
+  </nav>
+
+  <section class="section" id="before">
+    <h2 class="rv">0. What you need</h2>
+    <div class="kv rv-list">
+      <div><code>Python 3.11 or newer</code><span>Check with <code>python --version</code> — on Windows, <code>py --version</code>.</span></div>
+      <div><code>pipx</code><span>Installs DocsForge in an environment of its own and puts its commands on your PATH. Step 1 below if you don't have it.</span></div>
+      <div><code>Git</code><span>pipx fetches DocsForge from GitHub with it. No Git? Step 2 has a download that needs none.</span></div>
+      <div><code>An MCP client</code><span>Claude Code, Codex, Cursor, Windsurf, VS Code, Gemini CLI, Claude Desktop or Antigravity — any client that runs local MCP servers.</span></div>
+    </div>
+  </section>
+
+  <section class="section" id="pipx">
+    <h2 class="rv">1. Install pipx</h2>
+    <p class="prose rv">Already have it? Skip to step 2. Otherwise, for your system:</p>
+    <div class="platforms rv-list">
+      <div class="codeblock"><div class="bar">Windows · PowerShell</div><pre>py -m pip install --user pipx
+py -m pipx ensurepath</pre></div>
+      <div class="codeblock"><div class="bar">macOS · Homebrew</div><pre>brew install pipx
+pipx ensurepath</pre></div>
+      <div class="codeblock"><div class="bar">Linux · Debian, Ubuntu</div><pre>sudo apt install pipx
+pipx ensurepath</pre></div>
+    </div>
+    <p class="note">Then <strong>open a new terminal</strong>: <code>ensurepath</code> adds pipx's folder to your PATH, and only new terminals see it. On Fedora, <code>sudo dnf install pipx</code>.</p>
+  </section>
+
+  <section class="section" id="install">
+    <h2 class="rv">2. Install DocsForge</h2>
+    <div class="codeblock rv"><pre>pipx install git+https://github.com/R204570/DocsForge</pre></div>
+    <p class="note">Install from GitHub exactly as shown: the <code>docsforge</code> package on PyPI is an unrelated project, so <code>pipx install docsforge</code> gets you something else. Default Python older than 3.11? Add <code>--python 3.12</code> (or whichever newer one you have).</p>
+    <div class="codeblock" style="margin-top:18px"><div class="bar">No Git on this machine? The same, from a download</div><pre>pipx install https://github.com/R204570/DocsForge/archive/refs/heads/main.zip</pre></div>
+    <p class="prose" style="margin-top:18px">You now have two commands: <code>docsforge-mcp</code>, the MCP server your client starts, and <code>docsforge</code>, a command-line harvester you can use on its own.</p>
+  </section>
+
+  <section class="section" id="check">
+    <h2 class="rv">3. Check it runs</h2>
+    <div class="codeblock rv"><pre>docsforge-mcp --list          <span class="c"># prints the thirteen tools, then exits</span></pre></div>
+    <p class="prose" style="margin-top:18px">Seeing the tools means the install worked. "Command not found" means the PATH change has not reached this terminal — see <a class="inline" href="/setup#trouble">troubleshooting</a>.</p>
+    <p class="note">Run <code>docsforge-mcp</code> with nothing after it and, at a terminal, it serves this website on your own machine at <code>http://127.0.0.1:8765</code>, live resolver included. Ctrl+C stops it. Your client never sees that: launched by a client, the same command speaks MCP over stdin and stdout instead.</p>
+  </section>
+
+  <section class="section" id="client">
+    <h2 class="rv">4. Add it to your client</h2>
+    <p class="prose rv">For Claude Code, one command — <code>--scope user</code> makes it available in every project:</p>
+    <div class="codeblock rv"><div class="bar">Claude Code · terminal</div><pre>claude mcp add docsforge --scope user -- docsforge-mcp
+claude mcp list               <span class="c"># docsforge should show as connected</span></pre></div>
+    <p class="prose" style="margin-top:22px">Cursor, Windsurf, Antigravity and Claude Desktop take a config file instead. The block is the same in each; paste it into the file the client opens for MCP settings (merge it into <code>mcpServers</code> if you already have one), then restart the client:</p>
+    <div class="codeblock"><div class="bar">mcp.json · claude_desktop_config.json · mcp_config.json</div><pre>{
+  "mcpServers": {
+    "docsforge": {
+      "command": "docsforge-mcp"
+    }
+  }
+}</pre></div>
+    <p class="note">Desktop apps don't always see the PATH your terminal has. If one says it cannot find <code>docsforge-mcp</code>, put the full path in <code>"command"</code>: run <code>where docsforge-mcp</code> on Windows or <code>which docsforge-mcp</code> on macOS and Linux, and in JSON write a Windows path with forward slashes — <code>C:/Users/you/.local/bin/docsforge-mcp.exe</code>.</p>
+    <div class="callout">
+      <p>Codex, Gemini CLI, VS Code and the rest: the <a class="inline" href="/connect">connect page</a> has the exact command or file for every client, ready to copy.</p>
+    </div>
+  </section>
+
+  <section class="section" id="first">
+    <h2 class="rv">5. Your first question</h2>
+    <p class="prose rv">Ask for a library by name and let the model do the rest. It never needs a URL:</p>
+    <div class="transcript rv" aria-label="A first conversation with DocsForge connected">
+      <div><span class="who">you:</span>"Use DocsForge to learn pydantic, then show me a model with a field validator."</div>
+      <div><span class="who">model</span>→ <span class="call">learn_technology(name="pydantic")</span></div>
+      <div><span class="who">model</span>→ <span class="call">read_knowledge_base(name="pydantic", section="validators")</span></div>
+    </div>
+    <p class="prose" style="margin-top:18px">The first time, DocsForge finds the official docs, checks they really are pydantic's, and harvests them — seconds for most libraries. A large manual keeps harvesting in the background, and the model can ask <code>harvest_status</code> how far along it is. After that every answer is read from your own disk.</p>
+    <p class="note">Is your project pinned to an older release? Say so — <code>learn_technology(name="pydantic", version="1.10")</code> — or ask the model to run <code>scan_project</code>, which reads the versions from your <code>package.json</code>, <code>pyproject.toml</code>, <code>requirements.txt</code>, <code>Cargo.toml</code> or <code>go.mod</code>. Versions are stored apart, so 1.10 and 2.x never mix.</p>
+  </section>
+
+  <section class="section" id="files">
+    <h2 class="rv">6. Where your docs live</h2>
+    <p class="prose rv">Everything DocsForge writes goes under one folder in your home directory — <code>C:\Users\you\.docsforge</code> on Windows:</p>
+    <div class="kv rv-list">
+      <div><code>~/.docsforge/knowledge_base/</code><span>the harvested docs: one Markdown file per library and version, plus an index</span></div>
+      <div><code>~/.docsforge/logs/</code><span>a log of requests and tool calls, for when something needs explaining</span></div>
+      <div><code>~/.docsforge/resolutions.json</code><span>which site each name resolved to, so a repeat costs nothing</span></div>
+      <div><code>~/.docsforge/harvests/</code><span>the status of each harvest, running or finished</span></div>
+    </div>
+    <p class="prose" style="margin-top:22px">To keep the docs somewhere else, give the client an environment variable. <code>DOCSFORGE_KB_ROOT</code> moves the store; <code>DOCSFORGE_DB</code> set to a PostgreSQL URL stores everything in a database with ranked full-text search:</p>
+    <div class="codeblock"><div class="bar">Claude Code</div><pre>claude mcp add docsforge --scope user -e DOCSFORGE_KB_ROOT=D:/docs -- docsforge-mcp</pre></div>
+    <div class="codeblock" style="margin-top:12px"><div class="bar">a config file</div><pre>"docsforge": {
+  "command": "docsforge-mcp",
+  "env": { "DOCSFORGE_KB_ROOT": "D:/docs" }
+}</pre></div>
+  </section>
+
+  <section class="section" id="update">
+    <h2 class="rv">7. Update or remove</h2>
+    <div class="platforms two rv-list">
+      <div class="codeblock"><div class="bar">Update to the latest from GitHub</div><pre>pipx reinstall docsforge</pre></div>
+      <div class="codeblock"><div class="bar">Remove it</div><pre>pipx uninstall docsforge</pre></div>
+    </div>
+    <p class="note">Reinstall, not <code>pipx upgrade</code>: pipx never checks a GitHub install for new commits, so an upgrade changes nothing. Neither command touches <code>~/.docsforge</code>: your harvested docs survive an update, and an uninstall leaves them for you to delete or keep.</p>
+  </section>
+
+  <section class="section" id="extras">
+    <h2 class="rv">8. Optional extras</h2>
+    <div class="twocol rv-list">
+      <div class="card">
+        <h3>Sites that need JavaScript</h3>
+        <p>A few documentation sites render their pages in the browser. Add a headless browser once, and harvests can pass <code>js: true</code>:</p>
+        <div class="codeblock" style="margin-top:12px"><pre>pipx inject docsforge playwright --include-apps
+playwright install chromium</pre></div>
+      </div>
+      <div class="card">
+        <h3>A GitHub token</h3>
+        <p>Docs that live in a GitHub repository are read through GitHub's API, which allows 60 requests an hour without a token. Set <code>GITHUB_TOKEN</code> in the client's <code>env</code> — a token with no scopes at all is enough — and the limit goes to 5,000.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="clone">
+    <h2 class="rv">9. From a clone</h2>
+    <p class="prose rv">If you want to change DocsForge itself, work from the repository instead:</p>
+    <div class="platforms two rv-list">
+      <div class="codeblock"><div class="bar">Windows · PowerShell</div><pre>git clone https://github.com/R204570/DocsForge.git
+cd DocsForge
+py -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"</pre></div>
+      <div class="codeblock"><div class="bar">macOS · Linux</div><pre>git clone https://github.com/R204570/DocsForge.git
+cd DocsForge
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"</pre></div>
+    </div>
+    <p class="prose" style="margin-top:18px">Then, from the same folder with the environment active:</p>
+    <div class="platforms two">
+      <div class="codeblock"><div class="bar">Run it: this site and /mcp at http://127.0.0.1:8765</div><pre>python main.py</pre></div>
+      <div class="codeblock"><div class="bar">Run the test suite</div><pre>pytest</pre></div>
+    </div>
+    <p class="note">Point your client at the clone with the venv's own Python: <code>claude mcp add docsforge -- /path/to/DocsForge/.venv/bin/python /path/to/DocsForge/main.py</code> (on Windows, <code>.venv\Scripts\python.exe</code>). A clone keeps its docs in <code>knowledge_base/</code> beside <code>main.py</code>, not in your home folder. The <a class="inline" href="https://github.com/R204570/DocsForge/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">contributing guide</a> has the rest.</p>
+  </section>
+
+  <section class="section" id="trouble">
+    <h2 class="rv">Troubleshooting</h2>
+    <div class="faq rv-list" style="margin-top:0">
+      <div class="qa">
+        <h3>"docsforge-mcp: command not found"</h3>
+        <p>Run <code>pipx ensurepath</code>, then open a new terminal. pipx keeps its commands in <code>~/.local/bin</code> — <code>C:\Users\you\.local\bin</code> on Windows — and only terminals opened after that folder joined your PATH can find them.</p>
+      </div>
+      <div class="qa">
+        <h3>My editor or Claude Desktop cannot find it</h3>
+        <p>Desktop apps often start with a shorter PATH than your terminal. Use the full path from <code>where docsforge-mcp</code> (Windows) or <code>which docsforge-mcp</code> as the <code>"command"</code>, and restart the app.</p>
+      </div>
+      <div class="qa">
+        <h3><code>pipx install docsforge</code> installed something else</h3>
+        <p>That name on PyPI belongs to an unrelated project. Remove it with <code>pipx uninstall docsforge</code>, then install from GitHub as in step 2.</p>
+      </div>
+      <div class="qa">
+        <h3>Running <code>docsforge-mcp</code> printed a web address</h3>
+        <p>That is what it does at a terminal: it serves this site locally. Started by an MCP client it speaks MCP instead. Nothing needs fixing; <code>--stdio</code> or <code>--http</code> force either.</p>
+      </div>
+      <div class="qa">
+        <h3>"requires a different Python"</h3>
+        <p>DocsForge needs Python 3.11 or newer. Install one from python.org, then <code>pipx install --python 3.12 git+https://github.com/R204570/DocsForge</code>.</p>
+      </div>
+      <div class="qa">
+        <h3>"git" is not recognised</h3>
+        <p>Install Git, or skip it: <code>pipx install https://github.com/R204570/DocsForge/archive/refs/heads/main.zip</code> installs the same thing from a download.</p>
+      </div>
+      <div class="qa">
+        <h3>The model says a harvest is still running</h3>
+        <p>Big manuals take longer than one tool call is allowed to. The harvest carries on in the background; ask the model to check <code>harvest_status</code>, or just ask your question again in a minute.</p>
+      </div>
+      <div class="qa">
+        <h3>Something else</h3>
+        <p><a class="inline" href="https://github.com/R204570/DocsForge/issues" target="_blank" rel="noopener noreferrer">Open an issue</a> with what you ran and what it printed. The log in <code>~/.docsforge/logs</code> usually shows what happened.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!--FOOT-->
+<!--SCRIPT-->
+</body>
+</html>
